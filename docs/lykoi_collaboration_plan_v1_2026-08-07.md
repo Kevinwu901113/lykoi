@@ -18,14 +18,27 @@
 
 ## 2. 访问与纪律
 
-### 2.1 主 Agent 服务器纪律（技术上能、纪律上禁）
+### 2.1 账户隔离（2026-08-07 建立）
 
-- 不读 `~/secrets/**`；
-- 不向 `~/runtime/core-v1/core.sock` 发送任何内容；
-- 不写 `~/state/**`（活体状态）；
-- 不直接修改 `~/projects/lykoi` 工作区，不直接 commit/push 核心仓库——动手一律经执行 Agent + 工单；
+治理平面使用独立 Unix 账户 `claude`（uid 1001，附属 `lykoi` 组），不再与 Lykoi 本体共用账户。Mac 侧 ssh 别名 `lykoi-gov`，专用密钥 `~/.ssh/lykoi_governance_claude`。
+
+**由权限位强制的边界（实测验证）**：
+
+| 目标 | 权限 | claude 账户 |
+| --- | --- | --- |
+| `~lykoi/projects/lykoi`（代码） | 0775 lykoi:lykoi | 可读（组写位存在，但纪律上不写，见下） |
+| `~lykoi/state/**` | 0750 lykoi:lykoi | 只读 |
+| `~lykoi/secrets/**` | 0700 lykoi | **读不到**（系统拒绝，非自觉） |
+| `~lykoi/runtime/core-v1/core.sock` | 受限 | **访问不到** |
+
+**窄口 sudo**（`/etc/sudoers.d/claude-governance`，全部只读）：`systemctl status/cat lykoi-*`、`journalctl -u lykoi-*`、`ls /usr/local/sbin/`、读 systemd 单元与 `runtime/governance/*` 开关。越界（如读 secrets）被 sudo 拒绝。**刻意不给**：任意 root shell、写权限、服务重启（保留给 Kevin）。
+
+### 2.2 主 Agent 纪律（权限位之外的自我约束）
+
+- 不向 `core.sock` 发送任何内容；
+- 不利用组写位修改活体检出 `~lykoi/projects/lykoi`——代码改动一律在治理平面自己的工作副本进行（见 §4）；
 - 不停止、重启核心进程（Kevin 明示授权除外）；
-- 写入范围限于：`~` 下的文档（白皮书、本方案）、`~/workspace/wo/**`（工单目录）、`~/reports/**`（日志与报告）。
+- 写入范围限于 claude 家目录（`~/lykoi-work`、`~/wo`、`~/reports`）及 lykoi 家目录下的文档与工单目录。
 
 ### 2.2 执行 Agent 纪律（写入每张工单，作为硬约束）
 
@@ -64,7 +77,8 @@ Kevin 意图
 
 ## 4. 执行 Agent 调用契约
 
-- 入口：主 Agent 经 ssh 在服务器 `~/projects/lykoi` 目录以无头模式调用 `claude -p`，工单文本（order.md）作为提示词输入。
+- **工作副本隔离**：执行 Agent 在 `claude` 账户的独立工作副本 `~/lykoi-work` 中干活，**不碰活体检出** `~lykoi/projects/lykoi`。分支在工作副本产出，部署到活体是独立的、需 Kevin 点头的步骤。这是 Delegation Gateway 隔离模式的先行演练。
+- 入口：主 Agent 经 ssh 别名 `lykoi-gov` 在 `~/lykoi-work` 以无头模式调用 `claude -p`，工单文本（order.md）作为提示词输入。
 - **代理为必需**：服务器直连 Anthropic API 返回 403（区域拦截），经局域网代理 `192.168.0.202:7890` 可用（2026-08-07 实测），无头调用时需带代理环境变量。
 - 产物目录 `~/workspace/wo/<WO-ID>/`：`order.md`（工单）、`report.md`（执行报告）、`run.log`（stdout 存档）。
 - 长任务可改用 tmux 交互式运行，主 Agent 定期查看。
