@@ -104,3 +104,22 @@
 - [ ] 按 §4 部署（Kevin，需 root）
 - [ ] 报告中提到但未处理：`events.jsonl` 文件权限现状（执行 Agent 未及报告，我亦未核实——属活体状态，只看不改）
 - [ ] WO-FIX-SEC-02（浏览器 SSRF）工单已就绪，**建议等本单部署完再发**，避免两个未部署分支交叠
+
+## 6. 部署结果（2026-08-08，Kevin 以 root 执行）
+
+- 合并提交 `7b567cec`，回滚点 `4636e2d0`。
+- 权限位全部符合设计：guardian 两文件 root:root 444；新建 `shared/redaction.py` root:root 644（与 log.py 同级，服务账户无法篡改脱敏器）；`scripts/startup_verify.py` lykoi:lykoi 644。
+- **未重签 manifest**——分支内清单已自洽，无需 `--write-manifest`。
+- 三服务 + watchdog 全部 active，`/health` 200。
+- 事件日志回归检查：重启后新记录均为合法 JSON、字段结构未变形。
+- watchdog 在重启窗口记录 1 次 `health_check_failed`（连接被拒），未达连续 3 次阈值，未触发自动重启——预期行为。
+
+### 部署中发现的隐患（记账，暂不处理）
+
+以 **root** 身份运行 `guardian/startup_verify.py` 会**误报失败**：
+
+    startup_verify: FAIL: audit sink directory /var/log/lykoi-audit writable by the service user
+
+根因在 `guardian/startup_verify.py:384` 用 `os.access(parent, os.W_OK)` 判断可写性，而 root 绕过一切权限检查，该调用恒为真。以 lykoi（= systemd `ExecStartPre` 的实际身份）运行则 `OK / exit=0`，目录权限本身也正常（`drwxr-x--- root:lykoi`，组内无 w）。
+
+即"检查逻辑对调用身份敏感"。当前 systemd 以服务用户运行故无影响，但任何以 root 手工执行启动门的场景都会看到假失败，可能误导排障或诱发不必要的回滚。建议后续改为直接读 `st_mode` 判断组/其他位，而非依赖 `os.access`。
