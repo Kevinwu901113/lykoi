@@ -148,27 +148,24 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | Mac 异地备份 | launchd 每 6h 拉取，已生效 |
 | **首次恢复演练** | **通过**，见 `reports/restore-drill_2026-08-07.md`。应用代码能从备份重建人格提示词（226 字符）；Mac 副本 sha256 一致 |
 | 恢复脚本 + 灾难恢复手册（WO-FIX-RESTORE-01） | 已部署 |
-| **S1 事件日志脱敏 + S5 完整性清单补 memory 包** | **已部署生效**（合并 `7b567cec`，三服务健康） |
+| **S1 事件日志脱敏 + S5 完整性清单补 memory 包** | **已部署生效**（合并 `7b567cec`） |
+| **S2 持久浏览器 SSRF 防护** | **已部署生效**（合并 `cf314c36`）。活体实测 `browser.navigate()` 对 `127.0.0.1:8080` / `192.168.0.202:7890` / `file:///etc/passwd` 全部 `UrlBlocked` |
 
-### 进行中（接手时先看这个）
+**活体当前 HEAD：`cf314c36`**。三服务 + watchdog 全部 active、`/health` 200（2026-08-08 收工时状态）。
 
-**WO-FIX-SEC-02（持久浏览器 SSRF 防护）** —— 派发时正在服务器上跑。
+### 没有进行中的任务
 
-- 分支：`task/wo-fix-sec-02`（基于 `task/wo-fix-sec-01`）
-- 已产出：`src/lykoi/resources/url_guard.py`（新）、`tests/test_url_guard.py`（新），并修改了 `browser.py` 与 `research_browser.py`
-- 工单在 `wo/WO-FIX-SEC-02/order.md`，报告落 `lykoi-gov:~/wo/WO-FIX-SEC-02/report.md`
-- **验收硬判据**：research_browser 现有测试必须**全部继续通过**（证明未削弱原有防护）；另需它列出 `browser.py` 所有能触发导航的入口，明说哪些 guard 覆盖不到
-- 复核方法（照 SEC-01 的做法）：以 lykoi 身份 `git worktree add /tmp/sec02-test task/wo-fix-sec-02`，用活体 venv 跑 pytest，**不要碰活体检出**
-- 这单不触及 `guardian/`，部署大概率可用普通 merge，**但给命令前务必先确认**
+交接时服务器上**没有在跑的执行 Agent**，也**没有未部署的分支**。可以从干净状态接手。
 
-### 阶段 1 剩余
+### 阶段 1 剩余（按建议顺序）
 
-| 项 | 说明 |
-| --- | --- |
-| S2 浏览器 SSRF | 进行中（见上） |
-| S4 Secret 收紧 | 无 vault，密钥明文在进程环境，同 uid 进程读 `/proc/<pid>/environ` 即得。工程量最大，建议与阶段 2 架构设计一并规划 |
-| P3 自主动作 CWD 隔离 | `lykoi-autonomy.service` 的 `WorkingDirectory` = 代码仓库根，`terminal.exec` 不设 cwd。仓库根曾出现 `P`（HTML 存档）和 `\|`（cookie 罐）就是这么来的。顺手清掉那两个文件 |
-| `os.access` 假阳性 | 见教训 8，改为读 `st_mode` |
+| 优先级 | 项 | 说明 |
+| --- | --- | --- |
+| 1 | **P3 自主动作 CWD 隔离** | **工单已写好待发**：`wo/WO-FIX-P3-01/order.md`。根因已查清：`terminal.exec`（`src/lykoi/resources/terminal.py`）调 `asyncio.create_subprocess_exec` **不传 `cwd`**，继承 `lykoi-autonomy.service` 的 `WorkingDirectory=/home/lykoi/projects/lykoi`（代码仓库根）；全仓 `src/` 下 grep `workspace` **零命中**，不存在工作区概念。工单要求：加 `LYKOI_AGENT_WORKSPACE`（默认 `/home/lykoi/workspace/autonomy`）、传 `cwd`、**做路径逃逸校验**（`../`／绝对路径／符号链接三类）、排查其他资源模块同类问题、**不改 systemd 单元**。部署时顺手删掉活体仓库根的 `P` 与 `\|` 两个历史产物 |
+| 2 | **CDP 层请求拦截** | SEC-02 的残余风险，需新工单。guard 只覆盖 `navigate()`；`browser.click()` 点击页面链接可跳转到任意 URL、**绕过 guard**（攻击路径：导航到合法公网页 → 页面含指向 `127.0.0.1` 的链接 → 点击 → 进内网，prompt injection 场景现实可行）。`_evaluate()`（任意 JS）被 `KNOWN_ACTIONS` 白名单挡住，不可直达。解法方向：`Fetch.enable` 对每个请求施加同一 guard |
+| 3 | `os.access` 假阳性 | 见教训 8。`guardian/startup_verify.py:384`，改为读 `st_mode` 判断组/其他位。注意这会动 guardian，部署需 root + 同步 manifest |
+| 4 | S4 Secret 收紧 | 无 vault，密钥明文在进程环境，同 uid 进程读 `/proc/<pid>/environ` 即得（他们自己的 canary 脚本就是这么读的）。工程量最大，**建议与阶段 2 的 Gateway 设计一并规划**——凭证句柄本身就是 Gateway 的一部分，单独做会返工 |
+| — | 全量重建演练 | 恢复演练验证了"数据可还原 + 应用可读"，但没在干净机器上从零启动过。属阶段 2 迁移前的必做项 |
 
 ### 阶段 2（白皮书 36 章留白的兑现）
 
@@ -212,10 +209,22 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ## 八、接手第一步建议
 
-1. 读白皮书 v1.1 + 协作方案 + 本文件
-2. `ssh lykoi-gov` 确认能连、确认权限边界符合第二节描述
-3. 查 WO-FIX-SEC-02 是否跑完（`~/wo/WO-FIX-SEC-02/report.md`），照第五节的复核方法验收
-4. 验收后向 Kevin 报告并给部署命令
-5. 继续阶段 1 剩余项
+1. 读白皮书 v1.1 + 协作方案 + 本文件（尤其第四节那 16 条教训）
+2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
+3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/health'` —— 期望 `cf314c36`、四个 active、200
+4. 发 **WO-FIX-P3-01**（工单已写好，见第五节优先级 1）。派发命令模板在第三节，实现类用 `--model sonnet`
+5. 按标准流程收：复核代码 → **自己跑测试**（`git worktree` 到 `/tmp` + 活体 venv，别碰活体检出）→ **必跑 `pytest tests/test_p0_integrity.py`** → 给 Kevin 精确到权限位与顺序的部署命令 + 回滚点
+
+### 一次完整的复核长什么样（照抄这个流程）
+
+以 SEC-02 为例，五步缺一不可：
+
+1. 读 `git show --stat` 与完整 diff，判断改动方向是否符合工单
+2. `git worktree add /tmp/xx-test <分支>`（以 lykoi 身份），用 `~/projects/lykoi/.venv/bin/python -m pytest` 跑相关测试
+3. **功能性验证**——不止看测试绿，要真的调用它证明目标达成（如直接 `browser.navigate()` 打内网地址看是否 `UrlBlocked`）
+4. 反向核对（如遍历六目录确认每个 `.py` 都在 manifest 里）
+5. 写 `wo/<WO-ID>/review.md` 归档，记 `governance-ops.jsonl`，给 Kevin 部署命令
+
+**这套流程在 SEC-01 和 SEC-02 各抓出一个会导致三服务全停的缺陷。不要跳步。**
 
 > 一句话原则（白皮书结论章）：**可以重构 Lykoi 的软件身体，但不能未经判断地丢弃她已经形成的经历、关系和身份。**
