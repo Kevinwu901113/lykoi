@@ -68,9 +68,39 @@
 
 **回滚**：合并前记录 `git rev-parse HEAD`；回滚需同样以 root 执行 `git reset --hard <旧HEAD>` + 重签 manifest + 重启。
 
+## 4.5 测试补跑结果（主治理 Agent，2026-08-08）
+
+方法：以 lykoi 身份 `git worktree add /tmp/sec01-test task/wo-fix-sec-01`（不触碰活体检出），用活体 venv 的 python 跑测试。
+
+### 第一轮：**发现会导致全线停机的缺陷**
+
+`tests/test_p0_integrity.py::test_committed_manifest_matches_available_protected_sources` **失败**（47 passed, 1 failed）：
+
+    manifest 期望 f22f31b61d73…（改动前的旧文件）
+    实际        876f681862ca…（改动后的新文件）
+    条目：manifest 中的 `startup_verify.py`
+
+**根因**：执行 Agent 修改了 `guardian/startup_verify.py`，更新了 log.py 与 kernel/redaction.py 的哈希、正确新增了 memory 四件套与 shared/redaction.py，**唯独漏了被修改文件自身那一条**。该条目在清单里是裸文件名（相对 `guardian/` 解析），批量核对时极易漏掉。
+
+**后果若部署**：`startup_verify.py` 校验自身哈希失败 → 非零退出 → 它是三个 systemd 单元的 `ExecStartPre` → **三服务全部拒绝启动**。全线停机，不是降级。
+
+对照实验确认非环境假象：同一测试在活体 main 上 `1 passed`。全量清单核对确认仅此一条陈旧。
+
+### 补正与复验
+
+补正提交 `a5b3439`。重新核对：
+
+- 目标测试集：**48 passed, 5 skipped, 0 failed**
+- 全量 manifest 自检：无陈旧条目
+- **功能性验证**（真实落盘）：设 `LYKOI_DEEPSEEK_API_KEY=sk-FAKE-SECRET-…`，`log_event` 写入含该值的 url、普通文本、嵌套 dict：
+
+      {"event":"test_event","url":"https://api.example.com?k=[REDACTED]","note":"normal text","nested":{"token":"[REDACTED]"}}
+
+  明文未出现在磁盘；非敏感字段与结构原样保留。**S1 目标达成，可验证。**
+
 ## 5. 待办
 
-- [ ] 补跑测试（主治理 Agent，需要能执行 venv python 的路径）
+- [x] 补跑测试 —— 已完成，见 §4.5（抓出一个停机级缺陷并已补正）
 - [ ] 按 §4 部署（Kevin，需 root）
 - [ ] 报告中提到但未处理：`events.jsonl` 文件权限现状（执行 Agent 未及报告，我亦未核实——属活体状态，只看不改）
 - [ ] WO-FIX-SEC-02（浏览器 SSRF）工单已就绪，**建议等本单部署完再发**，避免两个未部署分支交叠
