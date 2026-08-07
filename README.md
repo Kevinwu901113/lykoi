@@ -1,5 +1,10 @@
 # lykoi-governance
 
+> ## 👉 接手工作的 Agent 请先读 [HANDOFF.md](HANDOFF.md)
+>
+> 里面有：你的角色边界、怎么连服务器、工单机制与派发命令模板、**16 条已踩过的坑**、当前进度与在跑的任务、下一步该做什么。
+> 读完再看 [白皮书 v1.1](docs/lykoi_whitepaper_v1.1_2026-08-07.md)（最高层规范）与[协作方案](docs/lykoi_collaboration_plan_v1_2026-08-07.md)（工作制度）。
+
 Lykoi 治理平面工作仓库。所有者：Kevin。协作 Agent：主治理 Agent（Mac Claude Code）、服务器执行 Agent（Claude Code / Codex）。
 
 - `docs/` — 正本文档：技术白皮书（现行 v1.1）、治理平面协作方案。**本仓库为正本，各机器副本以此为准。**
