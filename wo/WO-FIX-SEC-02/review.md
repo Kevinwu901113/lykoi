@@ -99,3 +99,13 @@ exit=0 后重启：
 - [ ] 部署（Kevin，需 root）
 - [ ] 残余风险：CDP 层请求拦截（§4）——独立工单
 - [ ] WO-FIX-P3-01（自主动作 CWD 隔离）工单已就绪待发，部署本单后再派
+
+## 7. 部署结果（2026-08-08，Kevin 以 root 执行）
+
+- 合并提交 `cf314c36`，回滚点 `7b567cec`。
+- 权限位符合设计：`url_guard.py` root:root 644、`browser.py` root:root 644、`manifest.sha256` root:root 444。
+- 三服务 + watchdog 全部 active，`/health` 200。
+- **活体代码功能验证**：`browser.navigate()` 对 `127.0.0.1:8080`、`192.168.0.202:7890`、`file:///etc/passwd` 全部抛 `UrlBlocked`。持久浏览器 SSRF 防护在生产环境生效。
+- 事件日志回归正常（SEC-01 的脱敏未受影响）。
+
+阶段 1 安全项 S1 / S2 / S5 至此全部上线。
