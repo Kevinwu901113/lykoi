@@ -3,7 +3,8 @@
 - **复核人/实现者**：主治理 Agent（Codex；按 owner 指示直接实现）
 - **日期**：2026-08-09
 - **候选提交**：`4bcca714d48c975e2f9c793ec243361bc5474cb2`
-- **结论**：**验收通过，待 Kevin root 部署**
+- **生产合并**：`b5cf7553cd9155d90fc0cc5f5b2d6c5a23601f6a`
+- **结论**：**已部署生效并完成独立活体复核**
 
 ## 1. 验收结论
 
@@ -14,7 +15,7 @@
 - [x] 测试不会连接活体 9222。
 - [x] browser / dispatch / surface 的 manifest 哈希同步，P0 通过。
 - [x] `/health` 可返回 `browser_request_guard=ready|unavailable`，且不改变 `status=ok` 与 HTTP 200。
-- [ ] 生产合并、启动门、重启及活体 health ready 验证。
+- [x] 生产合并、启动门、重启及活体 health ready 验证。
 
 ## 2. 不在本单覆盖范围
 
@@ -134,7 +135,17 @@ git -c safe.directory="$sec03_repo" -C "$sec03_repo" \
 
 期望四个 `active`、health JSON 含 `"status":"ok"` 与 `"browser_request_guard":"ready"`、lock 为 `lykoi:lykoi`、无 warning、工作树 `## main`。
 
-## 5. 回滚
+## 5. 生产部署验收
+
+- 部署前确认生产 HEAD=`cf4a63383e07f82294937467329cae37fd61ced0`、工作树干净，bundle SHA-256=`626fdcd8129805b39dc9eba383cd9b1bf2a2c66e6327a7f7d18fae1c873f87ff` 且 bundle verify 通过。
+- 已创建回滚标签 `pre-WO-FIX-SEC-03-cf4a6338`，生产 merge commit=`b5cf7553cd9155d90fc0cc5f5b2d6c5a23601f6a`。
+- 权限逐文件复核通过：manifest `root:root 0444`；browser/dispatch `root:root 0644`；surface 与两项测试 `lykoi:lykoi 0644`。
+- 合并后、重启前，以 `lykoi` 身份运行专项、URL guard、research browser、治理不变量、terminal 与 P0：`88 passed`；`guardian/startup_verify.py` 返回 `OK`。
+- 重启后 `lykoi-core`、`lykoi-server`、`lykoi-autonomy`、`lykoi-watchdog` 均为 `active/running`，四服务 `NRestarts=0`。
+- `/health` 连续返回 `status=ok` 与 `browser_request_guard=ready`；`/home/lykoi/runtime/browser-guard.lock` 为 `lykoi:lykoi 0644`。
+- 主治理 Agent 独立只读复核：HEAD=`b5cf7553`、工作树 `## main`、启动门 `OK`、近十分钟四服务 warning 日志为空。
+
+## 6. 回滚
 
 确认 HEAD 是本次 merge commit 后，以 root 创建反向提交并恢复权限：
 

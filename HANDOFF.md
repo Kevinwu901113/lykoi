@@ -151,18 +151,19 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **S1 事件日志脱敏 + S5 完整性清单补 memory 包** | **已部署生效**（合并 `7b567cec`） |
 | **S2 持久浏览器 SSRF 防护** | **已部署生效**（合并 `cf314c36`）。活体实测 `browser.navigate()` 对 `127.0.0.1:8080` / `192.168.0.202:7890` / `file:///etc/passwd` 全部 `UrlBlocked` |
 | **P3 自主动作 CWD 隔离** | **已部署生效**（合并 `cf4a6338`）。`terminal.exec` 默认工作目录为 `/home/lykoi/workspace/autonomy`；专项 + P0 共 34 passed，启动门与活体 `pwd` 复核通过 |
+| **SEC-03 page-level CDP 请求拦截** | **已部署生效**（合并 `b5cf7553`）。同一 page target 的 redirect/click/form/JS/subresource 进入常驻 Fetch guard；health=`browser_request_guard:ready`；合并后专项 + P0 88 passed，四服务 active 且 `NRestarts=0` |
 
-**活体当前 HEAD：`cf4a6338`**。三服务 + watchdog 全部 active、`/health` 200、四服务 `NRestarts=0`（2026-08-09 P3 收工时状态）。
+**活体当前 HEAD：`b5cf7553`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、启动门 OK、近十分钟无 warning（2026-08-09 SEC-03 收工时独立复核）。
 
 ### 进行中的任务
 
-`WO-FIX-SEC-03`：持久浏览器 page-level CDP 请求拦截。Kevin 明确要求停止 Opus/Sonnet，改由主治理 Agent 直接实现。候选 `4bcca71` 已通过专项、治理不变量、P0 与 surface/lifespan 回归，待 Kevin root 部署。先前 `WO-DESIGN-SEC-03` 已取消并归档，不得引用其不完整输出。
+当前没有已派发的执行工单。下一项建议是修复 `guardian/startup_verify.py` 的 `os.access` root 假阳性；该项会触及 guardian，必须先写工单并同步 manifest，部署仍需 Kevin root。`WO-DESIGN-SEC-03` 已取消并归档，不得引用其不完整输出。
 
 ### 阶段 1 剩余（按建议顺序）
 
 | 优先级 | 项 | 说明 |
 | --- | --- | --- |
-| 1 | **CDP 层请求拦截** | **直接实现已验收待部署**：`wo/WO-FIX-SEC-03/`，候选 `4bcca71`。同一 page target 的 redirect/click/form/JS/subresource 由常驻 Fetch guard 覆盖；health 可见 ready 状态。popup/new target、代理 DNS 与断线间隙仍明确列为残余风险 |
+| 完成 | **CDP 层请求拦截** | **已部署生效**：`wo/WO-FIX-SEC-03/`，生产合并 `b5cf7553`。同一 page target 的 redirect/click/form/JS/subresource 由常驻 Fetch guard 覆盖；health=`ready`。popup/new target、代理 DNS 与断线间隙仍明确列为残余风险 |
 | 2 | `os.access` 假阳性 | 见教训 8。`guardian/startup_verify.py:384`，改为读 `st_mode` 判断组/其他位。注意这会动 guardian，部署需 root + 同步 manifest |
 | 3 | S4 Secret 收紧 | 无 vault，密钥明文在进程环境，同 uid 进程读 `/proc/<pid>/environ` 即得（他们自己的 canary 脚本就是这么读的）。工程量最大，**建议与阶段 2 的 Gateway 设计一并规划**——凭证句柄本身就是 Gateway 的一部分，单独做会返工 |
 | — | 全量重建演练 | 恢复演练验证了"数据可还原 + 应用可读"，但没在干净机器上从零启动过。属阶段 2 迁移前的必做项 |
@@ -211,8 +212,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 1. 读白皮书 v1.1 + 协作方案 + 本文件（尤其第四节那 16 条教训）
 2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
-3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/health'` —— 期望 `cf4a6338`、四个 active、200
-4. 继续 **WO-FIX-SEC-03**（见第五节优先级 1）：候选 `4bcca71` 已验收，先按 `wo/WO-FIX-SEC-03/review.md` 完成 root 部署与 health ready 验证；不要重新派 Opus/Sonnet
+3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `b5cf7553`、四个 active、health 含 `browser_request_guard=ready`
+4. 下一项按第五节顺序处理 `os.access` 假阳性；Kevin 已要求不要派 Opus/Sonnet，由主治理 Agent 直接改
 5. 按标准流程收：复核代码 → **自己跑测试**（`git worktree` 到 `/tmp` + 活体 venv，别碰活体检出）→ **必跑 `pytest tests/test_p0_integrity.py`** → 给 Kevin 精确到权限位与顺序的部署命令 + 回滚点
 
 ### 一次完整的复核长什么样（照抄这个流程）
