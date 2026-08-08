@@ -335,7 +335,18 @@ mv -- /home/lykoi/quarantine/WO-FIX-P3-01-20260809/P /home/lykoi/quarantine/WO-F
 
 回滚不要用递归 `chown`；`pre-WO-FIX-P3-01-cf314c36` 是不可歧义的原始回滚点。
 
-## 8. 当前状态
+## 8. 部署结果（2026-08-09）
+
+- root 已创建回滚标签 `pre-WO-FIX-P3-01-cf314c36`，指向部署前提交 `cf314c363e0643041bba84929642160eb6d5326f`。
+- 历史未跟踪产物 `P` 与 `|` 已移入 `/home/lykoi/quarantine/WO-FIX-P3-01-20260809/`；隔离目录权限为 `lykoi:lykoi 0700`。
+- 任务提交 `7310f99d98e9a4fcbc2ce436cc20fa642229d946` 已以 `--no-ff` 合并为生产提交 `cf4a63383e07f82294937467329cae37fd61ced0`。
+- root-only 与运行账户权限已逐文件恢复；生产工作树为干净的 `main`。
+- 生产合并后测试：`tests/test_terminal_workspace.py tests/test_p0_integrity.py` 共 `34 passed`；以 `lykoi` 身份执行 `guardian/startup_verify.py` 返回 `startup_verify: OK`。
+- `lykoi-core`、`lykoi-server`、`lykoi-autonomy` 已重启；连同 `lykoi-watchdog` 四个服务持续为 `active`。
+- 重启命令后的第一次即时 health 请求发生连接拒绝并返回 `000`；服务日志显示 Uvicorn 随后约 1 秒完成监听。再次及独立复核均返回 HTTP `200`，重启窗口四服务无 warning 级日志，因此判定为正常就绪窗口，不触发回滚。
+- autonomy 进程未显式设置 `LYKOI_AGENT_WORKSPACE`，使用代码默认值；活体功能复核 `pwd` 返回 `/home/lykoi/workspace/autonomy`。
+
+## 9. 当前状态
 
 - [x] 工单补强并派发
 - [x] 初版实现
@@ -343,5 +354,5 @@ mv -- /home/lykoi/quarantine/WO-FIX-P3-01-20260809/P /home/lykoi/quarantine/WO-F
 - [x] 返修提交 `7310f99`
 - [x] 专项测试、P0、manifest 反向核对、功能性实跑
 - [x] 执行报告与部署 bundle 归档
-- [ ] Kevin root 部署
-- [ ] 部署后启动门、服务健康与活体功能验证
+- [x] Kevin root 部署（生产 merge `cf4a6338`）
+- [x] 部署后启动门、服务健康与活体功能验证
