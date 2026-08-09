@@ -216,6 +216,23 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
    `~/lykoi-work`（分支 `wo/p2-01`），**已知它写了** `migrations.py`、`percept_buffer.py`、
    `tests/test_p2_data_model_migration.py` 并更新了 `guardian/manifest.sha256`。
    **它有不提交就退场的毛病（见教训 23），先 `git status` 看工作树再判断成败。**
+
+   **我（上一窗口）已做的部分复核，可直接采信**：
+   - 专项测试 `tests/test_p2_data_model_migration.py` **16 passed**（我亲跑，非采信自述；
+     耗时 580s 是因与它的全量测试抢磁盘 I/O）。
+   - 设计 v1 §2 要求的 **7 张表全部就位**：users / identity_bindings / contexts /
+     context_members / memory_scopes / procedures / note_insight_links；
+     另 `percept_buffer.py` 建独立库（percept_events + percept_schema 版本表）。
+   - `role='owner_primary'` 的**部分唯一索引已实现**（§2.1 防错映射要求）。
+   - 回填逻辑在 `_backfill_memory_scopes()`，默认值符合"拿不准往严"
+     （user_001 / ctx_direct_user_001 / private / content）。
+   - **逆迁移都有**：`downgrade_v10()` 与 percept 的 `downgrade_v1()`。
+   - **manifest 已登记 percept_buffer**（它记得 manifest 纪律，难得）。
+   - ⚠️ **未完成的复核**：它的全量 pytest 跑到 19% 时已出现 **2 个失败**（当时仍在跑，
+     `~/lykoi-work/full_final.log`）。**必须查清这 2 个失败是它引入的还是既有的**——
+     它改过 `tests/conftest.py` 与 `tests/test_core_v1_event_outbox.py`，有嫌疑。
+     另需补：幂等性与逆迁移的实跑验证、以真实备份副本（Mac `~/lykoi/backups/`）
+     测一次回填规模。
 2. **broker 已提交未合并**：`wo/p2-03a` 分支 `49cdd029`（8 文件 699 行，
    `src/lykoi/broker/` 独立 worktree `~/lykoi-work-broker`）。专项测试 10/10 已复核，
    六目录零改动。**待与 P2-01 一起做正式合并评审**。
