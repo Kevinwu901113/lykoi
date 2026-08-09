@@ -203,7 +203,15 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **BACKUP-03 非密钥整机恢复配置包** | **已部署并闭环**（合并 `74f5907c`）。正式 13/13 恢复演练 PASS；配置包 SHA-256=`8d214d1e...f7f0`，source HEAD 正确、无 secrets 路径；Mac 13/13 哈希一致 |
 | **干净机器从零重建演练（WO-DRILL-CLEANVM-01）** | **通过**（2026-08-09，ALL GREEN 34/0）。privileged LXD 容器内凭 13 项备份+bundle+占位 secrets 重建到 9 服务 active + /health ok + 审计链 append-only。可复用脚本 `rebuild_from_zero.sh` 与 10 项差距清单在工单目录；真 VM 复跑可选待 Kevin 定 |
 
-**活体当前 HEAD：`74f5907c`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、工作树 `## main`（2026-08-09 BACKUP-03 收工时独立复核；本单未重启服务）。
+| **阶段 2 首批落地（P2-01 数据模型 + P2-03A broker）** | **已合并生效**（2026-08-09 深夜，Kevin 以 root 执行两次合并）。活体 `74f5907c`→`c308b792`→**`89d0247f`**。合并后我以 lykoi 身份验证：startup_verify OK、p0 25 passed、迁移+percept 22 passed、broker 10 passed、四服务 active 且 NRestarts=0、/health ok。**回滚 tag：`rollback-pre-p2-01`(94be1f2e)、`rollback-pre-p2-03a`(c308b792)** |
+
+**⚠️ 两件尚未做的（合并 ≠ 生效）**：
+1. **活体 memory.db 迁移未执行**——合并后实测仍为 `schema v9`、`users` 表不存在。
+   执行迁移是独立动作，需停 autonomy 的 10–30 分钟窗口（设计 v1 §6 决议 5），与 Kevin 另约。
+2. **broker 未部署**——`lykoi-broker` inactive，单元文件仍是草稿（User 占位），
+   且 **S4a 上线门四条活体验证未做**（见 `wo/WO-P2-03A/review.md` §3）。
+
+**活体当前 HEAD：`89d0247f`**（旧记录：`74f5907c`）。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、工作树 `## main`（2026-08-09 BACKUP-03 收工时独立复核；本单未重启服务）。
 
 ### ⚡ 新窗口接手：立刻要知道的五件事（2026-08-09 深夜写）
 
