@@ -4,6 +4,12 @@
 - **写作人**：主治理 Agent（Mac Claude Code，Fable 5），因额度将尽而交接
 - **读者**：接手 Lykoi 治理平面工作的 Agent
 - **先读这三份**：本文件 → `docs/lykoi_whitepaper_v1.1_2026-08-07.md`（最高层规范）→ `docs/lykoi_collaboration_plan_v1_2026-08-07.md`（工作制度）
+- **阶段 2 与重设计的现行文档**（2026-08-09 起）：
+  `docs/phase2_joint_design_v1_2026-08-09.md`（冻结，数据模型×Gateway×S4）、
+  `docs/lykoi_embodiment_redesign_v1_2026-08-09.md`（定案，社交器官×Mac 瘦身×对话审批）、
+  `docs/mac_asset_inventory_2026-08-09.md` + `docs/mac_redesign_needs_analysis_2026-08-09.md`
+  （重设计的事实输入）、`wo/WO-MAC-M1/plan.md`（Mac 行动计划）。
+  `docs/perception_design_v0.3_2026-08-09.md` **已搁置非定案**，只有"音频一概不做"仍有效。
 
 > 本文件是"怎么接着干"。白皮书是"为什么这么干"。两者冲突以白皮书为准。
 
@@ -155,6 +161,25 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 22. **服务器侧长任务必须 nohup 脱管**，别附着在 ssh 会话上（宽带断线会连坐杀掉
     lxc exec / claude -p）。
 
+### 关于无头执行 Agent（2026-08-09 新增，都是本轮实际踩的）
+
+23. **工单里不能有"等待"步骤**。WO-P2-03A 两次在"等全量 pytest 跑完"处直接结束会话
+    （报告只有一句"我在等"），代码写完了却**没提交**。要么把长测试拆成独立后续单，
+    要么在工单里写死"跑测试用 `timeout N` 且必须先 commit 再等"。最终由复核方代提交。
+24. **派发包装脚本要用 `claude` 的绝对路径**（`$HOME/.local/bin/claude`）。
+    重试用的 wrapper 是非 login shell，读不到 `.profile` 里的 PATH，直接
+    `command not found` 连败三次（rc=127）。
+25. **执行 Agent 的工作副本要先建 venv**。`~/lykoi-work` 起初没有 `.venv`，Agent 想
+    `pip install` 又没权限，只能中途求助。另：首次 `pip install` 出现过一次
+    **包哈希不匹配**（重试后干净通过，判定为代理传输损坏），遇到别慌但要记录。
+26. **并行 lane 的硬约束是 manifest**：凡动 `cognition/mind/memory/shared/surface/
+    resources/kernel/core` 的工单都要重签 `guardian/manifest.sha256`，两个这类工单并行
+    必然冲突且互相污染启动门。**六目录锁同一时间只发一单**；并行 lane 必须选在锁外
+    （如 broker 的全新目录 `src/lykoi/broker/`，用 `git worktree` 隔离）。
+27. **以 claude 身份跑 `pytest tests/test_p0_integrity.py` 会有一个假失败**
+    （`PermissionError: /home/lykoi/state/approval_rules.json`，0600 读不到）。
+    权威判据是以 lykoi 身份在活体跑（25 passed）。别把这个当真缺陷。
+
 ---
 
 ## 五、当前进度
@@ -179,6 +204,31 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **干净机器从零重建演练（WO-DRILL-CLEANVM-01）** | **通过**（2026-08-09，ALL GREEN 34/0）。privileged LXD 容器内凭 13 项备份+bundle+占位 secrets 重建到 9 服务 active + /health ok + 审计链 append-only。可复用脚本 `rebuild_from_zero.sh` 与 10 项差距清单在工单目录；真 VM 复跑可选待 Kevin 定 |
 
 **活体当前 HEAD：`74f5907c`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、工作树 `## main`（2026-08-09 BACKUP-03 收工时独立复核；本单未重启服务）。
+
+### ⚡ 新窗口接手：立刻要知道的五件事（2026-08-09 深夜写）
+
+1. **有一个执行 Agent 还在服务器上跑**：WO-P2-01（阶段 2 数据模型 migration）。
+   查状态：
+   ```
+   ssh lykoi-gov 'grep "^EXIT=" ~/wo/WO-P2-01/run.log | tail -1; wc -l < ~/wo/WO-P2-01/report.md; pgrep -cf "claude -p"'
+   ```
+   出现 `EXIT=` 行即结束（`EXIT=FAILED_ALL_RETRIES` 表示三次重试全败）。产出在
+   `~/lykoi-work`（分支 `wo/p2-01`），**已知它写了** `migrations.py`、`percept_buffer.py`、
+   `tests/test_p2_data_model_migration.py` 并更新了 `guardian/manifest.sha256`。
+   **它有不提交就退场的毛病（见教训 23），先 `git status` 看工作树再判断成败。**
+2. **broker 已提交未合并**：`wo/p2-03a` 分支 `49cdd029`（8 文件 699 行，
+   `src/lykoi/broker/` 独立 worktree `~/lykoi-work-broker`）。专项测试 10/10 已复核，
+   六目录零改动。**待与 P2-01 一起做正式合并评审**。
+3. **重大设计转向已定案**：`docs/lykoi_embodiment_redesign_v1_2026-08-09.md`——
+   Lykoi 改为**通过她自己使用的社交软件（Telegram 起步）与 Kevin 相处**，
+   Mac 退化为纯感知器官（app UI 退役），审批从按钮改为**对话式三层门**。
+   九条决议已锁定，Kevin 已批准 Telegram 起步与实施顺序。
+4. **Mac lane 的完整计划**在 `wo/WO-MAC-M1/plan.md`，含一条关键约束：
+   **M1a（独立感知服务）可立刻开工，M1b（退役 app UI）必须等 Telegram 通道上线并稳定**——
+   否则 Kevin 与 Lykoi 完全失联。
+5. **Mac 已做过全盘清点与归拢**：`docs/mac_asset_inventory_2026-08-09.md`；散落 17 项
+   已归到 `~/Documents/lykoi/archive/`（MANIFEST 可回滚）；`stash@{0}` 是已作废的 D 层
+   OCR 聚合器半成品，**不要复活**。
 
 ### 进行中的任务
 
