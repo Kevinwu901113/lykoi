@@ -1,11 +1,11 @@
-# 阶段 2 联合设计 v0 · 数据模型 × Delegation Gateway × S4 Secret
+# 阶段 2 联合设计 v1（冻结） · 数据模型 × Delegation Gateway × S4 Secret
 
-- **日期**: 2026-08-09
-- **作者**: 主治理 Agent（草案）；**待 Kevin 评审定稿**
+- **日期**: 2026-08-09（v0 草案与 v1 冻结同日；Kevin 口头批复"按你推荐的来"）
+- **作者**: 主治理 Agent；**Kevin 已批准，v1 为实施基准**
 - **地位**: 兑现白皮书 36 章列出的"数据模型设计 / 权限与信任边界设计 / Delegation Gateway
   设计"三份产物。三者合一的理由：user_id、语境作用域、感知数据类、程序性经验要动同一批表
   （白皮书阶段 2 备忘），而凭证句柄本身是 Gateway 合同的字段——拆开做每一份都会返工。
-- **版本约定**: v0 = 供评审的完整草案。开放问题集中在 §6，逐条拍板后升 v1 冻结。
+- **版本约定**: v1 = 冻结版。§6 已由开放问题改为决议记录；后续变更需新版本号+Kevin 批准。
 
 ---
 
@@ -296,13 +296,14 @@ secrets 只对它可读）。两种出借方式：
 触及 `cognition/mind/memory/shared/surface/resources` 或 guardian 的步骤（2/3/4/6 必然触及）
 **必须**同步 manifest 重签 + `pytest tests/test_p0_integrity.py`。
 
-## 6. 开放问题（请 Kevin 拍板）
+## 6. 决议记录（Kevin 2026-08-09 批复"按你推荐的来"）
 
-1. **memory_scopes 影子表 vs 直接加列**：影子表零风险可逆但查询多一次 join；直接加列
-   干净但要动 append-only 表的迁移。我推荐影子表起步，阶段 3 大重构时再合并。
-2. **percept 保留区放服务器还是 Mac**：白皮书 7 章默认服务器（核心边界内）；Mac 侧
-   已有本地 JSONL。我推荐服务器（备份体系已覆盖 state 目录模式）。
-3. **broker 的第一个 handle**：我推荐 `llm.deepseek.chat`（子代理最常用、反代实现最薄）。
-4. **首个真实委托任务选什么**：建议选一个低风险仓库任务（如 lykoi-ui 的小修），
-   而不是核心仓库。
-5. **迁移执行窗口**：需要停 autonomy 约 10–30 分钟（migration+回填），interactive 不停。
+1. **memory_scopes 用影子表**起步（零风险可逆），阶段 3 大重构时再考虑合并进主表。
+2. **percept 保留区放服务器**（核心边界内，备份体系已覆盖 state 目录模式）。
+3. **broker 第一个 handle = `llm.deepseek.chat`**（http_proxy 型反代）。
+4. **首个真实委托任务 = lykoi-ui 低风险小修**（不碰核心仓库）。
+5. **迁移窗口批准**：停 autonomy 约 10–30 分钟，interactive 不停；具体时刻执行前再约。
+
+同批决议（承接阶段 1 尾项）：**从零重建演练以容器结果认定过门**（真 VM 复跑保留为
+可选加固项，材料常备）；`rehearsal` 容器暂保留（静默无害，供 Gateway T2 隔离域参照），
+去留随时可改。
