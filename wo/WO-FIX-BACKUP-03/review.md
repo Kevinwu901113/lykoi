@@ -4,7 +4,8 @@
 - **日期**：2026-08-09
 - **生产基线**：`35ef7c86f469e79e93b9a0642805d71ece8fdeaa`
 - **候选**：`1e19741fde4e1ed63fe24463658b989e8f194467`
-- **结论**：**候选复核通过，待 Kevin 以 root 部署并完成真实 13 项 + Mac 异地验收**
+- **生产合并**：`74f5907c933dede04c490089418349e887417a08`
+- **结论**：**已部署并完成服务器真实 13/13 恢复演练 + Mac 异地 13/13 逐文件 SHA-256 验收**
 
 ## 1. 独立复核结论
 
@@ -172,7 +173,19 @@ systemctl show \
 
 四服务应继续 active/running、`NRestarts=0`，health 保持 `browser_request_guard=ready`。随后把 `BACKUP03_STAMP` 和 server config archive SHA-256 发给主治理 Agent，由主治理 Agent触发 Mac pull 并完成 13/13 逐文件 SHA 对比。
 
-## 5. 回滚
+## 5. 生产部署与正式验收（已完成）
+
+- Kevin 以 root 从已验证 bundle 合并，生产 HEAD=`74f5907c933dede04c490089418349e887417a08`；改动严格为工单预期的 5 个文件，工作树 `## main`。
+- 合并后恢复属主/权限：两份 shell 脚本为 `lykoi:lykoi 0755`，其余三份文件为 `lykoi:lykoi 0644`。
+- 生产仓脚本语法门通过；`tests/test_rebuild_config_backup.py` + `tests/test_p0_integrity.py` 为 **32 passed**。
+- 首份正式 13 项备份 STAMP=`20260809T032908Z`；配置包 SHA-256=`8d214d1ebb738a5026ee2ac709f737309f92af93bdacd2bcfba35eb06141f7f0`，`0640 lykoi:lykoi`，20,852 bytes，包内 `metadata/source-head.txt`=`74f5907c933dede04c490089418349e887417a08`，无 `secrets/` 成员路径。
+- 服务器真实恢复演练 **VERDICT: PASS**：13/13 完整，4 个 SQLite integrity check 均 OK，关键表计数与活体单调一致，persona 匹配，25 个配置文件、13 个 drop-in、SHA256SUMS 全通过，`build_persona_prompt()`=226 chars。
+- 本轮服务器主动 offsite rsync 因目标不可达而跳过；随后主治理 Agent 触发既有 Mac LaunchAgent `com.lykoi.backup-pull`，第 6 次运行 `last exit code=0`。Mac 同一 STAMP 的 13 项全部到位，服务器与 Mac **13/13 逐文件 SHA-256 完全一致**。
+- 未重启任何服务。收尾复核 core/server/autonomy/watchdog 全部 active/running、`NRestarts=0`；health=`status:ok`、`browser_request_guard:ready`；生产工作树保持 `## main`。
+
+因此 BACKUP-03 已闭环，干净 Ubuntu 24.04 VM 的从零重建演练具备开始条件；secrets 仍必须由 owner 带外重签，不能进入归档。
+
+## 6. 回滚
 
 确认生产 HEAD 是本单 merge commit后，以 root：
 

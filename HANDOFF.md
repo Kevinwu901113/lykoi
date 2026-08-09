@@ -144,8 +144,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | 白皮书 v1.1 | 定稿，四大新定案（单主用户 / 群聊三级脱敏 / 感知数据独立类 / 单写者原则） |
 | 治理协作方案 v1 | 定稿并实施 |
 | **阶段 0 基线审查与资产清点** | **完成**，五单全验收，见 `reports/baseline-review-summary_2026-08-07.md`。白皮书 31.3 产物 11 项中 10 项齐备（缺"数据迁移风险"，依赖阶段 2 数据模型设计） |
-| 备份加固（WO-FIX-BACKUP-01/02） | 已部署。覆盖从 2 项扩到 **12 项**（含 persona TOML、审计正本、core_facts、events） |
-| Mac 异地备份 | launchd 每 6h 拉取，已生效 |
+| 备份加固（WO-FIX-BACKUP-01/02/03） | 已部署。覆盖从 2 项扩到 **13 项**；第 13 项是非密钥整机重建配置包，含 allowlist 内 25 个配置文件与 13 个 systemd drop-in，secrets 仍由 owner 带外重签 |
+| Mac 异地备份 | launchd 每 6h 拉取，已生效；`20260809T032908Z` 正式备份服务器/Mac 13/13 逐文件 SHA-256 一致 |
 | **首次恢复演练** | **通过**，见 `reports/restore-drill_2026-08-07.md`。应用代码能从备份重建人格提示词（226 字符）；Mac 副本 sha256 一致 |
 | 恢复脚本 + 灾难恢复手册（WO-FIX-RESTORE-01） | 已部署 |
 | **S1 事件日志脱敏 + S5 完整性清单补 memory 包** | **已部署生效**（合并 `7b567cec`） |
@@ -153,12 +153,13 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **P3 自主动作 CWD 隔离** | **已部署生效**（合并 `cf4a6338`）。`terminal.exec` 默认工作目录为 `/home/lykoi/workspace/autonomy`；专项 + P0 共 34 passed，启动门与活体 `pwd` 复核通过 |
 | **SEC-03 page-level CDP 请求拦截** | **已部署生效**（合并 `b5cf7553`）。同一 page target 的 redirect/click/form/JS/subresource 进入常驻 Fetch guard；health=`browser_request_guard:ready`；合并后专项 + P0 88 passed，四服务 active 且 `NRestarts=0` |
 | **GUARD-01 root 权限假阳性修复** | **已部署生效**（合并 `35ef7c86`）。audit 父目录改读 `st_mode` 组/其他写位；合并后 57 passed，root 与 `lykoi` 双身份启动门均 OK，四服务 `NRestarts=0` |
+| **BACKUP-03 非密钥整机恢复配置包** | **已部署并闭环**（合并 `74f5907c`）。正式 13/13 恢复演练 PASS；配置包 SHA-256=`8d214d1e...f7f0`，source HEAD 正确、无 secrets 路径；Mac 13/13 哈希一致 |
 
-**活体当前 HEAD：`35ef7c86`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、root/`lykoi` 双身份启动门 OK、近十分钟无 warning（2026-08-09 GUARD-01 收工时独立复核）。
+**活体当前 HEAD：`74f5907c`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、工作树 `## main`（2026-08-09 BACKUP-03 收工时独立复核；本单未重启服务）。
 
 ### 进行中的任务
 
-当前没有已派发的执行工单。阶段 1 的小型安全修复已收口；下一项 S4 Secret 收紧与阶段 2 Delegation Gateway 共用凭证句柄边界，建议先做联合设计，避免单独改 secret 后返工。全量重建演练仍是阶段 2 迁移前的必做门。
+当前没有已派发的执行工单。BACKUP-03 已补齐干净机器重建所需的非密钥部署配置并完成服务器/Mac 双副本验收；**下一步是干净 Ubuntu 24.04 VM 从零重建演练**。该门通过前不开始阶段 2 迁移；S4 Secret 与 Delegation Gateway 的联合边界设计排在其后。
 
 ### 阶段 1 剩余（按建议顺序）
 
@@ -167,7 +168,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | 完成 | **CDP 层请求拦截** | **已部署生效**：`wo/WO-FIX-SEC-03/`，生产合并 `b5cf7553`。同一 page target 的 redirect/click/form/JS/subresource 由常驻 Fetch guard 覆盖；health=`ready`。popup/new target、代理 DNS 与断线间隙仍明确列为残余风险 |
 | 完成 | `os.access` 假阳性 | **已部署生效**：`wo/WO-FIX-GUARD-01/`，生产合并 `35ef7c86`。staged/live 与 manifest 三方一致，root/`lykoi` 双身份启动门均 OK |
 | 3 | S4 Secret 收紧 | 无 vault，密钥明文在进程环境，同 uid 进程读 `/proc/<pid>/environ` 即得（他们自己的 canary 脚本就是这么读的）。工程量最大，**建议与阶段 2 的 Gateway 设计一并规划**——凭证句柄本身就是 Gateway 的一部分，单独做会返工 |
-| — | 全量重建演练 | 恢复演练验证了"数据可还原 + 应用可读"，但没在干净机器上从零启动过。属阶段 2 迁移前的必做项 |
+| 进行中 | 全量重建演练 | BACKUP-03 已完成 13 项备份、服务器真实恢复与 Mac 哈希验收；仍未在干净 Ubuntu 24.04 VM 从零启动。下一步只做 clean-VM rehearsal，不碰生产运行状态 |
 
 ### 阶段 2（白皮书 36 章留白的兑现）
 
@@ -213,8 +214,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 1. 读白皮书 v1.1 + 协作方案 + 本文件（尤其第四节那 16 条教训）
 2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
-3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `35ef7c86`、四个 active、health 含 `browser_request_guard=ready`
-4. 下一步不要直接开 S4 实现单；先把 S4 Secret 凭证句柄与阶段 2 Delegation Gateway 做联合边界设计，或先执行全量重建演练，由 Kevin 决定顺序。除非 Kevin 改变指示，不使用 Opus/Sonnet
+3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `74f5907c`、四个 active、health 含 `browser_request_guard=ready`
+4. 下一步执行干净 Ubuntu 24.04 VM 从零重建演练；不要直接在生产恢复、不要把 secrets 放进备份。该门通过后再做 S4 Secret + 阶段 2 Delegation Gateway 联合边界设计。除非 Kevin 改变指示，不使用 Opus/Sonnet，主治理 Agent 直接实施
 5. 按标准流程收：复核代码 → **自己跑测试**（`git worktree` 到 `/tmp` + 活体 venv，别碰活体检出）→ **必跑 `pytest tests/test_p0_integrity.py`** → 给 Kevin 精确到权限位与顺序的部署命令 + 回滚点
 
 ### 一次完整的复核长什么样（照抄这个流程）

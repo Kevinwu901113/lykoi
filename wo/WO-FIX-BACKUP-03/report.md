@@ -51,3 +51,11 @@
 截至候选验收，生产仍为 `35ef7c86`、工作树 `## main`，core/server/autonomy/watchdog 全部 active/running、`NRestarts=0`、health=`status:ok` / `browser_request_guard:ready`。所有实现与测试写入仅发生在 Mac `/private/tmp` 或服务器 `/tmp`。
 
 本单不改 guardian、运行时 Python 包、systemd 或 secrets，不需要重启服务。部署后仍必须手动运行一次正式备份，证明服务器真实 13 项恢复演练 PASS，再触发 Mac 拉取并核对同一 STAMP 的 13/13 SHA-256；完成前不能开始干净 VM 重建。
+
+## 5. 生产部署与正式验收
+
+- 生产于 2026-08-09 合并为 `74f5907c933dede04c490089418349e887417a08`，工作树干净；合并后专项 + P0 为 **32 passed**。
+- 正式备份 STAMP=`20260809T032908Z`，服务器真实恢复演练 **VERDICT: PASS**：13/13、4 个 SQLite integrity check OK、25 个配置文件、13 个 drop-in、SHA256SUMS verified、persona 匹配、人格提示词 226 字符。
+- `deployment_config.20260809T032908Z.tar.gz` 为 `0640 lykoi:lykoi`、20,852 bytes，SHA-256=`8d214d1ebb738a5026ee2ac709f737309f92af93bdacd2bcfba35eb06141f7f0`，source HEAD 为生产 merge，且无 `secrets/` 成员路径。
+- 服务器主动 rsync 因目标不可达跳过后，主治理 Agent 手动触发 Mac LaunchAgent 拉取成功；同一 STAMP 的服务器与 Mac 13 项逐文件 SHA-256 全部一致。
+- 本单未重启服务；四服务持续 active/running、`NRestarts=0`，health ready。BACKUP-03 至此完成，下一门为干净 Ubuntu 24.04 VM 从零重建。
