@@ -112,9 +112,15 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 5. **⚠️ 最高频的致命缺陷：改了受 manifest 覆盖的文件却不更新 `guardian/manifest.sha256`。已发生两次**（SEC-01 漏更新 startup_verify.py 自身条目；SEC-02 新增 `resources/url_guard.py` 完全未登记）。两次都会导致三服务全部拒绝启动。
    **凡工单会动 `cognition/mind/memory/shared/surface/resources` 六个目录或 `guardian/` 下任何 .py，工单里必须显式写上"同步更新 manifest（改哈希 + 新增条目）"，复核时必须跑 `pytest tests/test_p0_integrity.py`。** 这一条建议直接写进工单模板。
 
+### 关于治理平面自身的纪律（2026-08-09 新增，两条都因实际缺失而写）
+
+5b. **每次服务器写动作 + 每次生产部署，必须记一条 `~/reports/governance-ops.jsonl`。** Codex 接手期间完成 4 次生产部署但全程零记录，审计链出现空洞，事后只能由继任者从 review 文档重建（已补录并标注 backfilled）。这条日志是治理平面自己的审计——我们要求 Lykoi 可审计，自己不能例外。
+
+5c. **治理仓库的提交必须 `git push`。** 同期 8 个提交只落在本地工作副本，GitHub 上看不到——共享底座的全部意义（跨 Agent 交接、异地留存）在没推之前都不成立。收工前固定检查 `git log origin/main..HEAD` 应为空。
+
 ### 关于"代码事实"与"部署事实"
 
-5. **治理工作副本是代码事实源，不是部署事实源。** 执行 Agent 曾据仓内 systemd unit 文件判定 `core/` 包（占全库 40%）是 default-off 死代码、建议删除；我用 `sudo systemctl cat lykoi-*` 查线上 drop-in，发现 M3 开关**几乎全开**——它是运行中的生产路径。**任何"是否启用"的结论都必须查 drop-in。**
+6. **治理工作副本是代码事实源，不是部署事实源。** 执行 Agent 曾据仓内 systemd unit 文件判定 `core/` 包（占全库 40%）是 default-off 死代码、建议删除；我用 `sudo systemctl cat lykoi-*` 查线上 drop-in，发现 M3 开关**几乎全开**——它是运行中的生产路径。**任何"是否启用"的结论都必须查 drop-in。**
 
 ### 关于部署
 
@@ -160,6 +166,21 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 ### 进行中的任务
 
 当前没有已派发的执行工单。BACKUP-03 已补齐干净机器重建所需的非密钥部署配置并完成服务器/Mac 双副本验收；**下一步是干净 Ubuntu 24.04 VM 从零重建演练**。该门通过前不开始阶段 2 迁移；S4 Secret 与 Delegation Gateway 的联合边界设计排在其后。
+
+### 交接期核查（2026-08-09，Claude 回归后对 Codex 工作的独立复核）
+
+Codex 接手期间的四单**全部经独立验证通过**，非采信自述：
+
+| 项 | 独立验证方式 | 结果 |
+| --- | --- | --- |
+| P3 工作区隔离 | 活体调 `terminal.exec({"command":"pwd"})` 及三类逃逸 | 默认落 `/home/lykoi/workspace/autonomy`；`../..`／`/etc`／代码仓库路径均 `WorkspaceEscape` ✓ |
+| SEC-03 CDP 拦截 | 查 `/health` 实际返回 | `browser_request_guard: ready` ✓ |
+| GUARD-01 假阳性修复 | 读代码确认 `os.access` 已换成 `st_mode` 位判断（第 365-369 行注释明确写了 identity-independent） | ✓ |
+| BACKUP-03 13 项 | 列最近备份集实际文件 | 13 项齐全含新增 `deployment_config` ✓ |
+| 完整性 / 启动门 | `pytest tests/test_p0_integrity.py`、`startup_verify`（lykoi 身份） | 25 passed / exit 0 ✓ |
+| 遗留清理 | 查 `P`、`\|` | 已删除 ✓ |
+
+**已由继任者补做的两件事**：治理仓库 8 个未推提交已 `git push`；`governance-ops.jsonl` 补录 4 条部署记录（标注 backfilled、ts 为补录时刻）。对应纪律见第四节 5b / 5c。
 
 ### 阶段 1 剩余（按建议顺序）
 
