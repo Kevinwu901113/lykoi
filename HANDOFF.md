@@ -152,19 +152,20 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **S2 持久浏览器 SSRF 防护** | **已部署生效**（合并 `cf314c36`）。活体实测 `browser.navigate()` 对 `127.0.0.1:8080` / `192.168.0.202:7890` / `file:///etc/passwd` 全部 `UrlBlocked` |
 | **P3 自主动作 CWD 隔离** | **已部署生效**（合并 `cf4a6338`）。`terminal.exec` 默认工作目录为 `/home/lykoi/workspace/autonomy`；专项 + P0 共 34 passed，启动门与活体 `pwd` 复核通过 |
 | **SEC-03 page-level CDP 请求拦截** | **已部署生效**（合并 `b5cf7553`）。同一 page target 的 redirect/click/form/JS/subresource 进入常驻 Fetch guard；health=`browser_request_guard:ready`；合并后专项 + P0 88 passed，四服务 active 且 `NRestarts=0` |
+| **GUARD-01 root 权限假阳性修复** | **已部署生效**（合并 `35ef7c86`）。audit 父目录改读 `st_mode` 组/其他写位；合并后 57 passed，root 与 `lykoi` 双身份启动门均 OK，四服务 `NRestarts=0` |
 
-**活体当前 HEAD：`b5cf7553`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、启动门 OK、近十分钟无 warning（2026-08-09 SEC-03 收工时独立复核）。
+**活体当前 HEAD：`35ef7c86`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、root/`lykoi` 双身份启动门 OK、近十分钟无 warning（2026-08-09 GUARD-01 收工时独立复核）。
 
 ### 进行中的任务
 
-`WO-FIX-GUARD-01`：修复 `guardian/startup_verify.py` 的 audit 目录 `os.access` root 假阳性。Kevin 明确要求不用 Opus/Sonnet，主治理 Agent 已直接实现并验收；候选 `43f4bd5`，bundle SHA-256=`8cad16f8dc9f601c28577edadfc479aded61a81b452979ba7f98d6b66641b5f5`，待 Kevin root 部署。相关回归 52 passed；标准权限隔离副本全量 1453 passed，唯一两项 `_SECRETS` 旧测试失败已在未改 `b5cf7553` 同机复现。详见 `wo/WO-FIX-GUARD-01/`。
+当前没有已派发的执行工单。阶段 1 的小型安全修复已收口；下一项 S4 Secret 收紧与阶段 2 Delegation Gateway 共用凭证句柄边界，建议先做联合设计，避免单独改 secret 后返工。全量重建演练仍是阶段 2 迁移前的必做门。
 
 ### 阶段 1 剩余（按建议顺序）
 
 | 优先级 | 项 | 说明 |
 | --- | --- | --- |
 | 完成 | **CDP 层请求拦截** | **已部署生效**：`wo/WO-FIX-SEC-03/`，生产合并 `b5cf7553`。同一 page target 的 redirect/click/form/JS/subresource 由常驻 Fetch guard 覆盖；health=`ready`。popup/new target、代理 DNS 与断线间隙仍明确列为残余风险 |
-| 2 | `os.access` 假阳性 | **直接实现已验收待部署**：`wo/WO-FIX-GUARD-01/`，候选 `43f4bd5`。audit 父目录改读 `st_mode` 组/其他写位；staged/live 同步，manifest 与 root 场景回归已补齐 |
+| 完成 | `os.access` 假阳性 | **已部署生效**：`wo/WO-FIX-GUARD-01/`，生产合并 `35ef7c86`。staged/live 与 manifest 三方一致，root/`lykoi` 双身份启动门均 OK |
 | 3 | S4 Secret 收紧 | 无 vault，密钥明文在进程环境，同 uid 进程读 `/proc/<pid>/environ` 即得（他们自己的 canary 脚本就是这么读的）。工程量最大，**建议与阶段 2 的 Gateway 设计一并规划**——凭证句柄本身就是 Gateway 的一部分，单独做会返工 |
 | — | 全量重建演练 | 恢复演练验证了"数据可还原 + 应用可读"，但没在干净机器上从零启动过。属阶段 2 迁移前的必做项 |
 
@@ -212,8 +213,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 1. 读白皮书 v1.1 + 协作方案 + 本文件（尤其第四节那 16 条教训）
 2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
-3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `b5cf7553`、四个 active、health 含 `browser_request_guard=ready`
-4. 按 `wo/WO-FIX-GUARD-01/review.md` 部署候选 `43f4bd5`；必须先逐文件恢复 guardian 权限，再由 root 与 `lykoi` 两种身份跑启动门，均 OK 后才能重启
+3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `35ef7c86`、四个 active、health 含 `browser_request_guard=ready`
+4. 下一步不要直接开 S4 实现单；先把 S4 Secret 凭证句柄与阶段 2 Delegation Gateway 做联合边界设计，或先执行全量重建演练，由 Kevin 决定顺序。除非 Kevin 改变指示，不使用 Opus/Sonnet
 5. 按标准流程收：复核代码 → **自己跑测试**（`git worktree` 到 `/tmp` + 活体 venv，别碰活体检出）→ **必跑 `pytest tests/test_p0_integrity.py`** → 给 Kevin 精确到权限位与顺序的部署命令 + 回滚点
 
 ### 一次完整的复核长什么样（照抄这个流程）

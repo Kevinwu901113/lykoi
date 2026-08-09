@@ -3,7 +3,8 @@
 - **复核人/实现者**：主治理 Agent（Codex，直接实现）
 - **日期**：2026-08-09
 - **候选**：`43f4bd57e2f0f78ad628a568c883198547281d14`
-- **结论**：**验收通过，待 Kevin root 部署**
+- **生产合并**：`35ef7c86f469e79e93b9a0642805d71ece8fdeaa`
+- **结论**：**已部署生效并完成独立活体复核**
 
 ## 1. 独立复核结论
 
@@ -12,7 +13,7 @@
 - [x] `guardian/startup_verify.py` 与 `scripts/startup_verify.py` 逐字节一致。
 - [x] manifest 已更新启动门自身哈希，`test_p0_integrity.py` 已实跑通过。
 - [x] 相关回归 52 passed；全量 1453 passed，唯一两项失败已在未改基线同机复现。
-- [ ] 生产 root 合并、双身份启动门与服务重启验收。
+- [x] 生产 root 合并、双身份启动门与服务重启验收。
 
 ## 2. 部署前提
 
@@ -127,7 +128,18 @@ journalctl \
   --no-pager -p warning
 ```
 
-## 4. 回滚
+## 4. 生产部署验收
+
+- 部署前确认生产 HEAD=`b5cf7553cd9155d90fc0cc5f5b2d6c5a23601f6a`、工作树干净，bundle SHA-256 与完整历史均验证通过。
+- 已创建回滚标签 `pre-WO-FIX-GUARD-01-b5cf7553`，生产 merge commit=`35ef7c86f469e79e93b9a0642805d71ece8fdeaa`。
+- 权限逐文件复核通过：manifest 与 guardian verifier 为 `root:root 0444`；staged verifier 与 P0 测试为 `lykoi:lykoi 0644`。
+- staged/live verifier 逐字节一致，两份 SHA-256 与 manifest 条目均为 `8fe208486a6125a19b0edf991d253fa0c7c0c45f482300d4d0c6460f32227dd1`。
+- 合并后、重启前相关回归：`57 passed`；root 与 `lykoi` 两种身份运行启动门均返回 `startup_verify: OK`。
+- `systemctl cat` 证明 core/server/autonomy 的有效 unit/drop-in 都以 `User=lykoi` 调用 `/home/lykoi/projects/lykoi/guardian/startup_verify.py`；server/autonomy 的有效覆写使用 `-I -S`。
+- 重启后三主体服务与 watchdog 均为 `active/running`，四服务 `NRestarts=0`；health=`status:ok`、`browser_request_guard:ready`。
+- 主治理 Agent 独立只读复核：HEAD=`35ef7c86`、工作树 `## main`、启动门 OK、权限与哈希一致、近十分钟四服务 warning 日志为空。
+
+## 5. 回滚
 
 确认 HEAD 是本单 merge commit 后，以 root：
 
