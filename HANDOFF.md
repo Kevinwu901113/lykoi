@@ -207,7 +207,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ### ⚡ 新窗口接手：立刻要知道的五件事（2026-08-09 深夜写）
 
-1. **有一个执行 Agent 还在服务器上跑**：WO-P2-01（阶段 2 数据模型 migration）。
+1. ✅ **WO-P2-01 已完成并复核通过**（2026-08-09 深夜结束，`EXIT=0`）。提交 `c308b792`
+   在分支 `wo/p2-01`，复核报告 `wo/WO-P2-01/review.md`——**结论：通过，建议 ff-merge**。
+   **真实备份副本迁移验证全绿**（我在 Mac 上对 `memory.20260809T032908Z.db` 实跑）：
+   v9→v10、7 张表、回填 6860 行**逐表精确**、默认值全为 private/content、幂等、
+   `downgrade_v10` 可回 v9 且表清单一致、owner_primary 唯一约束生效、
+   integrity ok / 0 FK 违规。它报告的 14 个全量失败经我核对确为既有环境伪影。
+   **两件待办**：①请 Kevin 授权合并 `wo/p2-01` 与 `wo/p2-03a` 两分支；
+   ②**活体迁移执行是独立动作**，需停 autonomy 的 10–30 分钟窗口，与代码合并分开进行。
+
+   （下面是它运行期间的查法，保留备用：WO-P2-01 = 阶段 2 数据模型 migration。）
    查状态：
    ```
    ssh lykoi-gov 'grep "^EXIT=" ~/wo/WO-P2-01/run.log | tail -1; wc -l < ~/wo/WO-P2-01/report.md; pgrep -cf "claude -p"'
