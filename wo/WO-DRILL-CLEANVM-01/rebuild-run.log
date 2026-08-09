@@ -1,0 +1,59 @@
+[STEP] 0. 前置检查
+[OK]   OS = Ubuntu 24.04
+[OK]   arch = x86_64
+[OK]   输入存在: lykoi.bundle
+[OK]   输入存在: deployment_config.tar.gz
+[OK]   输入存在: constraints.txt
+[OK]   state 备份 12 项 (STAMP=20260809T032908Z)
+[STEP] 1. 账户：删 ubuntu，建 lykoi (uid/gid 1000)
+[OK]   lykoi uid=1000
+[NOTE] 治理账户 claude(1001) 不在本脚本范围（属治理平面，另行按协作方案重建）
+[STEP] 2. apt 安装运行时依赖
+[OK]   apt 基础包 + 浏览器桌面栈(xvfb/fluxbox/x11vnc/novnc/websockify)
+[OK]   google-chrome-stable
+[STEP] 3. 代码：从 git bundle 检出
+[OK]   HEAD=74f5907c933dede04c490089418349e887417a08
+[STEP] 4. venv：按活体 freeze 锁版本重建
+[OK]   venv + 23 包
+[NOTE] import 需 PYTHONPATH=src（systemd 单元里应有对应设置）
+[STEP] 5. 部署配置包：校验 + 按 MANIFEST 落位
+[OK]   SHA256SUMS 全部一致
+[OK]   source-head 与 bundle HEAD 一致
+[OK]   配置文件落位 25 项（systemd 单元/drop-in、env 骨架、attention policy）
+[NOTE] /usr/local/sbin 17 个 apply 控制器内容不在备份内（设计如此），历史部署工具，运行时非必需
+[STEP] 6. secrets：占位或真值
+[NOTE] backup.env 未造占位（offsite_backup 在演练中不运行）
+[NOTE] REQUIRED_SECRETS 用占位值：服务应能启动，LLM/推送外呼会失败（演练预期内）
+[STEP] 7. state 还原（灾难手册 §2 的 13 项）
+[OK]   memory.db integrity_check=ok
+[OK]   core_facts.db integrity_check=ok
+[OK]   salience_shadow.db integrity_check=ok
+[OK]   permission_evidence_shadow.db integrity_check=ok
+[OK]   events/audit/approval_rules/pending_actions/core_artifacts 落位
+[OK]   审计正本 root:lykoi 0660 + append-only(chattr +a)
+[OK]   persona TOML (root:lykoi 0440，活体实测值；手册 §2 写 0640 应修订)
+[OK]   governance flags 按 20260809T032908Z 快照重建（2 项，root-only）
+[NOTE] workspace/autonomy（P3 CWD 隔离落点）与 browser-profile 已建
+[STEP] 8. 权限位复刻：guardian root-only + src 内 44 个 root 属主路径
+[OK]   guardian/ = root:root, dir 555, files 444；全仓 __pycache__ 已清
+[OK]   src 内 root 属主路径按活体清单复刻（服务账户不可改核心/脱敏器）
+[STEP] 9. 启动门：以 lykoi 身份跑 startup_verify
+[OK]   startup_verify (lykoi) exit=0
+[STEP] 10. systemd：enable + 分层启动
+[OK]   lykoi-xvfb active (NRestarts=0)
+[OK]   lykoi-fluxbox active (NRestarts=0)
+[OK]   lykoi-vnc active (NRestarts=0)
+[OK]   lykoi-novnc active (NRestarts=0)
+[OK]   lykoi-watchdog active (NRestarts=0)
+[OK]   lykoi-core active (NRestarts=0)
+[OK]   lykoi-server active (NRestarts=3)
+[OK]   lykoi-autonomy active (NRestarts=10)
+[STEP] 11. 健康检查
+{"status":"ok","desktop_url":"http://127.0.0.1:6080","browser_request_guard":"ready"}
+[OK]   /health status=ok
+[NOTE] browser_request_guard="browser_request_guard":"ready"
+[STEP] 12. crontab（记录但默认不安装）
+[NOTE] 生产 crontab 2 项（notify_push 每分钟 / offsite_backup 04:17）演练中不安装，避免占位密钥外呼噪音；真实恢复时: crontab -u lykoi <(生成自 metadata/lykoi.crontab)
+==================================================
+REBUILD VERDICT: PASS=34 FAIL=0
+ALL GREEN

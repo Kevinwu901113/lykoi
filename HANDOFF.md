@@ -139,6 +139,22 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 15. **macOS TCC**：launchd 跑 `~/Documents` 下的脚本会被拒（`Operation not permitted`, exit 126）。Mac 侧自动化一律放 `~/lykoi/`。
 16. **rsync 退出码 24**（源文件传输中消失，服务器正在轮转备份）应判为成功。
 
+### 关于从零重建（2026-08-09 演练实证，详见 wo/WO-DRILL-CLEANVM-01/）
+
+17. **`git bundle` 不含 HEAD ref**：克隆必须 `git clone -b main`，否则得到空工作树、
+    下游全崩。灾难手册没写这条，真实 DR 会踩。
+18. **venv 安装后必须清全仓 `__pycache__`**：以 lykoi 生成的 pyc 会触发 startup_verify
+    的 protected-pycache 属主检查，三服务拒启。缓存的规范态是"不存在"。
+19. **审计正本 `/var/log/lykoi-audit/audit.jsonl` 带 `chattr +a`**：startup_verify 会验；
+    重建时要设回去；复用旧机覆写前得先 `chattr -a`。非特权容器无 CAP_LINUX_IMMUTABLE。
+20. **灾难手册两处与活体不符**：persona TOML 实为 root:lykoi **0440**（手册写 0640）；
+    governance flags 实为 2 项（含 self_state_injection.on **0400**）。以活体实测为准。
+21. **`/usr/sbin/lxc` 是 snap 垫片**，首次调用会静默触发 `snap install lxd`——
+    2026-08-09 勘察时已意外装上（5.21.6，已记 governance-ops）。lxdbr0 DHCP 对容器
+    不生效、NAT TCP 不通（疑宿主防火墙），容器出网用 LXD proxy device 最省事。
+22. **服务器侧长任务必须 nohup 脱管**，别附着在 ssh 会话上（宽带断线会连坐杀掉
+    lxc exec / claude -p）。
+
 ---
 
 ## 五、当前进度
@@ -160,12 +176,19 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 | **SEC-03 page-level CDP 请求拦截** | **已部署生效**（合并 `b5cf7553`）。同一 page target 的 redirect/click/form/JS/subresource 进入常驻 Fetch guard；health=`browser_request_guard:ready`；合并后专项 + P0 88 passed，四服务 active 且 `NRestarts=0` |
 | **GUARD-01 root 权限假阳性修复** | **已部署生效**（合并 `35ef7c86`）。audit 父目录改读 `st_mode` 组/其他写位；合并后 57 passed，root 与 `lykoi` 双身份启动门均 OK，四服务 `NRestarts=0` |
 | **BACKUP-03 非密钥整机恢复配置包** | **已部署并闭环**（合并 `74f5907c`）。正式 13/13 恢复演练 PASS；配置包 SHA-256=`8d214d1e...f7f0`，source HEAD 正确、无 secrets 路径；Mac 13/13 哈希一致 |
+| **干净机器从零重建演练（WO-DRILL-CLEANVM-01）** | **通过**（2026-08-09，ALL GREEN 34/0）。privileged LXD 容器内凭 13 项备份+bundle+占位 secrets 重建到 9 服务 active + /health ok + 审计链 append-only。可复用脚本 `rebuild_from_zero.sh` 与 10 项差距清单在工单目录；真 VM 复跑可选待 Kevin 定 |
 
 **活体当前 HEAD：`74f5907c`**。三服务 + watchdog 全部 active/running、`/health` 200 且 browser request guard=`ready`、四服务 `NRestarts=0`、工作树 `## main`（2026-08-09 BACKUP-03 收工时独立复核；本单未重启服务）。
 
 ### 进行中的任务
 
-当前没有已派发的执行工单。BACKUP-03 已补齐干净机器重建所需的非密钥部署配置并完成服务器/Mac 双副本验收；**下一步是干净 Ubuntu 24.04 VM 从零重建演练**。该门通过前不开始阶段 2 迁移；S4 Secret 与 Delegation Gateway 的联合边界设计排在其后。
+当前没有已派发的执行工单。**干净机器从零重建演练已于 2026-08-09 通过**（`wo/WO-DRILL-CLEANVM-01/`，
+ALL GREEN 34/0——环境是生产 VM 上的 privileged LXD 容器 `rehearsal`，非独立 VM；
+真 VM 复跑可选、材料现成，等 Kevin 定夺过门口径与容器去留）。待办：
+① Kevin 定：容器结果是否足以过门 / 是否 Proxmox 真 VM 复跑（30 分钟，命令见 report §5.1）；
+② BACKUP-04：pip freeze + src root 属主清单纳入 deployment_config 包（小改）；
+③ 灾难手册按演练差距 #1/#3/#4 修订；
+④ 门过后开阶段 2：数据模型 + Delegation Gateway + S4 Secret 联合边界设计。
 
 ### 交接期核查（2026-08-09，Claude 回归后对 Codex 工作的独立复核）
 
