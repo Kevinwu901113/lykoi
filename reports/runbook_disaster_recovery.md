@@ -45,11 +45,11 @@ persona TOML 内容、以及 `build_persona_prompt()` 功能性调用。演练�
 | 4 | `permission_evidence_shadow.<STAMP>.db.gz` | 同上 | `/home/lykoi/state/permission_evidence_shadow.db` | `lykoi:lykoi` 0600 |
 | 5 | `events.<STAMP>.jsonl.gz` | `gzip -dc ... > /home/lykoi/state/events.jsonl` | `/home/lykoi/state/events.jsonl` | `lykoi:lykoi` 0600 |
 | 6 | `audit.<STAMP>.jsonl.gz` | 同上（这份历来是 0 字节，正本见下一项） | `/home/lykoi/state/audit.jsonl` | `lykoi:lykoi` 0600 |
-| 7 | `audit_log.<STAMP>.jsonl.gz` | `gzip -dc ... > /var/log/lykoi-audit/audit.jsonl` | `/var/log/lykoi-audit/audit.jsonl` | **`root:lykoi` 0660**（需 root 手动 `chown`/`chmod`；目录本身 `root:lykoi` 0750） |
+| 7 | `audit_log.<STAMP>.jsonl.gz` | `gzip -dc ... > /var/log/lykoi-audit/audit.jsonl`。**该文件带 `chattr +a`（append-only），startup_verify 会验**：还原后必须 `chattr +a`；若目标机上已有旧文件，覆写前先 `chattr -a`（2026-08-09 演练实证，容器环境还需 CAP_LINUX_IMMUTABLE） | `/var/log/lykoi-audit/audit.jsonl` | **`root:lykoi` 0660 + `+a` 属性**（需 root；目录本身 `root:lykoi` 0750） |
 | 8 | `approval_rules.<STAMP>.json.gz` | `gzip -dc ... > /home/lykoi/state/approval_rules.json` | `/home/lykoi/state/approval_rules.json` | `lykoi:lykoi` 0600 |
 | 9 | `pending_actions.<STAMP>.json.gz` | 同上 | `/home/lykoi/state/pending_actions.json` | `lykoi:lykoi` 0600 |
 | 10 | `core_artifacts.<STAMP>.tar.gz` | `tar xzf core_artifacts.<STAMP>.tar.gz -C /home/lykoi/state/` | `/home/lykoi/state/core_artifacts/` | `lykoi:lykoi`，目录内原权限随 tar 还原 |
-| 11 | `lykoi_base_persona.<STAMP>.toml` | 直接 `cp` | `/home/lykoi/runtime/persona/lykoi_base.toml` | **`root:lykoi` 0640**（需 root 手动 `chown root:lykoi` + `chmod 0640`） |
+| 11 | `lykoi_base_persona.<STAMP>.toml` | 直接 `cp` | `/home/lykoi/runtime/persona/lykoi_base.toml` | **`root:lykoi` 0440**（需 root；2026-08-09 按活体实测修订，旧版手册误写 0640） |
 | 12 | `governance_flags.<STAMP>.txt` | **不是可还原资产**，见下 | `/home/lykoi/runtime/governance/*.on` | 见下 |
 
 **关于 `governance_flags.<STAMP>.txt`**：这份文件只是 `ls -la` 存在性快照（因为 lykoi 对
@@ -57,6 +57,23 @@ persona TOML 内容、以及 `build_persona_prompt()` 功能性调用。演练�
 恢复时需要人工打开这份 txt，看当时哪些 `*.on` 文件存在（文件名即开关名），
 然后由 root 在 `/home/lykoi/runtime/governance/` 下手动重建同名空文件（或按最新治理决策
 review 后决定是否要重建全部/部分开关），属主 `root`，不对 `lykoi` 开放写权限。
+2026-08-09 时点的实况：目录 `root:root 0755`，2 个开关——`narrative_injection.on 0444`、
+`self_state_injection.on 0400`（权限位照快照里的 `ls -la` 逐项复刻，不要一律 0444）。
+
+**关于代码检出与启动门（2026-08-09 从零重建演练新增，三条都会直接卡启动）**：
+
+1. **git bundle 不含 HEAD ref**：从 bundle 克隆必须 `git clone -b main <bundle> <dest>`，
+   否则得到空工作树且无报错提示（只有一行 warning），下游步骤全部静默失败。
+2. **venv 装完必须清字节码缓存**：`find <repo> -name __pycache__ -prune -exec rm -rf {} +`。
+   以 lykoi 身份建 venv/首次 import 会生成 lykoi 属主的 `__pycache__`，startup_verify 的
+   protected-pycache 检查会拒绝（缓存的规范态是"不存在"）。
+3. **root 属主复刻**：`src/` 下有 44 个路径必须 root 属主（清单见 deployment_config 包
+   `metadata/root-owned.tsv`，BACKUP-04 起随备份携带）；guardian/ 整目录 root:root
+   （目录 0555、文件 0444）。venv 依赖版本锁定用同包 `metadata/pip-freeze.txt`
+   （`pip install -r requirements.txt -c <freeze>`）。
+
+**可执行形式**：以上全部流程已固化为 `wo/WO-DRILL-CLEANVM-01/rebuild_from_zero.sh`
+（干净 Ubuntu 24.04 amd64 通用，容器/VM 均验证过），灾难时优先用它，本手册作为对照与解释。
 
 **执行顺序建议**：先还原 1-4（SQLite，应用启动前必须就绪）→ 5-9（JSONL/JSON 状态文件）→
 10（core_artifacts）→ 11-12（需要 root 介入的两项，可与前面并行准备，但 root 操作本身

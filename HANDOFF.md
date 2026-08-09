@@ -184,11 +184,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 当前没有已派发的执行工单。**干净机器从零重建演练已于 2026-08-09 通过**（`wo/WO-DRILL-CLEANVM-01/`，
 ALL GREEN 34/0——环境是生产 VM 上的 privileged LXD 容器 `rehearsal`，非独立 VM；
-真 VM 复跑可选、材料现成，等 Kevin 定夺过门口径与容器去留）。待办：
-① Kevin 定：容器结果是否足以过门 / 是否 Proxmox 真 VM 复跑（30 分钟，命令见 report §5.1）；
-② BACKUP-04：pip freeze + src root 属主清单纳入 deployment_config 包（小改）；
-③ 灾难手册按演练差距 #1/#3/#4 修订；
-④ 门过后开阶段 2：数据模型 + Delegation Gateway + S4 Secret 联合边界设计。
+真 VM 复跑可选、材料现成，等 Kevin 定夺过门口径与容器去留）。
+**2026-08-09 晚 Kevin 授权主治理 Agent 直接动手，已完成**：
+② **BACKUP-04 已合并生效**（活体 HEAD `74f5907c`→**`94be1f2e`**，`wo/WO-BACKUP-04/`）——
+deployment_config 包新增 pip-freeze.txt 与 root-owned.tsv，下次 04:17 cron 起自动携带；
+合并后 pytest p0 25 passed、无服务重启。
+③ **灾难手册已修订**（audit sink `chattr +a`、persona 0440、governance flags 实况、
+bundle `-b main`、pycache 清理、root 属主复刻，均写回 runbook_disaster_recovery.md）。
+仍待 Kevin：① 过门口径认定 / 是否真 VM 复跑（30 分钟，命令见 CLEANVM-01 report §5.1）与
+容器去留（`lxc stop` 仍卡 2 个 D 态 snapd，无害）；④ 门后开阶段 2：数据模型 +
+Delegation Gateway + S4 Secret 联合边界设计。
 
 ### 交接期核查（2026-08-09，Claude 回归后对 Codex 工作的独立复核）
 
