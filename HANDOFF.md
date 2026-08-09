@@ -243,6 +243,11 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 4. **Mac lane 的完整计划**在 `wo/WO-MAC-M1/plan.md`，含一条关键约束：
    **M1a（独立感知服务）可立刻开工，M1b（退役 app UI）必须等 Telegram 通道上线并稳定**——
    否则 Kevin 与 Lykoi 完全失联。
+   **→ M1a 已于 2026-08-09 深夜完成**（Mac 仓库分支 `wo/mac-m1a`@378b9a6 已推 GitHub，
+   报告 `mac/docs/WO-MAC-M1A-report.md`）：47 测试全绿、独立运行时端到端冒烟 200、
+   互斥实测通过；**TCC spike 结论 = launchd 路线通**（"Lykoi Codesign" 签名的 venv
+   python，仅剩系统设置两项授权待 Kevin 点）。服务默认不加载，生产路径仍是 app 内嵌。
+   待 Kevin 三件事（TCC 打勾 / 服务器发 percept token + 受限 key / 首次启用时机）见报告 §四。
 5. **Mac 已做过全盘清点与归拢**：`docs/mac_asset_inventory_2026-08-09.md`；散落 17 项
    已归到 `~/Documents/lykoi/archive/`（MANIFEST 可回滚）；`stash@{0}` 是已作废的 D 层
    OCR 聚合器半成品，**不要复活**。
