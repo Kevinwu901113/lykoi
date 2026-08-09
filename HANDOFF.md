@@ -192,8 +192,9 @@ deployment_config 包新增 pip-freeze.txt 与 root-owned.tsv，下次 04:17 cro
 ③ **灾难手册已修订**（audit sink `chattr +a`、persona 0440、governance flags 实况、
 bundle `-b main`、pycache 清理、root 属主复刻，均写回 runbook_disaster_recovery.md）。
 仍待 Kevin：① 过门口径认定 / 是否真 VM 复跑（30 分钟，命令见 CLEANVM-01 report §5.1）与
-容器去留（`lxc stop` 仍卡 2 个 D 态 snapd，无害）；④ 门后开阶段 2：数据模型 +
-Delegation Gateway + S4 Secret 联合边界设计。
+容器去留（`lxc stop` 仍卡 2 个 D 态 snapd，无害）；④ **阶段 2 联合设计 v0 已成稿待评审**：
+`docs/phase2_joint_design_v0_2026-08-09.md`（数据模型×Gateway×S4 一份设计，含 6 步实施
+顺序与 5 个待 Kevin 拍板的开放问题）——v1 冻结前不动手实施。
 
 ### 交接期核查（2026-08-09，Claude 回归后对 Codex 工作的独立复核）
 
