@@ -247,7 +247,11 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
    报告 `mac/docs/WO-MAC-M1A-report.md`）：47 测试全绿、独立运行时端到端冒烟 200、
    互斥实测通过；**TCC spike 结论 = launchd 路线通**（"Lykoi Codesign" 签名的 venv
    python，仅剩系统设置两项授权待 Kevin 点）。服务默认不加载，生产路径仍是 app 内嵌。
-   待 Kevin 三件事（TCC 打勾 / 服务器发 percept token + 受限 key / 首次启用时机）见报告 §四。
+   **→ 2026-08-09 23:20 全部闭环**：TCC 两项已授权（probe 复核 true/true）；percept 专用
+   token 已发（服务器 `LYKOI_PERCEPTION_TOKEN` + Mac Keychain `percept-token`，实测
+   percept=200 / surface=401 / garbage=401——surface token 已不再能打 ingest，信任边界
+   收窄生效；app 不受影响，其上行走本地 mock）。仅剩可选项：受限 SSH key、首次
+   `service.sh load` 时机（均待 Kevin 拍板，不阻塞任何事）。
 5. **Mac 已做过全盘清点与归拢**：`docs/mac_asset_inventory_2026-08-09.md`；散落 17 项
    已归到 `~/Documents/lykoi/archive/`（MANIFEST 可回滚）；`stash@{0}` 是已作废的 D 层
    OCR 聚合器半成品，**不要复活**。
