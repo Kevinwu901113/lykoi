@@ -196,6 +196,21 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     wrapper 硬读 `order.md` 这个文件名，我一开始把续跑单写成 `order2.md`，被完全忽略。
     续跑单开头要列出上一段的产物清单与提交号，否则 Agent 会重构已经写好的代码。
 
+31. **合并后的属主还原口径是"照未触及的同目录文件对齐"，绝不是"非 guardian 一律
+    chown lykoi"**（2026-08-11，我给 Kevin 的清单里犯的）。`src/lykoi/kernel/` 是
+    `p02_harden.sh` 封印的目录：kernel 源必须 **root:root 644**，startup_verify 会验
+    属主、p0 有 sealed-host 可写性测试。盲 chown 把 S2 带来的 4 个 kernel 文件翻给
+    lykoi，三处门当场红。修复：单独 `chown root:root` 那几个文件。root 领地全名单：
+    `guardian/`（444）、`kernel/*.py`（644）、`shared/{log,redaction}.py`（644）、
+    `core/` 整包。broker/、mind/、resources/、tests/ 归 lykoi。
+
+32. **两个时钟一混，测试就是定时炸弹**（2026-08-11，S2 交付里踩的）。
+    `test_denials_are_advisory_and_expire` 用冻结时钟算"过期时刻"，但
+    `record_denial` 落的是真实时钟——2026-08-10 21:00（北京）之前跑全绿，之后永久红。
+    S 窗口复核和 L 窗口全量对照都在绿区跑的，谁都没看出来；Kevin 部署时才炸。
+    **复核涉及时间语义的测试时，专门检查：断言里的每一个时间量，锚的是哪只钟。**
+    修法是把过期锚在记录自身的时间戳上（`FIX-S2-TEST` `01a8099c`）。
+
 ---
 
 ## 五、当前进度
