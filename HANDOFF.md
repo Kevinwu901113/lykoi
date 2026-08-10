@@ -179,6 +179,22 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 27. **以 claude 身份跑 `pytest tests/test_p0_integrity.py` 会有一个假失败**
     （`PermissionError: /home/lykoi/state/approval_rules.json`，0600 读不到）。
     权威判据是以 lykoi 身份在活体跑（25 passed）。别把这个当真缺陷。
+28. **`~/bin-dispatch.sh` 必须用 `setsid nohup ... </dev/null &` 启动**（2026-08-10）。
+    WO-P2-S2 连挂四次：前三次是真网络错误（`API Error: Connection closed mid-response`），
+    **第四次是 wrapper 自己被 SIGHUP 杀了**——它附着在我的 ssh 会话上，会话一结束
+    整个进程组连坐，所以内置重试一次都没跑（`run.log` 是 0 字节，连 `retry attempt=1`
+    都没写出来）。教训 22 说的是 `claude -p` 本身，这里是 **wrapper**，同一个坑的第二层。
+    已加固：`trap "" HUP` + 启动即写 `START` 行 + 重试 5 次 + 每次 attempt 的报告单独存
+    `report.attemptN.md`（否则重试会覆盖上一次的证据）。
+    **诊断口诀：`run.log` 没 `START` = wrapper 没起来；有 `START` 无 `retry`/`EXIT`
+    = wrapper 被杀；有 `retry` 无 `EXIT` = 还在跑。**
+29. **长工单要在正文里写死"每个里程碑立刻 commit"**（2026-08-10）。教训 23 只治了
+    "以等待结束会话"，没治"网络中途断线丢一整段工作"。S2 第一段写了 521 行零提交，
+    全靠复核方手工救回。现在 wrapper 每次 attempt 后自动 `git commit`，工单里也要求
+    分段提交——两道保险。
+30. **续跑工单必须覆盖 `order.md`，且要写清"哪些已完成、不要重做"**（2026-08-10）。
+    wrapper 硬读 `order.md` 这个文件名，我一开始把续跑单写成 `order2.md`，被完全忽略。
+    续跑单开头要列出上一段的产物清单与提交号，否则 Agent 会重构已经写好的代码。
 
 ---
 

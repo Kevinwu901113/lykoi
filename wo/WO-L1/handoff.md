@@ -34,9 +34,17 @@ Kevin 决定 L1 在新窗口执行，本窗口继续 S2。本文件是新窗口�
 - **派发脚本**：`~/bin-dispatch.sh <WO-ID> <workdir> [model]`
   - model 默认 sonnet；**复杂单用 `opus`**（Kevin 2026-08-10 定：sonnet 跑不动的用 opus，
     服务器 settings 里 effort 已是 medium）
-  - 内置 3 次重试；**每次重试前自动 `git commit` 保存 WIP**（我今天补的，
-    防止网络中断丢工作）
-  - 工单必须放 `~/wo/<WO-ID>/order.md`（脚本硬读这个文件名）
+  - 内置 5 次重试；**每次 attempt 后自动 `git commit` 保存 WIP**，每次的报告存
+    `report.attemptN.md`（我 2026-08-10 加固的，防止网络中断丢工作/丢证据）
+  - ⚠️ **必须这样启动，否则 ssh 会话一结束整个进程组被 SIGHUP 杀掉、重试一次都不跑**：
+    ```
+    ssh lykoi-gov 'setsid nohup ~/bin-dispatch.sh <WO-ID> <workdir> opus </dev/null >/dev/null 2>&1 &'
+    ```
+    诊断：`run.log` 没 `START` 行 = 没起来；有 `START` 无 `retry`/`EXIT` = 被杀；
+    有 `retry` 无 `EXIT` = 还在跑。（见 HANDOFF 教训 28）
+  - 工单必须放 `~/wo/<WO-ID>/order.md`（脚本**硬读这个文件名**，续跑单要覆盖它，
+    别新建 `order2.md`——我踩过，被完全忽略）
+  - 长工单在正文里写死"每个里程碑立刻 commit"（教训 29）
 - 延时派发（撞额度上限时用）：`~/bin-delayed-dispatch.sh <WO-ID> <workdir> <model> <HH:MM>`
 - **活体当前 HEAD：`89d0247f`**（P2-01 数据模型 + P2-03A broker 已合并）
 
