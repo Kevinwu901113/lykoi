@@ -7,13 +7,16 @@
 |---|---|---|---|
 | `wo/fix-broker-clock` @ `de8d631e` | 3 行注释，修 gate 5 红灯 | ✅（35 passed） | **否**（broker 在锁外） |
 | `wo/p2-s2` @ `5ccde196` | messenger 资源 + Telegram 设备 + 审批解释器（s1a→s1b→s2 线性叠加，合它即含全部） | ✅ `wo/WO-P2-S2/review.md` | 是 |
-| `wo/l1`（+ 其上的 `wo/l3`） | 档案/原料分离 | ✅（L1 窗口） | 是 |
+| `wo/l3` @ `f4a74665`（含 `wo/l1` @ `cdd21dd0`） | 档案/原料分离 + 跨时间相关性检索（l1→l3 线性叠加，合它即含全部） | ✅ `wo/WO-L1/review.md` + `wo/WO-L3/review.md` | 是 |
 
-**顺序建议**：`fix-broker-clock` → `p2-s2` → `l1`(/`l3`)，最后**统一重签一次
+**顺序建议**：`fix-broker-clock` → `p2-s2` → `wo/l3`，最后**统一重签一次
 manifest**。中间两次合并如果在 `guardian/manifest.sha256` 上冲突，**不要手工合**——
 随便取一边，最后那次 `--write-manifest` 会把它整个重算掉。
 
-**L1/L3 的时机由 L1 窗口定**（L3 正在跑）。如果你想一次做完，等它复核完再开这次会话。
+**时机已解决（2026-08-10 晚）**：L3 复核完毕 PASS（全量 1546/18，18 条全是基线既有，
+零新增），三条分支全部就绪，**这次 root 会话随时可以开**。合并完成后同一会话建议
+顺手做停机窗口（v10+v11+L1 回填，程序见 `wo/WO-L1/review.md` §五，5 分钟）——
+省得再约一次。
 
 ---
 
@@ -62,6 +65,7 @@ deadline 都是这么标的。一次性凭证的 TTL **绝不能**跟着可步�
 4. `pytest tests/test_gate5_l1_scan.py tests/test_confab_invariant.py` → 期望 **全绿**
    （这是 §一 那条门恢复的判据）
 5. `pytest tests/test_p2_s2_approval_interpreter.py tests/test_messenger.py tests/test_telegram_device.py` → 期望全绿
+5b. `pytest tests/test_l1_experience_class.py tests/test_l3_relevance.py tests/test_core_v1_event_outbox.py` → 期望全绿（L1/L3 专项 + L1 复核修复的那条）
 6. 四服务 `systemctl is-active` + `NRestarts` 未增
 7. `curl /health` → ok
 

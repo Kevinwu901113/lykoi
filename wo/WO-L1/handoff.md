@@ -111,3 +111,8 @@ Kevin 决定 L1 在新窗口执行，本窗口继续 S2。本文件是新窗口�
   1 个复核修复），待 Kevin 以 root 合并。**尚未合并**——L1 若先合，S2 合并时须重签
   manifest；反之 L1 重签。活体回填方案见 `review.md` §五（与 v10 迁移并一个停机窗口，
   期望 `applied=2 → v11`）。
+- 2026-08-10 晚（L1 窗口）：**L3 也已执行并复核 PASS**（`wo/l3` @ `f4a74665`，基于
+  `wo/l1` 线性叠加，opus 一把过，零复核修复，全量 1546/18 零新增失败）。**Kevin 已把
+  两条 lane 全部交给本窗口**（S 线窗口收工）。合并事项统一见
+  `wo/WO-P2-MERGE/package.md`（顺序：fix-broker-clock → p2-s2 → wo/l3，统一重签一次）。
+  下一步：Kevin root 会话（合并 + 停机窗口）→ 量 `working_set_pending` 实测 → 派 L2。
