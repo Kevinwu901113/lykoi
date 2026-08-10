@@ -73,7 +73,32 @@ guardian/manifest 保持 `root:root 444` → 以 lykoi 身份跑 startup_verify 
 `messenger.send` 默认走审批，会造成死锁：**她要回复你得先请求审批，而请求审批靠发消息**。
 S2 实现了初始化函数，部署时调用一次即可（以 lykoi 身份，不需要 root）——
 效果：回复/主动找**已绑定所有者**免询；发给**新收件人**仍走"问一次"。
-具体命令待 S2 验收后补入本文件。
+
+```bash
+ssh lapw1ng.com 'cd /home/lykoi/projects/lykoi && PYTHONPATH=src .venv/bin/python -c "
+from lykoi.kernel import approval
+print(approval.bootstrap_owner_preauthorization())"'
+```
+
+**期望**：`{"owner_user_id": "user_001", "granted": ["messenger.send@user:user_001"], "already": []}`。
+幂等——重复执行第二次会变成 `granted: []` / `already: [...]`，不会叠出第二行。
+**前提**：第 1 步迁移与第 2 步绑定都已完成（它读 `users` 表的 `owner_primary` 行；
+没有所有者就什么都不授，并如实返回 `owner_user_id: None`）。
+**撤销**：`approval.revoke_standing("messenger.send", "user:user_001")`。
+
+## ⚠️ 第 3d 步 · 接线单 S3（新增，2026-08-10 复核 S2 时发现）
+
+**合并 S1A+S1B+S2 之后，对话式审批在 Telegram 上仍然不会跑起来。**
+S2 交付的 `handle_answer` 目前**只有测试在调**，`question_message_id`（归属消歧最强的
+信号）没有任何代码在写，唯一的 `enqueue_pending` 调用点是既有 `/chat` 路径。
+详见 `wo/WO-P2-S2/review.md` §四。
+
+S3 要接的环：`dispatch` 判到 `ask` → 经 messenger 向所有者发问并 `enqueue_pending`
+（带 `question_message_id`）→ telegram_device 收到回复 → 调 `handle_answer` →
+按 outcome 发追问 / 执行 / 记拒绝。
+
+**顺序上它可以排在第 4 步之后**：先让通道通（她能收发、回复所有者免询），
+再接审批环。不接的后果不是崩，是"发给新收件人"这条路一直挂在 `ask` 上没人应答。
 
 ## 第 4 步 · 部署 Telegram 设备（等 S1B/S2 验收通过后）
 
