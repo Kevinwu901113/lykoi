@@ -60,7 +60,22 @@ python3 guardian/startup_verify.py --write-manifest && chown root:root guardian/
 **期望**：`patched` → `startup_verify: OK` → `GATE_OK`。
 **回滚**：`chmod u+w guardian guardian/policy_core.py && cp /root/policy_core.py.bak guardian/policy_core.py && python3 guardian/startup_verify.py --write-manifest && chown root:root guardian/policy_core.py guardian/manifest.sha256 && chmod 444 guardian/policy_core.py guardian/manifest.sha256 && chmod 555 guardian`
 
-## 第 4 步 · 部署 Telegram 设备（等 S1B 验收通过后）
+## 第 3b 步 · 合并三个 messenger 分支（root，触及 resources/mind/manifest）
+
+`wo/p2-s1a`（资源层）→ `wo/p2-s1b`（Telegram 设备）→ `wo/p2-s2`（审批解释器）
+是线性叠加的（后者基于前者），**合并最后一个即含全部**。
+做法同 P2-01：root 执行 merge → 还原非 guardian 文件属主为 `lykoi:lykoi 644` →
+guardian/manifest 保持 `root:root 444` → 以 lykoi 身份跑 startup_verify + p0。
+（合并前我会先跑一次全量 pytest 并给出对照结论。）
+
+## 第 3c 步 · 初始预授权（否则她连回复都发不出去）
+
+`messenger.send` 默认走审批，会造成死锁：**她要回复你得先请求审批，而请求审批靠发消息**。
+S2 实现了初始化函数，部署时调用一次即可（以 lykoi 身份，不需要 root）——
+效果：回复/主动找**已绑定所有者**免询；发给**新收件人**仍走"问一次"。
+具体命令待 S2 验收后补入本文件。
+
+## 第 4 步 · 部署 Telegram 设备（等 S1B/S2 验收通过后）
 
 - 合并 `wo/p2-s1b`（触及 `resources/` + manifest → 需 root，同 P2-01 的做法）
 - 安装 `lykoi-telegram.service`（`EnvironmentFile=/home/lykoi/secrets/im.env` 已就位，
