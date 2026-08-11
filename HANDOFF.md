@@ -204,6 +204,20 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     `guardian/`（444）、`kernel/*.py`（644）、`shared/{log,redaction}.py`（644）、
     `core/` 整包。broker/、mind/、resources/、tests/ 归 lykoi。
 
+31b. **改"取料/入队"这类语义的工单，必跑清单不能手挑**（2026-08-11，WO-L2 复核揪出
+    20 条漏网失败、两轮才修净）。integrator 邻接的**全部**套件（pipeline/trigger/
+    telemetry/concern_floor/confab/p4r*/perception_ingest/数据模型迁移）都得进清单——
+    漏的恰是没挑进去的。另两条复核采证纪律同案：①复核方全量 pytest **必须串行**，
+    两个全量并发会互相污染 `test_core_v1_shadow`（epoch/artifact 竞争，2→6 假红）；
+    ②保存**完整** short summary（`tail -25` 截掉过 41 条里的 17 条，多花了一整轮）。
+
+31c. **链相对的迁移冻结（`MIGRATIONS[:-1]`）是定时漂移**（2026-08-11 第二次咬人）。
+    测试要冻结历史 schema，冻结点必须写**绝对版本**（如 `[:10]`）——链每长一版，
+    相对冻结就换一次含义；v11、v12 各咬过一口。同理：dispatch 白名单必须包含工单
+    强制的命令前缀（`timeout` 缺席让 WO-S3 无头卡死一轮，已补）；wrapper 的
+    `EXIT=0` 判据识别不了"权限求助式结束"，**复核必须查 diff 里有没有测试与
+    manifest，不能只看退出码**。
+
 32. **两个时钟一混，测试就是定时炸弹**（2026-08-11，S2 交付里踩的）。
     `test_denials_are_advisory_and_expire` 用冻结时钟算"过期时刻"，但
     `record_denial` 落的是真实时钟——2026-08-10 21:00（北京）之前跑全绿，之后永久红。
