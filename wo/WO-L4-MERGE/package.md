@@ -1,8 +1,10 @@
-# 合并包 3 · 2026-08-12 · L4 层 2 专注思考（给 Kevin，root 执行）
+# 合并包 3 · 2026-08-12 · L4 层 2 专注思考 + OBS-LLM usage 记账（给 Kevin，root 执行）
 
-复核 **PASS**：**`wo/l4` @ `3a29112c`**（[review](../WO-L4/review.md),含 1 个
-复核者补丁:test_persona 白名单认可 focus.py 为受治理写者;分支尖已清杂物,
-直接合并)。bundle：`/tmp/lykoi-merge-l4-20260812.bundle`。
+两单复核 **PASS**：**`wo/l4` @ `3a29112c`**（[review](../WO-L4/review.md),含 1 个
+复核者补丁:test_persona 白名单认可 focus.py 为受治理写者)、
+**`wo/obs-llm` @ `5c63187a`**（[review](../WO-OBS-LLM/review.md),叠在 wo/l4 上,
+llm_call 事件补 usage 四数,零行为)。
+bundle：`/tmp/lykoi-merge-l4-20260812.bundle`（含两 ref,60KB,644）。
 
 合并后效果：她有了**回头想**的能力——每晚层 1 消化之后,层 2 挑一个关切,
 跨时间调回档案与已消化经验深挖一步,产出带血缘的结论（影子期 2 周期后转正,
@@ -22,11 +24,11 @@ cd /home/lykoi/projects/lykoi && git status --porcelain && echo TREE_CLEAN
 ## 第 A 步 · 合并（root）
 
 ```bash
-cd /home/lykoi/projects/lykoi && chmod u+w guardian && git fetch /tmp/lykoi-merge-l4-20260812.bundle '+refs/heads/wo/l4:refs/heads/wo/l4' && git tag rollback-pre-l4-20260812
+cd /home/lykoi/projects/lykoi && chmod u+w guardian && git fetch /tmp/lykoi-merge-l4-20260812.bundle '+refs/heads/wo/*:refs/heads/wo/*' && git tag rollback-pre-l4-20260812
 ```
 
 ```bash
-cd /home/lykoi/projects/lykoi && git -c user.name="Kevin" -c user.email="kevin20011113@gmail.com" merge --no-ff --no-edit wo/l4
+cd /home/lykoi/projects/lykoi && git -c user.name="Kevin" -c user.email="kevin20011113@gmail.com" merge --no-ff --no-edit wo/l4 && git -c user.name="Kevin" -c user.email="kevin20011113@gmail.com" merge --no-ff --no-edit wo/obs-llm
 ```
 
 **若在 `guardian/manifest.sha256` 报冲突**——不要手工合,取主干侧继续,B 步统一重签：
@@ -53,10 +55,11 @@ cd /home/lykoi/projects/lykoi && python3 guardian/startup_verify.py --write-mani
 ## 第 C 步 · 测试（lykoi 身份）
 
 ```bash
-sudo -u lykoi bash -c 'cd /home/lykoi/projects/lykoi && .venv/bin/python -m pytest -q tests/test_p0_integrity.py tests/test_l4_focus.py tests/test_persona.py tests/test_l2_intake.py'
+sudo -u lykoi bash -c 'cd /home/lykoi/projects/lykoi && .venv/bin/python -m pytest -q tests/test_p0_integrity.py tests/test_l4_focus.py tests/test_persona.py tests/test_p0_llm_client.py tests/test_l2_intake.py'
 ```
 
-**期望：全绿**（test_l4_focus 43 条 + test_persona 10 条,其余按既有基线）。
+**期望：全绿**（test_l4_focus 43 条 + test_persona 10 条 + test_p0_llm_client 23 条,
+其余按既有基线）。
 
 ## 第 D 步 · 重启四服务（root,_V13 随启动自动落库——五张空表+一个计数键,瞬时,无回填）
 
@@ -74,6 +77,8 @@ sudo -u lykoi sqlite3 /home/lykoi/state/memory.db "SELECT MAX(version) FROM mind
 
 之后不用做任何事:层 2 与层 1 同节律,**今晚**她的第一个专注思考周期会自己来
 （audit 里出现 `focus_cycle_opened` / `autonomy_focus`）,我明天看台账。
+OBS-LLM 的 usage 四数从重启时刻起按 route 入账,**1 天基线观察期同时起算**,
+我明天读数、写基线报告(cache 观察方案第 2 步)。
 
 ## 回滚
 
