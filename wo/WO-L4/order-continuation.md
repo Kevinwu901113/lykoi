@@ -6,6 +6,8 @@
 - `a581dc1a`：层 2 状态层——`_V13` 五张影子表 + store 单写者接口
 - `c99c171e`：层 2 本体——周期骨架 + 选择策略（owner_directed 优先 + user_001
   硬规则）+ 血缘 + 反刍防护
+- `68bce35d`：测试骨架（合成 fixture + 八条判据分节）
+- `18155b0b` / `c855617e` / `33281c9f`：判据①②③的测试**已写完并提交**
 
 原单在 git 历史（`~/wo/WO-L4/` 早前版本）与下方要点里；设计基准
 `~/learning_layer_v2_design_2026-08-10.md` §3.4/3.5/3.7。
@@ -15,7 +17,7 @@
 1. 读一遍两个提交确认落盘完整（`git show --stat`），有半成品文件先收尾并 commit。
 2. **写测试套件**（上一段五次都倒在这：先 commit 空骨架再逐段补，每写完一个
    criterion 段落就 `git commit` 一次——网络中断时不再丢整文件）：
-   覆盖原单八条 success_criteria：
+   **只需补判据④⑤⑥⑦⑧**（①②③已完成，不要重写）：
    ① 周期端到端（mock LLM，insight+血缘+状态更新；无关切空转零调用）
    ② 选择策略（owner_directed 压倒 lit_count；冷却跳过；M=3 user_001 硬规则；确定性）
    ③ 血缘可回溯到 experience id
