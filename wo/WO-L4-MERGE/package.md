@@ -1,12 +1,8 @@
-# 合并包 3 · 2026-08-12 · L4 层 2 专注思考（给 Kevin，root 执行）【草稿·待复核终审后定稿】
+# 合并包 3 · 2026-08-12 · L4 层 2 专注思考（给 Kevin，root 执行）
 
-> 状态：**草稿**。全量 pytest 复核与 manifest 重算还在跑；PASS 后我会把
-> bundle 路径、最终 ref 与本文件定稿,并去掉本横幅。若 OBS-LLM 赶上同批,
-> 会在 A 步并入第二个 ref。
-
-复核基线：**`wo/l4` 有效提交 `063649a9`**（[review](../WO-L4/review.md)）。
-注意分支尖上有一个 `[WIP]` 提交（a6af20cd,只是两个清单脚本杂物）,
-**不并入**——bundle 用 `wo/l4-release` ref 指到 `063649a9`。
+复核 **PASS**：**`wo/l4` @ `3a29112c`**（[review](../WO-L4/review.md),含 1 个
+复核者补丁:test_persona 白名单认可 focus.py 为受治理写者;分支尖已清杂物,
+直接合并)。bundle：`/tmp/lykoi-merge-l4-20260812.bundle`。
 
 合并后效果：她有了**回头想**的能力——每晚层 1 消化之后,层 2 挑一个关切,
 跨时间调回档案与已消化经验深挖一步,产出带血缘的结论（影子期 2 周期后转正,
@@ -26,11 +22,11 @@ cd /home/lykoi/projects/lykoi && git status --porcelain && echo TREE_CLEAN
 ## 第 A 步 · 合并（root）
 
 ```bash
-cd /home/lykoi/projects/lykoi && chmod u+w guardian && git fetch /tmp/lykoi-merge-l4-20260812.bundle '+refs/heads/wo/l4-release:refs/heads/wo/l4-release' && git tag rollback-pre-l4-20260812
+cd /home/lykoi/projects/lykoi && chmod u+w guardian && git fetch /tmp/lykoi-merge-l4-20260812.bundle '+refs/heads/wo/l4:refs/heads/wo/l4' && git tag rollback-pre-l4-20260812
 ```
 
 ```bash
-cd /home/lykoi/projects/lykoi && git -c user.name="Kevin" -c user.email="kevin20011113@gmail.com" merge --no-ff --no-edit wo/l4-release
+cd /home/lykoi/projects/lykoi && git -c user.name="Kevin" -c user.email="kevin20011113@gmail.com" merge --no-ff --no-edit wo/l4
 ```
 
 **若在 `guardian/manifest.sha256` 报冲突**——不要手工合,取主干侧继续,B 步统一重签：
@@ -57,10 +53,10 @@ cd /home/lykoi/projects/lykoi && python3 guardian/startup_verify.py --write-mani
 ## 第 C 步 · 测试（lykoi 身份）
 
 ```bash
-sudo -u lykoi bash -c 'cd /home/lykoi/projects/lykoi && .venv/bin/python -m pytest -q tests/test_p0_integrity.py tests/test_l4_focus.py tests/test_l2_intake.py'
+sudo -u lykoi bash -c 'cd /home/lykoi/projects/lykoi && .venv/bin/python -m pytest -q tests/test_p0_integrity.py tests/test_l4_focus.py tests/test_persona.py tests/test_l2_intake.py'
 ```
 
-**期望：全绿**（test_l4_focus 43 条,前两个文件按既有基线）。
+**期望：全绿**（test_l4_focus 43 条 + test_persona 10 条,其余按既有基线）。
 
 ## 第 D 步 · 重启四服务（root,_V13 随启动自动落库——五张空表+一个计数键,瞬时,无回填）
 

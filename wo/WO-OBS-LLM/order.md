@@ -1,7 +1,8 @@
 # WO-OBS-LLM · llm_call 事件补记 usage 四数（纯附加，零行为）
 
-你是 Lykoi 项目的执行 Agent，在 `~/lykoi-work-l1`（分支 `wo/obs-llm`，基于活体 main
-最新提交，worktree 与 `.venv` 已备好）实现。
+你是 Lykoi 项目的执行 Agent，在 `~/lykoi-work-l1` 实现。
+**先 `git checkout -b wo/obs-llm wo/l4`**（基 `3a29112c`,已复核 PASS 的 L4 尖,
+两单将同批合并;`.venv` 已备好）。
 背景与全景：`~/llm_cache_observability_plan_2026-08-11.md`（本单是其中第 1 步）。
 
 ## 报告纪律
