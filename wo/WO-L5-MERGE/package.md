@@ -1,7 +1,8 @@
 # 合并包 4 · 2026-08-12 · L5 规则建议队列——学习层 v2 收官（给 Kevin，root 执行）
 
-复核 **PASS**：**`wo/l5` @ `0310741c`**（[review](../WO-L5/review.md),基
-`wo/obs-llm`=已在活体 main 内）。bundle：`/tmp/lykoi-merge-l5-20260812.bundle`。
+复核 **PASS**：**`wo/l5` @ `71a72720`**（[review](../WO-L5/review.md),含 1 个
+复核者补丁——逆迁移梯子补 v14 级;基 `wo/obs-llm`=已在活体 main 内）。
+bundle：`/tmp/lykoi-merge-l5-20260812.bundle`（41KB,644）。
 
 合并后效果：§3.8 门阶梯最高一级收口。她的产物一旦触到**她自己的权限边界**
 (以及反刍防护的"建议释放"),只能排进建议队列、经 Telegram 问你;你点头之后
