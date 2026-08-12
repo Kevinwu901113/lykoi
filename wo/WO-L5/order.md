@@ -1,7 +1,10 @@
 # WO-L5 · 门阶梯收口 + 规则建议队列（接 messenger 问 Kevin）
 
 你是 Lykoi 项目的执行 Agent，在 `~/lykoi-work-l1` 工作。
-**基分支 `wo/l4`**（先 `git checkout -b wo/l5 wo/l4`）。
+**基分支 `wo/obs-llm`**（先 `git checkout -b wo/l5 wo/obs-llm`，尖 `5c63187a`,
+= 已合并进活体 main 的最新复核基线,manifest 105 条口径）。
+执行纪律:**一切命令前台串行执行,禁止后台(&)、禁止 sleep 等待、禁止
+"稍后继续"式收尾**;每完成一条判据就 git commit(棘轮,网络断了不丢)。
 设计基准：`~/learning_layer_v2_design_2026-08-10.md` §3.5（死亡/建议释放）、§3.8（门阶梯）。
 这是学习层 v2 的最后一单。
 
