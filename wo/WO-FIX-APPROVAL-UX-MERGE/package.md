@@ -36,7 +36,7 @@ cd /home/lykoi/projects/lykoi && git checkout --ours guardian/manifest.sha256 &&
 ## 第 B 步 · 属主还原 + 统一重签(期望 owners_done → 107 files → OK → GATE_OK)
 
 ```bash
-cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-fixux-20260812..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | xargs -r chown lykoi:lykoi && chmod 644 src/lykoi/kernel/approval_conversation.py src/lykoi/kernel/approval_interpreter.py && chown root:root src/lykoi/kernel/approval_conversation.py src/lykoi/kernel/approval_interpreter.py && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
+cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-fixux-20260812..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | grep -v '^src/lykoi/core/' | xargs -r chown lykoi:lykoi && chmod 644 src/lykoi/kernel/approval_conversation.py src/lykoi/kernel/approval_interpreter.py && chown root:root src/lykoi/kernel/approval_conversation.py src/lykoi/kernel/approval_interpreter.py && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
 ```
 
 ```bash

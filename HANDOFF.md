@@ -263,6 +263,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     **复核清单新增一问:这单新增了哪些路径常量?每一个在 conftest 里有默认值吗?**
     回归守卫已落地:`test_no_state_path_constant_points_at_the_live_state_dir`。
 
+37. **合并包 B 步的属主排除清单必须含 `src/lykoi/core/`**(2026-08-13,合并包 10
+    实际踩了)。`startup_verify._check_perms` 把 **kernel 与 core 同级**当作封存的
+    导入边界:目录与目录下每个 `.py` 都要 root 属主、不可组/他人写(理由是可写的
+    `.pyc` 会 shadow `.py`,是代码注入面)。此前六个包的 B 步只排除
+    `^guardian/` 与 `^src/lykoi/kernel/`——因为没有一个包动过 `core/`,漏洞一直
+    没暴露;销账批 3 改了 `core/shadow.py`,`chown lykoi:lykoi` 之后启动门当场
+    FAIL(`not root-owned (uid 1000)`)。**八份合并包模板已统一补上第三条排除。**
+    症状与修法:`startup_verify: FAIL: .../core/xxx.py: not root-owned` →
+    `chown root:root` 该文件 + `chmod 644` + 清 `core/__pycache__` → 重跑门。
+
 ---
 
 ## 五、当前进度

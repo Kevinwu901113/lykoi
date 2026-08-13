@@ -48,7 +48,7 @@ kernel 领地,**保持 root:root**(合并即 root 写入,下面的 chown 明确�
 `src/lykoi/mind/suggestions.py` 等其余归 lykoi。
 
 ```bash
-cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-l5-20260812..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | xargs -r chown lykoi:lykoi && chmod 644 src/lykoi/kernel/suggestion_conversation.py && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
+cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-l5-20260812..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | grep -v '^src/lykoi/core/' | xargs -r chown lykoi:lykoi && chmod 644 src/lykoi/kernel/suggestion_conversation.py && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
 ```
 
 ```bash

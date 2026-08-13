@@ -41,7 +41,7 @@ cd /home/lykoi/projects/lykoi && git checkout --ours guardian/manifest.sha256 &&
 `approval_conversation.py`，合并即 root 写入，无需动）/ 其余归 lykoi。
 
 ```bash
-cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-l2s3-20260811..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | xargs -r chown lykoi:lykoi && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
+cd /home/lykoi/projects/lykoi && git diff --name-only rollback-pre-l2s3-20260811..HEAD | grep -v '^guardian/' | grep -v '^src/lykoi/kernel/' | grep -v '^src/lykoi/core/' | xargs -r chown lykoi:lykoi && find src tests -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null; echo owners_done
 ```
 
 ```bash
