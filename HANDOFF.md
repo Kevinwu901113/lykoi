@@ -253,6 +253,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     此后三次中断都自愈。**不必再拆单**——条目就此销账,避免下一个 Agent
     照旧文再发明一次流程。
 
+36. **新增"落在 state 目录的路径常量",同一提交必须补 `tests/conftest.py` 的
+    默认表**(2026-08-13,代价是一次用户可见事故)。接嘴单加了
+    `OUTBOX_CURSOR_PATH`,conftest 没跟上,`test_telegram_device.py` 里四个真跑
+    `run_forever` 的用例其夹具也没 patch 它。**合并包的测试步是以 lykoi 身份
+    在活体仓里跑的**——于是测试把游标(0)写进活体
+    `/home/lykoi/state/telegram_outbox.cursor`,重启后设备从头扫账,把 8 月初的
+    陈货投给了 Kevin(工单 §forbidden 明令禁止的那件事)。
+    **复核清单新增一问:这单新增了哪些路径常量?每一个在 conftest 里有默认值吗?**
+    回归守卫已落地:`test_no_state_path_constant_points_at_the_live_state_dir`。
+
 ---
 
 ## 五、当前进度
