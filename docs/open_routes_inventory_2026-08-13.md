@@ -22,7 +22,7 @@
 | 2 学习链路 | integrator 晋升作业(autonomy_notes→insights 带血缘) | ⚠️ **部分**:L4 走的是经验→insight 的血缘链,`autonomy_notes` 这条原料线仍未接 |
 | 3 **Gateway 最小闭环** | contracts/receipts 表 + `delegation.*` 资源 + T1 Runner + broker handle | ❌ **未做**。只有 broker(P2-03A)落了;活体 resources/ 无 delegation。首个真实委托任务(lykoi-ui 小修)从未发生 |
 | 4 shadow.db 解钉 | evaluation_kind 出现非 legacy 值、来源=收据 | ❌ 未做(`core/shadow.py` 仍 `CHECK(evaluation_kind='unassessed_legacy')`),依赖第 3 步 |
-| 5 感知服务器侧 | percept_buffer + ingest + 保留期作业 | ⚠️ 代码在(`mind/percept_buffer.py` 用独立库 `state/percept_buffer.db` 的 `percept_events` 表,非 memory.db;ingest 端点带 token 门)——但见 C1,**上游断着**,库内是否有数据待读 |
+| 5 感知服务器侧 | percept_buffer + ingest + 保留期作业 | ❌ **代码是孤儿**(2026-08-13 实测):`mind/percept_buffer.py` 在 src 里**零调用者**,活体 `state/percept_buffer.db` 无 `percept_events` 表(从未初始化);真正在用的是旧路 `surface/perception.py` ingest v0.2 → `mind_store.record_environment_event`。协定 v0.3(activity_summary)与保留期作业均未做。上游又断(C1),整条感知线实际停摆 |
 | 6 群聊语境 | 读路径 + 三级脱敏 + 引用审计 | ❌ 未做(活体无 group_chat 代码);白皮书 5.4/12 的 [PLANNED] 同源 |
 
 ## C. 断了没人管的(已建成但当前不工作)
@@ -38,10 +38,13 @@
   daily.log 末行 `offsite skipped: rsync target unreachable` —— **异地腿自 8-07
   起持续 skip**(D2 待你定目标)。Mac 拉取腿今天两次 rc=255 是断网 DNS 失败,
   下次醒着自愈;我先前"产物停更两天"的判断源于 Mac 侧副本陈旧,**已作废**。
-- **C3 · salience 影子期:时间门早已满足,没人去申请放行**。实测起点
-  2026-07-10,已跑 **34 天**(门槛 ≥14 天),shadow_log 1768 行、selected 719。
-  另一半门槛"全局吸收率 ≥5%"= `outcome='success'` / `selected`,尚未读数;
-  两条都满足则进 prereg §4 的第 ⑤ 步(Codex 放行门审计)→ live。
+- **C3 · salience 影子期:两条门槛都远远超标,没人去申请放行**(2026-08-13 实测)。
+  起点 2026-07-10,已跑 **34 天**(门槛 ≥14);selected 721、success 675,
+  **吸收率 93.6%**(门槛 ≥5%)。按 prereg §4 启动顺序,现在该走第 ⑤ 步
+  (Codex 放行门审计)→ ⑥ live。
+  附带观察(不阻塞):93.6% 意味着"被选中的经验几乎总能被 nightly 吸收",
+  奖励信号几乎恒正 —— bandit 学不到区分度。放行门审计时应一并看这个数是
+  说明策略已足够好,还是说明 reward 锚太松。
 
 ## D. 挂着的门与待你拍板项(非工程)
 
