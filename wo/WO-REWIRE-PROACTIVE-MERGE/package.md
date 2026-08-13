@@ -1,9 +1,10 @@
 # 合并包 8 · 2026-08-13 · 接嘴(她的主动发言接到真躯体上)
 
-复核状态:**代码审读通过 + 邻接 116 全绿 + manifest 107 独立重算干净**;
-权威全量串行**在跑**,结果落定后本页顶部会补一行结论(见 [review](../WO-REWIRE-PROACTIVE/review.md))。
-分支 `wo/rewire-proactive`(4 commits,基 `wo/u1` @ `70ac7394`),
-bundle 待复核 PASS 后生成。
+复核 **PASS**:**`wo/rewire-proactive` @ `9703e977`**([review](../WO-REWIRE-PROACTIVE/review.md))。
+全量串行 52 分钟:**14 failed / 1839 passed / 6 skipped** = 已知基线逐条一致,零新增;
+新增测试 20 条全绿,邻接 116 全绿;manifest 107 独立重算干净。
+分支基 `wo/u1` @ `70ac7394`(= 合并包 7),
+bundle:`/tmp/lykoi-merge-rewire-20260813.bundle`(24KB)。
 
 内容:①telegram 设备在长轮询间隙消费 `chat_outbox`,只投 `proactive`/`followup`,
 `approval_request`(旧 surface 遗物)记 `chat_outbox_skipped` 后跳过;
