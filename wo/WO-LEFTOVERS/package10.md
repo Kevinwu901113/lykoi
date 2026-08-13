@@ -115,3 +115,17 @@ lykoi-core **会拒绝启动并报错**——那正是本次要修的 fail-open,
 
 `git reset --hard rollback-pre-fixcursor-20260813` → 重跑 B 步 → 重启五服务。
 无迁移;游标文件保持不变。
+
+## 事后权威全量(2026-08-13 23:00 起,空闲机器,53 分钟)
+
+**3 failed / 1852 passed / 6 skipped**,三条全是已知基线(2 条 `redaction._SECRETS`
++ 1 条治理副本读不到 `approval_rules.json`,活体侧该条为绿)。**对比合并前 14 条:
+11 条权限位噪音消失,今晚五批改动零新增失败。**
+
+活体实弹同日收官:B 步 `GATE_OK`(core/kernel 全 root 属主)、C 步 2 failed /
+122 passed、五服务 active + health ok、游标稳在 42(测试隔离修复生效)。
+陈货统计 29 条已投,其中 **4 条 `proactive`**(id 12/30/31/32)——按
+`docs/owner_correction_draft_2026-08-13.md` A 版由 Kevin 向她口头更正。
+
+> 教训 38(HANDOFF):C 步那批 shadow 用例对负载极敏感,治理侧在 Kevin 实弹期间
+> 跑任何测试都会把它污染成 7–8 条连锁失败。机器空闲后连测两遍均为 2 failed / 50 passed。
