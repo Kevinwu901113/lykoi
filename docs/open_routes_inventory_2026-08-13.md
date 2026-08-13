@@ -22,7 +22,7 @@
 | 2 学习链路 | integrator 晋升作业(autonomy_notes→insights 带血缘) | ⚠️ **部分**:L4 走的是经验→insight 的血缘链,`autonomy_notes` 这条原料线仍未接 |
 | 3 **Gateway 最小闭环** | contracts/receipts 表 + `delegation.*` 资源 + T1 Runner + broker handle | ❌ **未做**。只有 broker(P2-03A)落了;活体 resources/ 无 delegation。首个真实委托任务(lykoi-ui 小修)从未发生 |
 | 4 shadow.db 解钉 | evaluation_kind 出现非 legacy 值、来源=收据 | ❌ 未做(`core/shadow.py` 仍 `CHECK(evaluation_kind='unassessed_legacy')`),依赖第 3 步 |
-| 5 感知服务器侧 | percept_buffer + ingest + 保留期作业 | ✅ 代码在(`mind/percept_buffer.py`、ingest 端点带 token 门)——但见 C1,**上游断着** |
+| 5 感知服务器侧 | percept_buffer + ingest + 保留期作业 | ⚠️ 代码在(`mind/percept_buffer.py` 用独立库 `state/percept_buffer.db` 的 `percept_events` 表,非 memory.db;ingest 端点带 token 门)——但见 C1,**上游断着**,库内是否有数据待读 |
 | 6 群聊语境 | 读路径 + 三级脱敏 + 引用审计 | ❌ 未做(活体无 group_chat 代码);白皮书 5.4/12 的 [PLANNED] 同源 |
 
 ## C. 断了没人管的(已建成但当前不工作)
@@ -33,11 +33,15 @@
   但从未 load。→ **WO-MAC-UPLINK-01 的工单还躺在仓里没派**(只有 order.md),
   服务器 v0.3 协定与 WO-MAC-PERC-03 也都是空目录。
   她的"眼睛"从 8 月 9 日改造后就没睁开过。
-- **C2 · 服务器日备份两天没产物**:最新归档 `20260811T201701Z`,8-12、8-13 空缺;
-  且 daily.log 末行是 `offsite skipped: rsync target unreachable`(异地腿自 8-07 死)。
-  Mac 拉取腿今天两次 FAILED(rc=255)是今天断网所致,可自愈;但**产物本身停更**要查。
-- **C3 · salience 影子期**:放行条件 ≥14 天 + 全局吸收率 ≥5%(phase5 prereg §4)。
-  计时起点与当前吸收率需读 sidecar 才知道,**没人在看这个钟**。
+- **C2 · 备份:本体健康,只有异地腿死**(2026-08-13 实测更正)。服务器日备份
+  `offsite_backup.sh`(cron 04:17)正常出产物,最新 `20260812T201701Z`;
+  daily.log 末行 `offsite skipped: rsync target unreachable` —— **异地腿自 8-07
+  起持续 skip**(D2 待你定目标)。Mac 拉取腿今天两次 rc=255 是断网 DNS 失败,
+  下次醒着自愈;我先前"产物停更两天"的判断源于 Mac 侧副本陈旧,**已作废**。
+- **C3 · salience 影子期:时间门早已满足,没人去申请放行**。实测起点
+  2026-07-10,已跑 **34 天**(门槛 ≥14 天),shadow_log 1768 行、selected 719。
+  另一半门槛"全局吸收率 ≥5%"= `outcome='success'` / `selected`,尚未读数;
+  两条都满足则进 prereg §4 的第 ⑤ 步(Codex 放行门审计)→ live。
 
 ## D. 挂着的门与待你拍板项(非工程)
 
@@ -52,6 +56,62 @@
 - **D5 · 巩固平面 §6 的道 C**(事后判断级)与第 5 项(显著性放行重估):道 B(L4)、
   道 D(L5)已上线,这两条还没排期。
 - **D6 · scripts/patches/root_apply.sh 权限 0775→755**:小尾巴,需 root 侧动手。
+
+## F. 工单复核里的「遗留」条目(全 45 单 32 份 review 通扫,2026-08-13)
+
+**仍未认领 33 条**(已被后续单吸收的 22 条、明确裁定不修的 3 条不列)。
+按性价比排序,同类合并:
+
+**F1 · 横跨全线的噪音源(最该先清)**
+- 权限位 `0o755` vs 磁盘 `0o775`:10 个 rollout 用例硬断言,自 `WO-P2-01/review.md`
+  提出后**每一张单的全量都中招**(L1/L4/OBS-LLM/U0/U1 逐单复现),每次复核都要
+  重新归因一次,还污染 gate5 类真信号。具体动作 = 工作克隆里 `chmod 755`
+  (claude 无权,需权限侧)+ 让测试对两种模式宽容。
+
+**F2 · 安全/部署缺口(4 条)**
+- **SSRF 残余是孤儿项**:`WO-FIX-SEC-03` 自陈三项残余(新 popup/worker target 不
+  覆盖、代理侧 DNS 无法由 URL guard 证明、CDP 重连窗口),原本承接的
+  `WO-DESIGN-SEC-03` 被你取消后**没有指定新承接方**。
+- **S4a 上线门四条活体验证从未做**(`/proc/<pid>/environ` 读不到 key、直连
+  api.deepseek.com 被拒、经 handle 反代成功且有审计、合同过期票据失效)——
+  当前只完成代码与单测层面。
+- **broker 从未部署**:独立用户 `lykoi-broker`、service 单元(草稿 User 占位)、
+  票据持久化(现内存,重启即失效)。
+- `events.jsonl` 文件权限现状**至今未核实**(SEC-01 的待办 checkbox 未勾)。
+
+**F3 · 备份/DR(9 条)**
+- 备份脚本 `2>/dev/null` 吞掉 sqlite3 真实 stderr,失败一律写 "(database locked)"
+  ——磁盘满会被误导;
+- 备份失败告警**未接通知队列**(只落日志),RESTORE-01 复核重提过一次;
+- `cp` 快照 JSONL 末行可能截断(已降格为手册"已知限制");
+- `events.jsonl` 无轮转、单调增长(BASE-05 独立证实);
+- 跨账户交付仍走 `/tmp` bundle(GitHub 部署密钥装上可改走 GitHub);
+- 恢复演练**未纳入例行**(建议每月 cron + 每次大重构前);
+- 灾难手册三处待修订(bundle 无 HEAD 必须 `clone -b main`——**真 DR 时会拿到空
+  工作树**;审计正本需 `chattr +a`;persona 属主/flags 数目与活体不符);
+- 真 VM 复跑过门待你定(演练跑在 LXD 容器,共享生产内核);
+- 演练容器 `rehearsal` 与意外装上的 LXD snap 去留待你定。
+
+**F4 · 学习层/认知(8 条)**
+- `memory_scopes` **只有读侧没有写侧**(回填全 user_001、`create_concern` 不写
+  作用域)→ §7.2 防自恋硬规则今天选择力弱;
+- `standing_grant` 种类**无入队来源**(她还没有"这类事你总是批准"的观察机器);
+- 建议问询与主动开口**共享每日 1 条预算**("想问"挤占"想说"),是否分池待数据;
+- L2 观察期触发条件(K=30 重标)、层 2 两本账口径差(advanced vs no_progress)
+  两个观察项**没人在读数**;
+- v8 语义整备单未开(冻结点被两次止血);
+- U1 展示条目同轮二次装配消失(U3 后自然消亡);未送达账本无自动重投(接嘴单
+  已在 forbidden 里明确排除,属设计内)。
+
+**F5 · 审批/流程/Mac(11 条)**
+- 字面快通道只覆盖「执行」「不要」,「批准/同意」仍依赖 LLM——**扩不扩大字面集
+  是你的行为决策**;
+- S3 一条测试注释错位(挪一行的事);
+- **白皮书未随工单投放**(BASE-04 提出后再没落实,执行 Agent 只能靠工单转述对齐);
+- BASE-01 的 5 项待核实只有 1 项被间接触及;环境变量清单是下限非全集;
+- Mac:`speech_locales` 应从 standalone schema 移除(一行,让"音频硬边界"字面为真)、
+  M1A 报告措辞订正、**启用感知服务的三件前置**(TCC 两处打勾 / 服务器发 percept
+  token + 写 Keychain / 首次 load 前确认 app 已退出)——正是 C1 断链的直接原因。
 
 ## E. 已完成、不必再挂账(核对用)
 
