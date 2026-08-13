@@ -27,7 +27,17 @@
 
 ## C. 断了没人管的(已建成但当前不工作)
 
-- **C1 · Mac 感知全线静默**:`~/lykoi/perception/config.json` 的 endpoint 仍是
+> **2026-08-13 Kevin 决定:Mac app 要大重做,眼睛(感知线)先不做。**
+> 受此冻结的条目:C1 全部、B 表第 5 步(感知服务器侧,含 v0.3 协定与 percept_buffer
+> 孤儿模块)、F5 里三条 Mac 项(speech_locales 清理、M1A 措辞订正、TCC/token/退出
+> 三件前置)、以及 D1 的 M1b —— **M1b 是"退役旧会面 UI",而大重做会连同它一起
+> 重新决定,故 M1b 的门虽已过,不再单独执行,并入重做时处置**;其中"两个月对话
+> 记录(chat_history.jsonl 203 条)必须留档不能删"这条数据纪律**随之带入重做**,
+> 不因暂缓而失效。
+> 不受冻结的:她"不知道自己瞎了"这件事本身(巩固平面 §7 身体自感知 / 器官清单),
+> 那是服务器侧的事,归 U2。
+
+- **C1 · Mac 感知全线静默**〔暂缓,待 Mac app 重做〕:`~/lykoi/perception/config.json` 的 endpoint 仍是
   `http://127.0.0.1:8799/ingest/environment`(本地 mock),而 8799 无人监听;
   launchd 里**没有** perception 服务(只有 backup-pull),M1A 的安装套件建好了
   但从未 load。→ **WO-MAC-UPLINK-01 的工单还躺在仓里没派**(只有 order.md),
