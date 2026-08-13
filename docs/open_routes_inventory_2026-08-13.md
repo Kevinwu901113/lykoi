@@ -74,6 +74,18 @@
   道 D(L5)已上线,这两条还没排期。
 - **D6 · scripts/patches/root_apply.sh 权限 0775→755**:小尾巴,需 root 侧动手。
 
+## F0 · 已销账(2026-08-13 当日,治理侧直接补,不新开工单)
+
+| 条目 | 出处 | 落点 |
+|---|---|---|
+| 权限位 0o755/0o775 噪音(11 用例) | WO-P2-01 复核 §五 | 合并包 9 · `wo/leftovers-02`;**已知基线失败 14 → 3** |
+| S3 criterion 7 标题错位 | WO-S3 复核 §四 | 同上 |
+| 灾难手册三处(bundle 无 HEAD / chattr / persona 0440 + flags 实况) | WO-DRILL-CLEANVM-01 差距 #1/#3/#4 | 同上 |
+| 备份脚本吞 sqlite3 stderr | WO-FIX-BACKUP-01 §注记 1 | 同上(实测失败路径已给真实原因) |
+| `root_apply.sh` 0775→755、`events.jsonl` 权限核实 | WO-FIX-APPROVAL-UX / WO-FIX-SEC-01 §5 | 合并包 8 第 E 步(root 一行) |
+| 白皮书随工单投放、gate5 进必跑清单 | WO-BASE-04 §三 / WO-U0 遗留 1 | HANDOFF 教训 34 |
+| "长连接中断则拆小工单" | WO-BASE-04 §三注记 4 | HANDOFF 教训 35:已由派发棘轮取代,条目关闭 |
+
 ## F. 工单复核里的「遗留」条目(全 45 单 32 份 review 通扫,2026-08-13)
 
 **仍未认领 33 条**(已被后续单吸收的 22 条、明确裁定不修的 3 条不列)。
