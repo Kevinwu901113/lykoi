@@ -273,6 +273,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     症状与修法:`startup_verify: FAIL: .../core/xxx.py: not root-owned` →
     `chown root:root` 该文件 + `chmod 644` + 清 `core/__pycache__` → 重跑门。
 
+38. **Kevin 在活体做实弹验证时,治理侧不得在同一台机器上跑任何测试**
+    (2026-08-13,我自己造了一次假警报)。`tests/test_core_v1_shadow.py` 对负载极
+    敏感:`wait(timeout=1)` 的一秒窗口 + `_THREAD_LOCK_WAIT_SECONDS = 0.2` 的锁
+    预算,一旦抢 CPU 就首条失败,随后 5–6 条连锁 `TimeoutError: Core writer epoch
+    thread lock exceeded`(**连锁不是独立失败,别逐条归因**)。当晚我先跑全量、
+    又在"证伪"时连跑两轮同文件,把 Kevin 的两次实弹都污染成 7/8 条失败;机器空闲
+    后连跑两遍都是 **2 failed / 50 passed**(= `redaction._SECRETS` 老基线)。
+    另记:该文件此前从未进过任何合并包的 C 步清单,**活体基线是今晚才第一次测出来的**
+    ——涉及 core/shadow 的单,C 步要带上它。
+
 ---
 
 ## 五、当前进度
