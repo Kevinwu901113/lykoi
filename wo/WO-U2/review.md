@@ -27,6 +27,20 @@
 
 两断言原文均要求 self-state 注入后**紧跟 user 消息**;判据① 重排后对话路径注入后直接是生成点,结构性互斥,非实现瑕疵。**建议改法**(执行方提出,复核方认可):断言改为「注入是最后一条 system,其后不再有任何 system」——语义意图(规范数据紧贴生成点、不被后续指令覆盖)不减反增,对 decide 路径与旧断言等价。补丁在服务器 `/tmp/wo-u2-reviewer-patch.diff`(`git apply --check` 已验证可干净应用)。复核方两次尝试代为应用被 Mac 侧权限分类器拦截("修改红测试"类动作),**遂按其提示上交 owner 裁决**——此类封存线口径变更本也该 owner 过目。
 
+## 合并后附记(2026-08-18 00:19 落地验收)
+
+活体 HEAD `2b8c477f`(merge `166af2b6` + s5/s9 批准补丁);C 步 282 全绿(lykoi 身份,
+含 s5/s9 转绿与 p0);重启后 `startup_verify: OK`(ExecStartPre,等效 GATE_OK);
+health ok,journal 干净。**两条尾巴(B 步 `&&` 链在 nothing-to-commit 处断裂所致
+——统一重签与合并进来的 manifest 逐字节一致,git commit 返回非零)**:
+① `.git` 下 17 个 root 属主残留,待 Kevin `chown -R lykoi:lykoi
+/home/lykoi/projects/lykoi/.git`(读已验证无碍,写/gc 会撞);
+② 五个单元 restart 时报 changed-on-disk 告警(unit 文件 mtime 是老的,疑陈旧标志),
+待 Kevin `systemctl daemon-reload` 消警并留意下次重启。
+**合并包模板修正(第 9 份起)**:B 步第二命令的 `git commit` 改为
+`(git commit -m … || true)`,或把 `chown -R .git` 与 lykoi 门挪到独立命令——
+"重签无差异"是正常结局,不该断链。
+
 ## 残余风险(如实列)
 
 1. **尾部强调效应未做对话回归**:缓存计划第 3 步原提"8.6 精神的小规模对话回归(时间/念头敏感度会升,验语气不漂)",工单未列此判据,执行方亦未做。缓解:合并后第一天 Kevin 体感 + completion/次 对照(质量粗信号);若语气漂,易变尾部块的措辞可单独调,不必回滚重排。
