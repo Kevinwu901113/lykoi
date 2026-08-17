@@ -1,5 +1,7 @@
 # 合并包 11 · 2026-08-17 · 心智入场(U2:她的记忆、关切、器官、想明白的事进入对话)
 
+> **已合并 2026-08-18 00:19**:活体 HEAD `2b8c477f`(merge `166af2b6` + s5/s9 批准补丁),C 步 282 全绿,startup_verify OK,五服务 active。尾巴两条见 review 附记。
+
 复核 **PASS**:**`wo/u2` @ `67adbd11`**([review](../WO-U2/review.md))。
 复核方全量:**1899 passed / 5 failed / 6 skipped**(=基线 1855+新增 49,算术闭合),
 5 条失败逐条归因零新增(2 条=下述裁决项;2 条=redaction 老基线;1 条=claude 假失败)。
