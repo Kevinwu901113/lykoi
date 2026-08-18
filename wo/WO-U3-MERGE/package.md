@@ -96,6 +96,9 @@ curl -s 127.0.0.1:8080/health | head -c 200
 - 最终:root 清残留 + root ff-merge `2b8c477f → a923c44e` 成功(16 文件
   +1968/−69 与分支逐位一致)→ B 步属主归位 → D 步门过(startup_verify OK,
   五 active,health ok,00:17:32)。**影子自此在活体上活着。**
+- **C 步(补跑,治理侧以 lykoi 身份执行,Kevin 授权"跑一下")**:七套件
+  **173 passed / 0 failed**(4:06)——lykoi 身份下 p0 完整通过,零假失败。
+  包账全闭。
 - A0 盲格:`messenger.send@user:user_001`(scoped),切换单无需收窄。
 - 模板债两条(下包修):①B 步首段管道吞 `git diff` 错误码(本次曾把"没
   合并"藏过去);②A 步执行身份按封存触及面写死 root。
