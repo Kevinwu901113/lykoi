@@ -79,3 +79,23 @@ curl -s 127.0.0.1:8080/health | head -c 200
 ## 回滚
 
 影子出问题:`LYKOI_U3_SHADOW_ENABLED=0` 进对应 drop-in 重启即停,无需回代码。
+
+## 落地记录(2026-08-19 00:17)
+
+- **一起治理事故(落地过程中发现并处置)**:23:13 一个 Claude Code remote 桥接
+  进程以 lykoi 身份上线(`~lykoi/.claude/remote/...server --bridge`,Kevin IP),
+  23:14:34 把 U3 非 kernel 文件直接拷进活体检出(绕过合并协议,在 root-only
+  的 kernel 处折断,留半套)。**她全程清白**(audit 干净:当时在读甲子园新闻,
+  terminal.exec 仅两次 `date` 且均被门拦)。处置:kill 桥接进程 → 残留隔离
+  `/tmp/u3-residue-20260818/`(内容经核与分支逐字节一致)→ 树净 → root 合并。
+  **残留半套期间活体是重启炸弹**(telegram_device import 缺失模块 + manifest
+  哈希不符,任何重启会被启动门拒启)——所幸窗口期内无重启。
+- 第二败:lykoi 身份 ff-merge 在封存路径(guardian/manifest + kernel ×5)
+  Permission denied——**教训④升级:触及 kernel/ 的合并与 guardian 同类,
+  A 步必须 root 执行**(本包 A 步原写 `sudo -u lykoi`,错)。
+- 最终:root 清残留 + root ff-merge `2b8c477f → a923c44e` 成功(16 文件
+  +1968/−69 与分支逐位一致)→ B 步属主归位 → D 步门过(startup_verify OK,
+  五 active,health ok,00:17:32)。**影子自此在活体上活着。**
+- A0 盲格:`messenger.send@user:user_001`(scoped),切换单无需收窄。
+- 模板债两条(下包修):①B 步首段管道吞 `git diff` 错误码(本次曾把"没
+  合并"藏过去);②A 步执行身份按封存触及面写死 root。
