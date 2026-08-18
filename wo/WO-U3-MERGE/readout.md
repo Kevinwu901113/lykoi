@@ -21,6 +21,10 @@ for line in open("/home/lykoi/state/events.jsonl"):
         r[0]+=1
         for i,k in enumerate(("prompt_tokens","completion_tokens","cache_hit_tokens","cache_miss_tokens"),1):
             r[i]+=e.get(k) or 0
+freasons = {}
+for f in fails:
+    k = f"{f.get('reason','?')}/{f.get('detail','?')}"
+    freasons[k] = freasons.get(k,0)+1
 nt = [x for x in env if not x.get("tool_turn")]
 lat = sorted(x.get("elapsed_ms") or 0 for x in nt)
 kinds = {}
@@ -29,7 +33,8 @@ unbacked = sum(1 for x in env if (x.get("receipt_backing") or {}).get("unbacked_
 demoted = sum(1 for x in env if x.get("demoted"))
 print(f"① 样本: 总 {len(env)} / 非工具 {len(nt)}   (门: ≥20 / ≥10)")
 print(f"② 时延: 非工具中位 {statistics.median(lat) if lat else float('nan'):.0f}ms  (门: <15000)")
-print(f"③ 失败: u3_shadow_failed={len(fails)} demoted={demoted}  (门: 零系统性; error_type={[f.get('error_type') for f in fails[:5]]})")
+print(f"③ 失败: u3_shadow_failed={len(fails)} demoted={demoted}  (门: 零系统性)")
+for k,v in sorted(freasons.items(), key=lambda x:-x[1]): print(f"    {k}: {v}")
 print(f"④ 背书: unbacked_claim={unbacked}  (门: 0)   has_claim={sum(1 for x in env if (x.get('receipt_backing') or {}).get('has_action_claim'))}")
 print(f"⑤ 夜穿: stable_prefix_rebuilt={refresh}(≤1/天)   kind 分布={kinds}")
 for route,(c,p,co,h,m) in sorted(llm.items()):
