@@ -1,69 +1,69 @@
-# WO-FIX-APPROVAL-DELIVERY · 审批问句被打扰预算饿死 · 草案(待 Kevin 拍板签发)
+# WO-FIX-APPROVAL-DELIVERY · 对话轮审批问句送达修复 · v1(已签发)
 
-状态:**草案**,2026-08-19 治理侧读数发现,证据齐,待两个决策点拍板后签发。
-建议执行模型:sonnet(改动面小、判据机械)。建议时机:合并包 13 落地之后,
-独立小包,不与 U3 观察期材料混装。
+**拍板记录(2026-08-19)**:Kevin 批准 DP1(对话轮内审批问句=应答语义,不计
+打扰预算;自主情境问句仍计——与 P1 附文 E2 边界"initiate 不入豁免"同构)与
+DP2(独立小单先修 + WO-U3S 加判据防修复随转录机退役蒸发)。原话"决策点我都
+同意";合并包 13 的 2 条追认项按同句并记追认(治理侧推定,如误可撤)。
+P1 附文修订同日入档(`docs/policy_core_approval_exemption_proposal_2026-08-18.md`
+§6)。**派发前置:合并包 13 已落地(基 `1b8ef063`)。**
 
-## 0 · 事故读数(2026-08-19 凌晨,证据全在 audit 正本)
+---
 
-8-19 01:40 CST,Kevin 在对话里让她"用 python 解出"接雨水题。她 6 次发起
-`terminal.exec` 审批(写 `/tmp/trap.py` ×3 + 运行 ×2 + echo 备注 ×1,行为
-全部正当),**6 次全部 `deny_by_default`,stage=undelivered,reason=daily_cap**
-(audit `approval_question` 事件,17:40:19Z–17:41:54Z)。Kevin 其间给过
-"批准/同意",但 pending 队列里什么都没有(问句发送失败→按 S3 原子性设计
-拒绝且不入队),回答落进闲聊分支被吞。她重试到放弃,最后把代码直接贴进
-聊天(17:42:13Z)——行为诚实,但任务没执行成,且她对 Kevin 解释为
-"被验收队列拦着"(无回执的机制猜测,P2 家族旁证)。
+你是执行 Agent,在 `~/lykoi-work-l1` 工作。
+**分支 `wo/approval-delivery` 已由治理侧建好(尖 `1b8ef063` = 合并包 13 后活体
+HEAD),直接 checkout。**
+铁律:前台串行、禁后台、每判据一 commit(`[WO-FIX-APPROVAL-DELIVERY]` 前缀)、
+测试 `timeout 1800` 包裹、**stdout 即报告本体**、宁长勿略;侦查发现与工单冲突
+时停下写清楚。
 
-## 1 · 根因(已逐层核实,非推测)
+## 背景(治理侧 2026-08-19 实测,证据在 audit 正本,可直接引用)
 
-1. `cognition/conversation.py:1332` `_ask_for_approval` 调
-   `approval_conversation.request_approval(...)` 时**没传 `reply_to`**
-   (对照:`resources/telegram_device.py:245` 的调用点传了)。
-2. 问句作为 `messenger.send` 落到 `resources/messenger.py`,没有 `reply_to`
-   即计入**打扰纪律**(`PROACTIVE_DAILY_CAP = 1`/UTC 日,冷却 6h)。
-3. 当日唯一名额已耗(ledger `state/messenger_outbound.json` mtime 8-18
-   14:53 CST 后再未写入),此后**全天所有审批问句必然 daily_cap**。
-4. `approval_conversation.request_approval` 的原子性设计:发送失败 = 动作
-   拒绝(deny-by-default)、不入队、发 undelivered 回执——设计本身正确,
-   被上游饿死后表现为"她问不出、他批不上"。
+- 8-19 01:40 CST 对话内 `terminal.exec` 请求(接雨水题)触发 6 次审批问句,
+  **6 次全部 `approval_question` `stage=undelivered` `reason=daily_cap`
+  `outcome=deny_by_default`**(17:40:19Z–17:41:54Z);owner 其间的"批准/同意"
+  因 pending 未入队而落进闲聊分支被吞。
+- 根因链(逐层核实):
+  1. `cognition/conversation.py:1332` `_ask_for_approval` 调
+     `approval_conversation.request_approval(...)` **未传 `reply_to`**
+     (对照:`resources/telegram_device.py:245` 的调用点传了);
+  2. 问句作为无 `reply_to` 的 `messenger.send` 落入 `resources/messenger.py`
+     打扰纪律(`PROACTIVE_DAILY_CAP = 1`/UTC 日 + 6h 冷却,`reply_to` 豁免);
+  3. 当日名额耗尽后全天问句必然 throttle;
+  4. `request_approval` 原子性设计:发送失败=拒绝且不入队(设计正确,被上游
+     饿死后表现为"她问不出、他批不上")。
+- 修复语义已由 P1 附文 §6 定为政策:**对话轮内发起的审批问句=应答语义**,
+  实现即线程 `reply_to`,复用 messenger 既有豁免;不新开豁免通道。
 
-一句话:**审批问句被当成了'主动打扰'计费,而它在对话轮里分明是应答。**
+## 判据
 
-## 2 · 待 Kevin 拍板的两个决策点
+① **接线**:`_ask_for_approval` 把**当轮入站消息 id** 作为 `reply_to` 传给
+   `request_approval`(该形参已存在,kernel 预期零改动)。入站 id 的可达路径
+   自行侦查并在报告引用代码行(conversation 对象/当轮元数据里应有;若确实
+   不可达,停下写清楚,不许造 id、不许用出站消息 id 顶替)。
+② **复现场景端到端**:测试构造"当日名额已耗"状态(ledger 预置今日时间戳)+
+   对话内动作命中审批门 → 断言:问句送达(mock transport 收到)、**零**
+   `messenger_proactive_throttled` 事件、`approval_question` `delivered=true`、
+   pending 入队、随后 owner 肯定答复可绑定并放行该动作。
+③ **预算边界回归**:无 `reply_to` 的 send(她自发/主动路径)仍计预算——现有
+   测试保持全绿,并**新钉一条**负向断言(名额已耗时自主情境问句仍被拒),
+   防止未来把豁免做宽。
+④ **零扰动**:`resources/messenger.py` 与 `kernel/approval_conversation.py`
+   **逐字节不动**;U3 影子机制、切换键、`mind/decide.py` 不碰;修复仅存在于
+   ask 调用点(+测试)。
+⑤ **全邻接前台串行**:conversation 口径套件 + approval 套件(S3/FIX-UX 全部)
+   + telegram 套件 + `tests/test_p0_integrity.py`(重签后)。全量基线:
+   **2077/3/6**(2026-08-19 复核权威值,3 failed = redaction×2 + claude 身份
+   p0 假失败);新增失败零容忍、逐条解释。
+⑥ **manifest 重签**(现 110,前后条数写明;conversation.py 在六目录内)。
+⑦ **报告(stdout 本体)**:接线点与入站 id 来源的代码行引用;②的测试输出
+   原文;部署核对(哪个进程加载 conversation.py=lykoi-server,预期无新 env、
+   单元文件不动);每判据自证。
 
-- **DP1 政策口径**:E1(审批机制自身通信)与打扰预算的关系。建议:
-  **对话轮内发起的审批问句 = 应答语义,不计打扰预算**(实现即线程
-  `reply_to`);**自主情境发起的审批问句仍计预算**(她凭空提需求确实是
-  打扰,与 P1 附文 E2 边界"initiate 不入豁免"同构)。此口径作为一条
-  修订并入 `docs/policy_core_approval_exemption_proposal_2026-08-18.md`
-  (P1 附文)E1 节,与 U3 切换单同窗生效或先行热修,见 DP2。
-- **DP2 时机**:A) 单独小单现在修(活体 conversation.py 还是生产路径,
-  下次再遇工具型请求且名额已耗必复发);B) 并入 U3 切换单(U3S 的
-  apply 腿接审批时一并接对);建议 **A+B**:现在修 conversation.py
-  (一行级)+ 在 WO-U3S order 里加一条判据"周期路径的审批问句必须带
-  reply_to / 不计打扰预算",防止转录机退役时修复跟着蒸发。
+## forbidden
 
-## 3 · goal / scope / forbidden / success_criteria / required_evidence
-
-- **goal**:对话轮内的审批问句可靠送达,不再被打扰预算吞;Kevin 的
-  批复能绑定到 pending。
-- **scope**:`cognition/conversation.py`(_ask_for_approval 线程入站消息
-  id 至 request_approval 的 reply_to)+ 对应测试;若 DP1 批,P1 附文
-  加一节修订(纸面,不改 policy 代码);manifest 同步重签。
-- **forbidden**:不动 `resources/messenger.py` 的预算常量(cap 1/冷却 6h
-  是 Kevin 定的打扰纪律,本单不放宽);不动 kernel/approval_conversation
-  的原子性设计;不碰 U3 影子与切换键;不动 guardian。
-- **success_criteria**:①带 reply_to 的问句不再触发 `messenger_proactive_throttled`;
-  ②复现场景(名额已耗 + 对话内 terminal.exec 请求)问句送达、"同意"
-  可绑定执行;③自主情境问句仍受预算约束(有测试钉住);④全量
-  pytest 无新增失败,p0 绿。
-- **required_evidence**:pytest 全量数字、复现场景的 events/audit 回执
-  (approval_question delivered=true)、manifest 重算数。
-
-## 4 · 旁注(不入本单)
-
-- 她"被验收队列拦着"的无据解释:P2 回执背书判据(U3 门④)已覆盖此
-  家族,影子期继续观测,不另立单。
-- `notify.owner` 在 17:14Z 被用作对话应答("在,什么事?")一次:老通道
-  仍在被模型选用,归 U4 转录机清理时一并核。
+不动 `resources/messenger.py`(预算常量与判定逻辑=Kevin 定的打扰纪律,本单
+零 diff);kernel 预期零改动(若侦查发现必须动,停下写清楚);不碰 guardian/
+与 src/lykoi/core/;不碰 U3 影子与切换键;她的对话原文不入任何日志字段;
+approval_rules 永无写路径;secrets 不入块与日志;新增 state 路径常量必须同
+提交补 conftest 默认值(教训 36,预期本单无);凡与本单口径冲突的侦查发现,
+停下写清楚。

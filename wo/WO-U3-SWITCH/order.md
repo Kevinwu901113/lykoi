@@ -41,6 +41,13 @@
    默认表(开关在测试默认关不变)+ 报告部署核对信息(进程/单元/env,预期:
    仅需在 lykoi-server 的 drop-in 加 `LYKOI_U3_SWITCH_ENABLED=1`——部署时机
    由合并包定,代码合并与开关开启是两个独立动作)。
+⑧ **审批问句送达在切换态承重**(2026-08-19 Kevin 拍板 DP2 加固项,背景见
+   `wo/WO-FIX-APPROVAL-DELIVERY/order.md`):开关开启态下,信封 `tool_call`
+   走工具循环命中审批门时,问句必须带**当轮入站消息 id** 为 `reply_to`
+   (=应答语义,不计 messenger 打扰预算,P1 附文 §6);测试含"当日名额已耗"
+   状态下问句仍送达、owner 答复可绑定。若切换态的 ask 路径不复用
+   `_ask_for_approval` 而另有接点,该接点同样承此判据——修复不许随转录机
+   退役蒸发。
 
 ## forbidden
 
