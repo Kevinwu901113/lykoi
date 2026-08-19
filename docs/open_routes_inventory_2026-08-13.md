@@ -145,3 +145,13 @@
 学习层 v2 全链(L1–L5)、对话审批环(S1A/S1B/S2/S3 + FIX-UX)、U0 传输加固、
 U1 送达回灌、OBS-LLM usage 四数、备份 13 项 + 恢复演练、SEC 系列、P2-03A broker、
 M1a(Mac 独立感知服务套件,**建成未启用**——见 C1)。
+
+## 增补(2026-08-19,治理侧读数)
+
+- **C4 · 审批问句被打扰预算饿死**〔新发现,草案已备〕:对话轮内发起的审批
+  问句(conversation.py:1332 不传 reply_to)被 messenger 打扰纪律计费
+  (cap 1/UTC 日),名额耗尽后全天问句 undelivered→deny_by_default 且不入队,
+  owner 批复无处绑定。8-19 凌晨接雨水题 6 连拒实锤(audit approval_question
+  ×6 reason=daily_cap)。S3 环建成但在"当日已说过一次主动话"的状态下**事实
+  不工作**。→ `wo/WO-FIX-APPROVAL-DELIVERY/order.md`(草案,两决策点待
+  Kevin:E1 对话轮问句=应答语义不计预算;时机=独立小单+U3S 判据加固)。
