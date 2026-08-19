@@ -41,3 +41,12 @@
 结构审 PASS;最终 PASS 以独立复跑数字对账为准(补记待填)。合并包 14 已备
 `wo/WO-FIX-APPROVAL-DELIVERY-MERGE/package.md`(bundle 816fd0f1,thin 基
 1b8ef063,两承重单元=server+telegram,五服务惯例全重启)。
+
+## 补记 · 独立复跑收官(2026-08-19 21:50)
+
+治理侧三段串行(setsid 脱管,20:26–21:50):576/0/1 + 810/2/1 + 722/1/4 =
+**2108 passed / 3 failed / 6 skipped**。3 failed = 基线三条(redaction×2 +
+claude 身份 p0),执行方那条时序抖动本轮未复现——2108 恰等于基线 2077+新增
+31,零新增失败,零未解释差异。
+
+**结论:PASS(定稿)。** 合并包 14 发布,待 Kevin root 落地。
