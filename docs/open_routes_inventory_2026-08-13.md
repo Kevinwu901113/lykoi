@@ -155,3 +155,8 @@ M1a(Mac 独立感知服务套件,**建成未启用**——见 C1)。
   ×6 reason=daily_cap)。S3 环建成但在"当日已说过一次主动话"的状态下**事实
   不工作**。→ `wo/WO-FIX-APPROVAL-DELIVERY/order.md`(草案,两决策点待
   Kevin:E1 对话轮问句=应答语义不计预算;时机=独立小单+U3S 判据加固)。
+- **C5 · manifest 重签工具的路径暗坑**〔已知待清理〕:仓内 `scripts/startup_verify.py`
+  与 `guardian/startup_verify.py` 同字节,但 `GUARDIAN_DIR` 由脚本自身路径推导——
+  从 `scripts/` 跑 `--write-manifest` 会把覆盖名单换成 `scripts/*.py`(110→115,
+  4 增 9 减)。WO-FIX-APPROVAL-DELIVERY 执行方 2026-08-19 误踩一次已还原(未入
+  提交)。候选修法:删副本或加目录断言。归 U4 清理批或独立小单。
