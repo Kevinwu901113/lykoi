@@ -1,20 +1,29 @@
 # WO-U3S · 周期合一切换单(信封转正,转录机让位)
 
-> **状态:草案(2026-08-19)。签发前置:证据门七条全绿(D4 修订版,读数命令见
-> `wo/WO-U3-MERGE/readout.md`)+ Kevin 批准。签发时填:分支尖、影子期实测数据
-> (时延分布/背书统计,用于判据校准)。**
+> **状态:已签发(2026-08-21)。** 原签发前置"证据门七条全绿"由 owner 裁决作废:
+> Kevin 2026-08-21 撤销证据采样并**明示授权盲切**(治理侧 8-19 红线经点名确认
+> 解除,决策已记 governance-ops 2026-08-21T12:05Z)。影子期实测数据(供判据校准):
+> 首夜(修复前)35 次影子调用 34 次信封 ValueError;json 强制修复后窗口**零失败**
+> 但仅 1 样本(reply,时延 2734ms;修复前合法样本时延中位 2607ms——远低于 15s 线)。
+> **分支与基**:`wo/u3s`,基 = GW-01 复核通过后的分支尖(派发时由治理侧建好并
+> 填入 run.log;串行基避免 manifest 冲突,教训 26/38)。含合并包 14(7b00ae5e)
+> 与 GW-01 全部代码——判据⑧所依赖的设备层问句代码在基内。
 
-你是执行 Agent,在 `~/lykoi-work-l1` 工作。
-铁律同 WO-U3(前台串行/每判据一 commit `[WO-U3S]`/stdout 即报告/冲突停下)。
-白皮书 v1.2 在 `~/wo/WO-U3S/whitepaper_v1.2.md`(37.8 回执背书、37.3 已是正文)。
+你是执行 Agent,在 `~/lykoi-work-l1` 工作,分支 `wo/u3s` 已由治理侧建好,直接
+checkout。铁律同 WO-U3(前台串行/禁后台/每判据一 commit `[WO-U3S]`/测试
+`timeout 1800` 包裹/stdout 即报告/冲突停下)。
+白皮书 v1.2 本次会话可直接读:`~/wo/WO-U3S/whitepaper_v1.2.md`(37.8 回执背书、
+37.3 已是正文)。
 
-## 背景(签发时刷新)
+## 背景
 
 - 影子双跑自 2026-08-19 00:17 活体运行;`LYKOI_U3_SWITCH_ENABLED` 默认关且
   **生产代码零读者**(`test_no_module_reads_the_switch_to_release_a_side_effect`
   静态钉着——本单第一件事就是让它按设计变红,然后被继任者取代)。
 - E2 盖章点在 `telegram_device._send_reply`(出站漏斗,切换后不变)。
 - 影子路由 `conversation_shadow`;主路由 `main` = U2 实验组。
+- 基分支含 GW-01(kernel 第五 origin "delegated" 等)——与本单无交集,但全量
+  基线数字以派发时 run.log 里治理侧给出的为准(GW-01 复核定稿数字)。
 
 ## 判据
 
@@ -31,27 +40,28 @@
    交互配测试;旧路径的 `extract_inner_from_reply`/`_apply_conversation_inner`
    在开关开启路径零调用(退役随 U4 清理,本单不删)。
 ④ **零扰动(开关关闭态)**:`LYKOI_U3_SWITCH_ENABLED=0`(默认)时,全部行为
-   与合并包 12 后现状逐字节一致(含影子照跑)——沿用 U3 判据⑧的四条口径。
+   与基分支现状逐字节一致(含影子照跑)——沿用 U3 判据⑧的四条口径。
 ⑤ **红测试交接**:`test_no_module_reads_the_switch_to_release_a_side_effect`
    按设计变红 → 由继任者取代:断言全 src **恰好一个**读者且在判据①的文档化
    位置;开关语义(默认关、env 覆盖)另测。
 ⑥ **P1/P2 在主路径承重**:E1/E2 全套测试在开关开启态复跑通过;回执背书提示词
    约束在主调用生效;P2 探针继续运行(改挂主路径,字段不变,供切换后对照)。
-⑦ 全邻接前台串行 + manifest 重签(现 110,若触六目录/kernel 同步)+ conftest
-   默认表(开关在测试默认关不变)+ 报告部署核对信息(进程/单元/env,预期:
-   仅需在 lykoi-server 的 drop-in 加 `LYKOI_U3_SWITCH_ENABLED=1`——部署时机
-   由合并包定,代码合并与开关开启是两个独立动作)。
+⑦ 全邻接前台串行 + manifest 重签(条数以基分支为准,前后写明;若触六目录/
+   kernel 同步)+ conftest 默认表(开关在测试默认关不变)+ 报告部署核对信息
+   (进程/单元/env,预期:仅需在 lykoi-server 的 drop-in 加
+   `LYKOI_U3_SWITCH_ENABLED=1`——代码合并与开关开启是两个独立动作,但本次
+   按 owner 决定在同一 root 会话先后执行,由合并包写清两段验证)。
 ⑧ **审批问句送达在切换态承重**(2026-08-19 Kevin 拍板 DP2 加固项,背景见
-   `wo/WO-FIX-APPROVAL-DELIVERY/order.md`):开关开启态下,信封 `tool_call`
-   走工具循环命中审批门时,问句必须带**当轮入站消息 id** 为 `reply_to`
-   (=应答语义,不计 messenger 打扰预算,P1 附文 §6);测试含"当日名额已耗"
-   状态下问句仍送达、owner 答复可绑定。若切换态的 ask 路径不复用
-   `_ask_for_approval` 而另有接点,该接点同样承此判据——修复不许随转录机
-   退役蒸发。
+   `~/wo/WO-U3S/approval-delivery-order.md` 副本):开关开启态下,信封
+   `tool_call` 走工具循环命中审批门时,问句必须带**当轮入站消息 id** 为
+   `reply_to`(=应答语义,不计 messenger 打扰预算,P1 附文 §6);测试含
+   "当日名额已耗"状态下问句仍送达、owner 答复可绑定。若切换态的 ask 路径
+   不复用既有接点而另有新接点,该接点同样承此判据——修复不许随转录机退役蒸发。
 
 ## forbidden
 
-不删旧转录机路径(回滚保障,清理归 U4);不动 kernel 问答机与传输层;不动
-decide 自主情境;approval_rules 永无写路径;secrets 不入块与日志;不碰
-guardian/ 与 src/lykoi/core/(合并包 A 步 root 执行,教训④升级版);影子期
-实测若与本单判据冲突,停下写清楚。
+不删旧转录机路径(回滚保障,清理归 U4);不动 kernel 问答机与传输层;**不碰
+GW-01 带入的 delegation 代码**(它在基内但不是你的领地);不动 decide 自主
+情境;approval_rules 永无写路径;secrets 不入块与日志;不碰 guardian/ 与
+src/lykoi/core/(合并包 A 步 root 执行,教训④升级版);影子期实测若与本单
+判据冲突,停下写清楚。
