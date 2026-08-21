@@ -297,9 +297,39 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     ②B 步首段 `git diff | grep | xargs` 管道会吞 git 错误码(本次曾把"没合并"
     藏过去),重排为先显式验证 HEAD 已到目标再动属主。
 
+40. **工单参考材料必须经 `--add-dir` 放行,stdin 只送 order 本体**(2026-08-21,
+    WO-CA-BASELINE-1)。bin-dispatch 把 order.md 经 stdin 喂给执行方,但执行会话
+    读不到 `~/wo/<WO>/`——投放在工单目录的白皮书/设计文档等参考材料对执行方
+    **不存在**(CA 单执行方 `ls /home/claude` 被会话权限拦,只能把所有原文对照
+    写成开口)。已修:bin-dispatch.sh 加 `--add-dir ~/wo/$WO`(备份
+    `~/bin-dispatch.sh.bak-20260821`)。复核时若报告自称材料缺失,先查这条,
+    别怪执行方。工单正文引用材料时写**绝对路径** `~/wo/<WO-ID>/<文件名>`。
+
+41. **撞账号 session limit 时 wrapper 曾盲目重试 5 次烧额度**(2026-08-19,
+    WO-GW-01 第 1 波:78 分钟实活后 21:55 撞限,4 次快速重试全部撞墙,
+    FAILED_ALL_RETRIES;额度 reset 在 1:20am,重试毫无意义)。8-11 就有此教训
+    候选,一直没实现,2026-08-21 已修:report 里 grep 到 "hit your session limit"
+    即 `EXIT=SESSION_LIMIT` 停手并记 reset 提示。治理侧看到该 EXIT 类:等 reset
+    后发**续跑单**(教训 30 do-not-redo 表),实活都在分支 commit + WIP 自动保存里,
+    不会丢——GW-01 第 1 波判据②–⑥五个 commit 全部幸存即为证。
+
 ---
 
 ## 五、当前进度
+
+### 📍 状态快照（2026-08-21 校准；比下方历史条目新，先读这里）
+
+- **进度正本已迁移**：逐日进度看服务器 `~/reports/governance-ops.jsonl` 与主治理
+  Agent 记忆，本节以下的历史条目停在 2026-08-10 前后，仅作背景。
+- 活体 HEAD `1b8ef063`（合并包 13，U3 影子+json 修复），五服务 active 自 8-19 16:08。
+- U 线：U0/U1/U2/U3(影子)/U3-FIX 已上活体；**合并包 14（审批送达 v2，bundle
+  `/tmp/lykoi-merge-apprdeliv-20260819.bundle`）待 Kevin root 落地**；证据门七条
+  由 root 定时器导出 `gate-readout.jsonl` 每 3h 一行，json 修复后零失败但样本稀缺；
+  切换（WO-U3S）等证据门+Kevin。
+- C 线：WO-CA-BASELINE-1 复核 PASS（C-A 前半，报告=C-B 设计正本输入）；
+  WO-GW-01 第 2 波执行中（第 1 波撞限中断，判据②–⑥幸存）。
+- 长期债：offsite rsync 死目标（等 Kevin 定目标）、S4a 四条+broker 未上线、
+  遗留总账 `docs/open_routes_inventory_2026-08-13.md`。
 
 ### 已完成
 
