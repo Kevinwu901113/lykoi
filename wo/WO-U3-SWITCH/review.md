@@ -27,8 +27,11 @@
   `merge --no-ff`——**零冲突**；合成 manifest = 112 条，u3s 三条新哈希与 GW 两条
   新增并存，三个 cognition 文件对合成树逐一复算相符。粘贴稿因此可走干净合并，
   conflict fallback 仅留防意外。
-- **关键套件独立复跑**（八文件：u3s 三新套件 + E1/E2 全套 + conversation_cycle +
-  governance_invariants）：{{RERUN}}
+- **关键套件独立复跑**（服务器侧脱管跑，双执行器负载下）：
+  - 默认态八文件（u3s 三新套件 + E1/E2 全套 + conversation_cycle +
+    governance_invariants）：**206 passed / 1 skipped / 0 failed**（18m38s）；
+  - **开关开启态**四文件（E1/E2 承重 = 判据⑥口径）：**98 passed / 0 failed**
+    （9m39s）——与执行方判据⑥自报"98 passed"逐位一致，独立确认。
 - 新增测试计数对账：31+8+14 = 53，与报告"新增 53"吻合；全量 collected
   2169 = 基线 2117+53−1（退役红测试）。
 
