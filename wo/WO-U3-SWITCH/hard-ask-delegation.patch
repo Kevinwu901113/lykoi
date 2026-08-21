@@ -1,0 +1,47 @@
+--- a/guardian/policy_core.py	2026-08-22 00:21:36
++++ b/guardian/policy_core.py	2026-08-22 00:21:44
+@@ -27,7 +27,10 @@
+ 
+ # Action types that must always route through owner approval, regardless of what
+ # the live approval_rules.json says. An unrestricted shell is the canonical case.
+-HARD_ASK_TYPES = frozenset({"terminal.exec"})
++# delegation.dispatch joined with WO-GW-01 (owner-adopted executor
++# recommendation, 2026-08-21): spawning a sub-agent must always face the owner,
++# no matter what the live rules are edited to say.
++HARD_ASK_TYPES = frozenset({"terminal.exec", "delegation.dispatch"})
+ 
+ # Action types that can never run, even with owner approval. Empty for now —
+ # reserved; per-action denials live in the live rules, per-path in PROTECTED_PATHS.
+--- a/tests/test_governance_invariants.py	2026-08-22 00:21:39
++++ b/tests/test_governance_invariants.py	2026-08-22 00:21:53
+@@ -446,3 +446,30 @@
+     assert attachments.resolve(real) == "/home/lykoi/state/screenshots/probe.png"
+     for bogus in (None, 42, 3.5, {"id": real}, [real], (real,), True):
+         assert attachments.resolve(bogus) is None, bogus
++
++
++def test_hard_ask_set_contents_pinned():
++    """WO-GW-01 复核采纳(2026-08-21): HARD_ASK_TYPES 的集合内容此前零测试钉住。
++    精确断言全集 —— 任何增删都必须有意为之并同步改这里。"""
++    from lykoi.kernel import approval
++
++    assert approval._policy_core is not None, "governance core must be loaded for this test"
++    assert approval._policy_core.HARD_ASK_TYPES == frozenset(
++        {"terminal.exec", "delegation.dispatch"}
++    )
++    assert approval._policy_core.HARD_DENY_TYPES == frozenset()
++
++
++def test_delegation_dispatch_never_auto_allow(tmp_path, monkeypatch):
++    """Planted into always_allow, delegation.dispatch stays 'ask' (hard floor) ——
++    她发起委托永远面向所有者, 活体规则文件怎么改都拉不下来这道门(P1 附文
++    豁免只涉审批机制自身通信与在场应答, 不涉委托)。"""
++    from lykoi.kernel import approval
++
++    rules = tmp_path / "rules.json"
++    rules.write_text(
++        json.dumps({"always_allow": ["delegation.dispatch"], "always_deny": [], "ask": []})
++    )
++    monkeypatch.setattr(approval, "RULES_PATH", str(rules))
++    assert approval._policy_core is not None, "governance core must be loaded for this test"
++    assert approval.check("delegation.dispatch") == "ask"
