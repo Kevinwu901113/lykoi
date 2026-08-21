@@ -54,3 +54,14 @@ governance-ops 2026-08-21T12:05Z);代码整备到新的初始化节点。
 - 切换行为回滚:撤 drop-in + 重启 lykoi-server(秒级,代码不动)。
 - 代码回滚:`rollback-pre-init-node` tag(=1b8ef063);分段回滚点在各包内。
 - U4(转录机清理/周期接力/sendPhoto 等)**不在本节点内**——切换态跑稳后另开。
+
+---
+
+## 收账（2026-08-21 深夜）
+
+**已落地**：2026-08-21 23:33 Kevin root 会话执行 `root-paste.sh`（步 3 清单一处
+文件名由治理侧现场修正），治理侧核验通过：五服务 active、startup_verify OK、
+health ok、活体树=32238013 十文件哈希逐一相同、manifest 112、readout 定时器退役。
+最终节点范围=包 14+15（owner "结束吧"裁决砍掉当晚 U3S 等待）。
+**尾巴**：①E 步实弹结果待回；②WO-U3S 执行中→复核→小粘贴稿（ff+切换翻转+
+HARD_ASK 加固）；③U4 与 C 线在节点之上另行开单。

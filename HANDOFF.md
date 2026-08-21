@@ -317,18 +317,23 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-08-21 校准；比下方历史条目新，先读这里）
+### 📍 状态快照（2026-08-21 深夜二次校准；比下方历史条目新，先读这里）
 
 - **进度正本已迁移**：逐日进度看服务器 `~/reports/governance-ops.jsonl` 与主治理
   Agent 记忆，本节以下的历史条目停在 2026-08-10 前后，仅作背景。
-- 活体 HEAD `1b8ef063`（合并包 13，U3 影子+json 修复），五服务 active 自 8-19 16:08。
-- U 线：U0/U1/U2/U3(影子)/U3-FIX 已上活体；**合并包 14（审批送达 v2，bundle
-  `/tmp/lykoi-merge-apprdeliv-20260819.bundle`）待 Kevin root 落地**；证据门七条
-  由 root 定时器导出 `gate-readout.jsonl` 每 3h 一行，json 修复后零失败但样本稀缺；
-  切换（WO-U3S）等证据门+Kevin。
-- C 线：WO-CA-BASELINE-1 复核 PASS（C-A 前半，报告=C-B 设计正本输入）；
-  WO-GW-01 第 2 波执行中（第 1 波撞限中断，判据②–⑥幸存）。
-- 长期债：offsite rsync 死目标（等 Kevin 定目标）、S4a 四条+broker 未上线、
+- **活体 HEAD `32238013` = 初始化节点 `init-node-20260821`**（8-21 23:33 Kevin
+  root 落地，治理侧哈希对帐核验）：包 14（审批送达 v2，问句=引用回复不吃打扰
+  预算）+ 包 15（GW-01 Delegation Gateway 数据面+管线面，delegation 机器休眠
+  零扰动）。回滚 tag `rollback-pre-init-node`(=1b8ef063)。
+- **Owner 三裁决（8-21）**：撤销证据采样（gate-readout 定时器已退役）；**明示
+  授权 U3 盲切**（红线解除）；节点砍到两包收口。**切换键此刻仍关**——WO-U3S
+  （切换读者实现）执行中/待复核，落地=另一张小粘贴稿（ff+drop-in 翻转+
+  HARD_ASK_TYPES 加固捎带）。
+- C 线：WO-CA-BASELINE-1 复核 PASS（报告=C-B 设计正本输入，三个设计问题待
+  Kevin：模型对下一拍发言权/显著性源二选一/层1-2节律锚）；GW-02（Runner+
+  broker+S4a）待签发；GW-01 复核件里有 GW-02 交接清单。
+- 待验：E 步实弹（让她跑终端任务→问句应引用回复）结果未回。
+- 长期债：offsite rsync 死目标、S4a 四条+broker 未上线、R-CA-1/2 小单候选、
   遗留总账 `docs/open_routes_inventory_2026-08-13.md`。
 
 ### 已完成
