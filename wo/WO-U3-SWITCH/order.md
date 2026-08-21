@@ -5,9 +5,10 @@
 > 解除,决策已记 governance-ops 2026-08-21T12:05Z)。影子期实测数据(供判据校准):
 > 首夜(修复前)35 次影子调用 34 次信封 ValueError;json 强制修复后窗口**零失败**
 > 但仅 1 样本(reply,时延 2734ms;修复前合法样本时延中位 2607ms——远低于 15s 线)。
-> **分支与基**:`wo/u3s`,基 = GW-01 复核通过后的分支尖(派发时由治理侧建好并
-> 填入 run.log;串行基避免 manifest 冲突,教训 26/38)。含合并包 14(7b00ae5e)
-> 与 GW-01 全部代码——判据⑧所依赖的设备层问句代码在基内。
+> **分支与基**:`wo/u3s`,基 = `7b00ae5e`(合并包 14 尖,**并行基**——owner
+> 2026-08-21 指令提速,与 WO-GW-01 并行推进;两单 manifest 重签冲突由合并包
+> 统一重签解决,l2s3 先例)。判据⑧所依赖的设备层问句代码(approval-delivery)
+> 在基内;delegation/GW 代码**不在**你的基内。
 
 你是执行 Agent,在 `~/lykoi-work-l1` 工作,分支 `wo/u3s` 已由治理侧建好,直接
 checkout。铁律同 WO-U3(前台串行/禁后台/每判据一 commit `[WO-U3S]`/测试
@@ -22,8 +23,10 @@ checkout。铁律同 WO-U3(前台串行/禁后台/每判据一 commit `[WO-U3S]`
   静态钉着——本单第一件事就是让它按设计变红,然后被继任者取代)。
 - E2 盖章点在 `telegram_device._send_reply`(出站漏斗,切换后不变)。
 - 影子路由 `conversation_shadow`;主路由 `main` = U2 实验组。
-- 基分支含 GW-01(kernel 第五 origin "delegated" 等)——与本单无交集,但全量
-  基线数字以派发时 run.log 里治理侧给出的为准(GW-01 复核定稿数字)。
+- 全量基线 **2108/3/6**(基 `7b00ae5e`,= 2077/3/6 权威值 + approval-delivery
+  新增 31)。**并行执行注意(教训 38)**:同机另一执行器在跑,若全量中
+  `test_core_v1_shadow` 出现 TimeoutError 连锁失败(锁预算抢 CPU 形态),
+  记录后对该文件单独串行复跑一次定性,勿逐条归因。
 
 ## 判据
 
@@ -60,8 +63,8 @@ checkout。铁律同 WO-U3(前台串行/禁后台/每判据一 commit `[WO-U3S]`
 
 ## forbidden
 
-不删旧转录机路径(回滚保障,清理归 U4);不动 kernel 问答机与传输层;**不碰
-GW-01 带入的 delegation 代码**(它在基内但不是你的领地);不动 decide 自主
+不删旧转录机路径(回滚保障,清理归 U4);不动 kernel 问答机与传输层;不碰
+delegation 相关代码(GW-01 领地,不在你的基内);不动 decide 自主
 情境;approval_rules 永无写路径;secrets 不入块与日志;不碰 guardian/ 与
 src/lykoi/core/(合并包 A 步 root 执行,教训④升级版);影子期实测若与本单
 判据冲突,停下写清楚。
