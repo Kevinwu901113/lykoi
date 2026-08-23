@@ -1,0 +1,13 @@
+{
+  "name": "lykoi-regulation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "调节场纯函数（SA-73..82：15 CAUSES 逐字 / decay 双算法 / 八 effects / registry_problems）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  }
+}

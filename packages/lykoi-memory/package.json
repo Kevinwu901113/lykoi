@@ -2,16 +2,18 @@
   "name": "lykoi-memory",
   "version": "0.1.0",
   "private": true,
-  "description": "只读 state 接入（node:sqlite readOnly；契约 C-01..C-30；R-01 绝对只读）",
+  "description": "state 接入：缺省只读入口（R-01 三重防写）+ 显式 rw 入口（M2-W1 写层；C-01/C-02）",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./rw": "./src/rw.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
-    "@deepseek-ai/schemastery": "3.18.1"
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-regulation": "0.1.0"
   }
 }
