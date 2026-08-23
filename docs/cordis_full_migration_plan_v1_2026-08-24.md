@@ -131,6 +131,7 @@ schema 接管（`/home/lykoi/state/`）。这是"换躯体不换记忆"的技术
 | CF-B3 | dsh 复用深度：只用 cordis 内核，还是含 dsh-llm/session/sandbox 基础包 | 含基础包（§2 复用判据）；M0 研读单定稿边界，锁 lockfile |
 | CF-B4 | 新仓位置与血统 | 新仓 `lykoi-cordis`（GitHub 私有，与治理仓库同套纪律）；不在旧仓里长 |
 | CF-B5 | 接管时技术项：WAL 切换、Node 版本钉死、mac 侧 LykoiApp 处置 | WAL 切（仲裁器形态受益）；Node LTS 钉 lockfile；LykoiApp 维持既有冻结（感知另案，CF-6 沿用） |
+| CF-B6 | dsh-llm-deepseek 每请求附实例假名头 `x-deepseek-harness-user-id`（无关闭开关，WO-M0-DSH-STUDY §7.2）如何处置 | **剥头**：vendor 该 adapter 为 lykoi-llm-deepseek，去掉 resolveUserId（单点改动）；UA 版本归因头 `deepseek-harness/<v>` 接受（标识软件非实例）；telemetry 行不挂 + `DSH_TELEMETRY_DISABLED=1` 纵深。列 v1.3 白皮书 26.2 注记候选。**已按预授权定案（2026-08-24）** |
 
 ## 7. 风险声明（如实，不劝退）
 
