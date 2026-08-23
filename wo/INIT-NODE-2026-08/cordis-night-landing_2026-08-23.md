@@ -18,5 +18,5 @@
 
 - **潜伏雷（不拆，归后续小单）**：`test_gw02_deployment.py:149` 同型 `{base}..HEAD` 锚，断言既有 systemd 单元文件零 diff——本轮没人动单元文件所以是绿的；未来任何合法触碰单元文件的合并会误炸。修法同类（钉尖），可并入下一张 GW 域小单。
 - **教训 42 扩条建议（入 HANDOFF）**：粘贴稿/自证测试里的一切标识符——测试文件名、systemd 单元名、diff 锚点——必须对树/对系统核实，禁止凭记忆写；**零扰动自证测试的 diff 终点必须钉分支尖，永远不许写 HEAD**（分支上等价，合并树上必炸，已连炸两单）。
-- E 步实弹（待 Kevin）：①普通消息→信封回复；②终端任务→审批问句引用回复不计打扰预算；③盯 `u3_cycle_failed`，异常删 drop-in 秒级止损。
+- ~~E 步实弹（待 Kevin）~~ → **已实弹并止损（08-24 00:53–01:07，切换态存活 36 分钟）**：轮 1（喂喂喂）信封回复正常送达 ✓；轮 2（CPBL 提问）/轮 3（人呢）均 `u3_cycle_failed: ValueError not_json, first_char:empty` → 降级沉默（4 次信封调用 2 失败）。**定性**：completion 54/81 tokens 但 content 空 = DeepSeek json 模式已知空回复形态，json_object 强制挡不住；影子期"json 修复后零失败"底数仅 1 样本，欠采即切换（盲切授权下的已知风险兑现）。**第二缺陷**：轮 2 信封 kind=tool_call 记 `dispatched: research_browser.open`（自称事实），kernel/audit 零痕迹——派发执行链或审计面有洞。**她认知行为正确**：先查证再回话（内心独白明言）+ 唤醒试图 explore 查比分被候选集拦（`decision_ungrounded: kind_not_in_candidates`，归 C-B 唤醒候选设计）。Kevin 删 drop-in 止损，01:07:20 回影子态（代码不回滚，4463ae8 保留，信封继续影子双跑攒失败直方图）。**修复单 WO-U3S-FIX-01（待签发）**：①契约失败有界重试一次（带 nudge）再失败才沉默 + `u3_cycle_failed` 补原始响应长度/reasoning 字段；②对话轮 tool_call 派发执行链与审计面定位修复。E 步②（终端任务→审批问句引用回复）未测，随修复后重实弹。切换键价值实证：36 分钟暴露两真缺陷，一条命令退回，零代码回滚。
 - 另册未动：lykoi-runner/broker 系统安装（`docs/wo_gw02_merge_checklist.md`，前提=代理箱 ACL）；追认 5 条与转呈 5 项决断仍待 Kevin。
