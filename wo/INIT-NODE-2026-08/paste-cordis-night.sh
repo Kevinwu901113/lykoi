@@ -10,7 +10,7 @@ R=/home/lykoi/projects/lykoi
 
 echo "=== 0. 前验 ==="
 [ "$(git -C $R rev-parse HEAD)" = "322380137c7951802123f0361e59fc055654339a" ] || { echo "HEAD 不是 32238013,停"; exit 1; }
-systemctl is-active lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-perception-ingest
+systemctl is-active lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-watchdog
 sha256sum -c - <<'EOF'
 a026898f61689c336eb355cb367c0c6796ae56f42f6a194bd5e229300af3b7fd  /tmp/lykoi-u3s-merge.bundle
 c79e33a7b3ff3c5609c67ae94c34f16173613da0840a58b002fe78d024e4faac  /tmp/lykoi-cb-merge.bundle
@@ -63,8 +63,8 @@ sudo -u lykoi bash -c "cd $R && timeout 1800 .venv/bin/pytest -q -p no:randomly 
 sudo -u lykoi bash -c "cd $R && timeout 1800 .venv/bin/pytest -q -p no:randomly tests/test_gw02_runner.py tests/test_gw02_broker_gaps.py tests/test_gw02_s4a.py tests/test_gw02_deployment.py tests/test_gw02_zero_disturbance.py tests/test_gw02_delegated_origin_negative.py tests/test_broker.py tests/test_gw01_delegation.py"
 
 echo "=== 8. A 段:合并态重启(开关关)——U3S 判据④ + CB 影子自动上岗 ==="
-systemctl restart lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-perception-ingest
-sleep 5; systemctl is-active lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-perception-ingest
+systemctl restart lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-watchdog
+sleep 5; systemctl is-active lykoi-server lykoi-autonomy lykoi-telegram lykoi-core lykoi-watchdog
 curl -s http://127.0.0.1:8080/health; echo
 echo "A 段确认:聊一句行为如常;events 里 u3_shadow_envelope 照旧、u3_cycle_envelope 零;heartbeat_shadow 开始出现(心跳影子零副作用自动生效)"
 
