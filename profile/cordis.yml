@@ -27,3 +27,30 @@
     provider: mock
 - id: lykoi-llm
   name: lykoi-llm
+# ==== M1 波次 2：最小对话环 + telegram 器官 ====
+# converse-min 是管线证明（非心智；装配器+信封是 M2 lykoi-decide）。
+# 它硬依赖 audit/lykoiLlm，telegram 经 ctx.get 可选消费——telegram 未启用时安静待命。
+- id: converse-min
+  name: lykoi-converse-min
+  config:
+    route: mock
+    model: mock-model
+# telegram 生产传输默认 disabled（工单④）：本波骨架不接真网；启用是治理侧动作
+# （需 lykoiMemory 的 state 副本路径与 tokenEnv 环境引用一并配好——凭据永不落明文）。
+# dev 用 fake transport 的装配只存在于测试（lykoi-adapter-telegram/testing），不进 profile。
+- id: memory
+  name: lykoi-memory
+  disabled: true
+  config:
+    dbPath: ../lykoi-cordis-devstate/memory.db
+- id: telegram-transport
+  name: lykoi-adapter-telegram/production
+  disabled: true
+  config:
+    tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
+- id: telegram
+  name: lykoi-adapter-telegram
+  disabled: true
+  config:
+    cursorPath: var/telegram-cursor.json
+    archivePath: var/telegram-inbound.json

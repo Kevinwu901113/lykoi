@@ -1,0 +1,21 @@
+{
+  "name": "lykoi-adapter-telegram",
+  "version": "0.1.0",
+  "private": true,
+  "description": "哑适配器：S-01..S-11 语义，传输可替换（生产骨架不接真网；测试用内存 fake）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./production": "./src/production.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-audit": "0.1.0",
+    "lykoi-memory": "0.1.0"
+  }
+}

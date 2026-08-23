@@ -1,0 +1,26 @@
+{
+  "name": "lykoi-converse-min",
+  "version": "0.1.0",
+  "private": true,
+  "description": "最小对话环：M1 管线证明（非心智；装配器+信封是 M2 lykoi-decide）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-adapter-telegram": "0.1.0",
+    "lykoi-audit": "0.1.0",
+    "lykoi-llm": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-budget": "0.1.0",
+    "lykoi-llm-deepseek": "0.1.0",
+    "lykoi-memory": "0.1.0"
+  }
+}
