@@ -1,0 +1,20 @@
+{
+  "name": "lykoi-llm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "薄注册层：复用 dsh-llm LlmRuntime 词汇；budget 前置闸/后置记账在封装层结构保证",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mock": "./src/mock.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-budget": "0.1.0"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "lykoi-budget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "治理地基②：费用硬顶——route 会计 + run 归因 + 前置闸（UTC 日滚动，per-route + 总量两层）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-audit": "0.1.0"
+  }
+}

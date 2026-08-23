@@ -1,0 +1,29 @@
+# Lykoi Cordis M1 骨架 · 插件树（直排 entries；M1 不用 bundle 分层，patch 层 M3 引入）
+# 顶层必须是数组（WO-M0-DSH-STUDY §2.1）。路径类配置相对进程 cwd（从仓库根 npm start）。
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+- id: audit
+  name: lykoi-audit
+  config:
+    path: var/audit.jsonl
+- id: budget
+  name: lykoi-budget
+  config:
+    ledgerPath: var/budget.json
+    # dev 硬顶：mock 路由 50 tokens/UTC 日（两次 34-token 调用后第三次必拒 → 红测），
+    # 总量 1000。生产硬顶 M3 治理侧定。
+    dailyTotalTokens: 1000
+    dailyRouteTokens:
+      mock: 50
+- id: heart
+  name: lykoi-heart
+  config:
+    intervalMs: 1000
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+- id: llm-mock
+  name: lykoi-llm/mock
+  config:
+    provider: mock
+- id: lykoi-llm
+  name: lykoi-llm

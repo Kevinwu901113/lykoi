@@ -1,0 +1,17 @@
+{
+  "name": "lykoi-audit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "治理地基①：append-only 审计 sink（JSONL，单次 write 一整行，R-16）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1"
+  }
+}

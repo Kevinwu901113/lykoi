@@ -1,0 +1,23 @@
+{
+  "name": "lykoi-cordis",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lykoi 的 Cordis(TS/Node) 完全移植体 — M1 骨架",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "profile"
+  ],
+  "scripts": {
+    "start": "node profile/index.ts",
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "typescript": "5.9.2"
+  }
+}

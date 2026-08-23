@@ -1,0 +1,24 @@
+{
+  // M1 工程基线（docs/m1_blueprint.md「工程基线」）：TypeScript strict / ESM-only / NodeNext。
+  // noEmit：M1 用 Node 24 原生 type stripping 直接跑 .ts（无构建步），tsc 只做类型检查。
+  // erasableSyntaxOnly 保证源码始终可被 Node 剥离（无 enum/namespace/参数属性）。
+  "compilerOptions": {
+    "strict": true,
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/test/**/*.ts",
+    "profile/**/*.ts"
+  ]
+}
