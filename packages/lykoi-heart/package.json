@@ -2,7 +2,7 @@
   "name": "lykoi-heart",
   "version": "0.1.0",
   "private": true,
-  "description": "心脏：基线心跳只置位不消费 + tick 合并 + 显著性唤醒接口位（M2 接 salience）",
+  "description": "心脏（唯一节律源，W3 转正）：基线 30min/env clamp(5,360) + G-8 双护栏 + G-3 salience_shadow 读侧 + claim 合并",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

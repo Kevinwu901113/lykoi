@@ -6,7 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./rw": "./src/rw.ts"
+    "./rw": "./src/rw.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""

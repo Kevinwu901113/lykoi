@@ -88,8 +88,13 @@ if (process.env.LYKOI_M1_SMOKE === '1') {
   }
   console.log(`[smoke] budget red test PASS (${allowed} calls allowed, then hard-cap refusal)`)
 
-  // 等 ≥3 拍，验证 tick 合并 claim。
-  await sleep(3500)
+  // 心脏转正（M2-W3）后节律是分钟级（基线 30min / 地板 5min），smoke 不再干等
+  // 墙钟：用公共服务面 tick(now) 驱动虚拟时刻（与生产同一代码路径）验证起搏与
+  // claim 合并。无论 state 文件是否残留（残留未来值按「现在」自愈），四转至少 3 拍。
+  const smokeT0 = new Date()
+  for (const min of [5, 35, 65, 95]) {
+    heart.tick(new Date(smokeT0.getTime() + min * 60_000))
+  }
   const { beats } = heart.claim()
   console.log(`[smoke] heart.claim() merged beats=${beats}`)
   if (beats < 3) {

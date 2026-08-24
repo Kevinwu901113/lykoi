@@ -146,8 +146,9 @@ export const THOUGHT_OPEN_CAP = 7
 /** SA-177：charge 跌破此值 → abandoned + thought_lapse（regulation.py:84 一带）。 */
 export const ABANDON_THRESHOLD = 0.15
 /**
- * SA-177：thought_lapse 经验的 salience（regulation.py:86 一带，值 0.2 逐字）。
- * TODO(M2-W1): 该常量在 Python 源中的确切名字未经比对（规格只钉了数值与用途）。
+ * SA-177：thought_lapse 经验的 salience（regulation.py:86 逐字：
+ * `THOUGHT_LAPSE_SALIENCE = 0.2  # 速朽落痕经验的 salience`）——
+ * 常量名与 Python 同名（W1 TODO#2 对拍销账）。
  */
 export const THOUGHT_LAPSE_SALIENCE = 0.2
 /** 快照念头块 Top-N（SPEC-MIND §2.2：regulation.THOUGHT_SNAPSHOT_TOP = 3）。 */

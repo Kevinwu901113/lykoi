@@ -18,7 +18,11 @@
 - id: heart
   name: lykoi-heart
   config:
-    intervalMs: 1000
+    # M2-W3 转正：基线/地板/显著性策略在插件内（env LYKOI_HEARTBEAT_BASELINE_MIN 可调基线）。
+    checkIntervalMs: 1000
+    stateFile: var/heart-state.json
+    # salience_shadow.db 读侧（G-3）：dev 尚无 sidecar，留空=纯基线；env LYKOI_SALIENCE_DB 优先。
+    salienceDb: ''
 - id: llm
   name: '@deepseek-ai/dsh-llm'
 - id: llm-mock

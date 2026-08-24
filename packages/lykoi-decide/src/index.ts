@@ -333,10 +333,12 @@ export function buildCandidates(snap: SnapshotLike): Candidate[] {
 
   // SA-13：cost/note 文案逐字；explore 与 rest 的 note **从 CAUSES 表插值**
   // （改 CAUSES 的 delta，候选文案自动跟随 —— "数值只许在常量表"的实现面）。
-  // 已知漂移风险点（spec §1.6 [事实/风险]）：rest note 里 "5-360 分钟" 是
-  // MIN/MAX_REST_MIN 的手写副本；且 G-2 后该 note 仍提及 next_wake_after_minutes
-  // —— SA-13 逐字 vs G-2 整体移除的张力已呈报，暂按 SA-13 逐字保留（见 W2 报告
-  // 新增 TODO，W3 心脏转正时呈治理定夺）。
+  // G-11（治理定案，W3 落地；列 Kevin 追认清单）：rest note 改
+  //   `load {delta};下一拍由心脏节律决定`
+  // —— 旧文案引用已被 G-2 移除的 next_wake_after_minutes 字段（死引用），且
+  // "5-360 分钟" 是 MIN/MAX_REST_MIN 的手写副本（漂移点）；随 G-2 同因一并消灭。
+  //   旧：`load -0.10;按 next_wake_after_minutes 再醒(5-360 分钟)`
+  //   新：`load -0.10;下一拍由心脏节律决定`
   const catalogue: Record<KindName, Candidate> = {
     explore: {
       kind: 'explore',
@@ -375,7 +377,7 @@ export function buildCandidates(snap: SnapshotLike): Candidate[] {
       kind: 'rest',
       weight: pyRound(weights.rest, 3),
       cost: '0',
-      note: `load ${plusFixed2(CAUSES.rested![1])};按 next_wake_after_minutes 再醒(5-360 分钟)`,
+      note: `load ${plusFixed2(CAUSES.rested![1])};下一拍由心脏节律决定`,
     },
     // §5.5 §2.1: 纯内向,花一拍,无外部副作用;围绕快照中 Top 念头/关切的推进。
     contemplate: {

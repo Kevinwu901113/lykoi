@@ -69,7 +69,9 @@ test('cost/note 文案逐字；explore/rest note 从 CAUSES 插值（SA-13/14）
     '三种形式:给一条线写进展(thread_id)/调整一条关切描述(concern_id)/给自己留 note(都不带)',
   )
   assert.equal(byKind.get('rest')!.cost, '0')
-  assert.equal(byKind.get('rest')!.note, 'load -0.10;按 next_wake_after_minutes 再醒(5-360 分钟)')
+  // G-11（W3 落地）：旧文案 `load -0.10;按 next_wake_after_minutes 再醒(5-360 分钟)`
+  // 含 G-2 死引用 + MIN/MAX_REST_MIN 手写副本；新文案从 CAUSES 表插值，节律归心脏。
+  assert.equal(byKind.get('rest')!.note, 'load -0.10;下一拍由心脏节律决定')
   assert.equal(byKind.get('contemplate')!.cost, '内部动作,花一拍,无外部副作用')
   assert.equal(
     byKind.get('contemplate')!.note,

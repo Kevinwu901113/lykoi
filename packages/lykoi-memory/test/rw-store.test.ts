@@ -191,11 +191,16 @@ test('SA-175：严格大于最低者 → 同事务挤掉最低者（abandoned + 
   const evicted = raw.prepare('SELECT status, charge FROM thoughts WHERE id = ?').get(ids[0]) as
     { status: string; charge: number }
   assert.equal(evicted.status, 'abandoned')
-  // 同事务的 thought_lapse 经验：source/salience 逐字
+  // 同事务的 thought_lapse 经验：source/salience/content 模板逐字
+  // （W1 TODO#1 销账：thoughts.py:43-62 `放掉了一个没想完的念头:{clip(summary,100)} ({reason})`）
   const lapse = raw.prepare(
-    "SELECT COUNT(*) AS n FROM experiences WHERE source = 'thought_lapse' AND salience = ?",
-  ).get(THOUGHT_LAPSE_SALIENCE) as { n: number }
-  assert.equal(lapse.n, 1)
+    "SELECT content, related_concern_id FROM experiences WHERE source = 'thought_lapse' AND salience = ?",
+  ).all(THOUGHT_LAPSE_SALIENCE) as { content: string; related_concern_id: number | null }[]
+  assert.equal(lapse.length, 1)
+  assert.equal(lapse[0]!.content, '放掉了一个没想完的念头:t-0.3 (capacity_displacement)')
+  assert.equal(lapse[0]!.related_concern_id, null) // Python insert_experience_in_tx 不带关切 id
+  // 被挤者只改 status，charge 原样（thoughts.py _abandon_in_tx 不写 charge）
+  assert.equal(evicted.charge, 0.3)
   rw.close(); raw.close()
 })
 
@@ -222,7 +227,8 @@ test('SA-177：decayAllOpenThoughts 一拍 0.04；跌破 0.15 → abandoned + th
   const keep = rw.createThought('还有电', 'observation', 'wake', { chargeHint: 0.5, now: T0 })!
   const lapse = rw.createThought('快没电', 'observation', 'wake', { chargeHint: 0.18, now: T0 })!
   const result = rw.decayAllOpenThoughts({ now: T0 })
-  assert.deepEqual(result, { decayed: 2, lapsed: [lapse] })
+  // thoughts.py 计数口径：decayed 只数存续的（lapse 的不计）
+  assert.deepEqual(result, { decayed: 1, lapsed: [lapse] })
   const keepRow = raw.prepare('SELECT status, charge FROM thoughts WHERE id = ?').get(keep) as
     { status: string; charge: number }
   assert.equal(keepRow.status, 'open')
@@ -230,11 +236,12 @@ test('SA-177：decayAllOpenThoughts 一拍 0.04；跌破 0.15 → abandoned + th
   const lapseRow = raw.prepare('SELECT status, charge FROM thoughts WHERE id = ?').get(lapse) as
     { status: string; charge: number }
   assert.equal(lapseRow.status, 'abandoned')
-  assert.equal(lapseRow.charge, decayCharge(0.18, 1))
+  assert.equal(lapseRow.charge, 0.18) // _abandon_in_tx 只改 status，charge 原样
   const exp = raw.prepare(
-    "SELECT COUNT(*) AS n FROM experiences WHERE source = 'thought_lapse' AND salience = ?",
-  ).get(THOUGHT_LAPSE_SALIENCE) as { n: number }
-  assert.equal(exp.n, 1)
+    "SELECT content FROM experiences WHERE source = 'thought_lapse' AND salience = ?",
+  ).all(THOUGHT_LAPSE_SALIENCE) as { content: string }[]
+  assert.equal(exp.length, 1)
+  assert.equal(exp[0]!.content, '放掉了一个没想完的念头:快没电 (decay)')
   // 边界：恰 0.15 不 lapse（严格 <）
   const border = rw.createThought('边界', 'observation', 'wake', { chargeHint: 0.19, now: T0 })!
   rw.decayAllOpenThoughts({ now: T0 }) // 0.19 → 0.15（浮点上 0.15000000000000002 > 0.15，不 lapse）

@@ -19,9 +19,10 @@
  *   C-29  不设 journal_mode（memory.db 现行 rollback journal；切 WAL 是独立决策项）。
  *   R-01  本层永远只对副本工作；真 state 的防线在治理侧（golden devstate 只读纪律）。
  *
- * 时钟纪律（C-23）：新体的 clock 模块尚未移植，本层所有写 API 的 now 一律**必传**
- * （Date），不提供 Date.now() 缺省 —— 避免在 clock.now() 唯一真实读点之外偷读墙钟。
- * TODO(M2-W3): wake 编排落地后由调用方统一注入 clock.now()。
+ * 时钟纪律（C-23）：本层所有写 API 的 now 一律**必传**（Date），不提供
+ * Date.now() 缺省 —— 避免在 clock.now() 唯一真实读点之外偷读墙钟。
+ * （W1 TODO#7 已落：clock 薄件在 lykoi-wake —— 生产走 systemClock、测试走
+ * VirtualClock，全部调用方经它取 now 后显式传入，本层纪律不变。）
  */
 import { DatabaseSync } from 'node:sqlite'
 import {
@@ -87,9 +88,9 @@ export interface RegulationCauseResult {
 }
 
 export interface DecayThoughtsResult {
-  /** 本拍衰减过的 open 念头数（含 lapse 的）。 */
+  /** 本拍衰减后仍 open 的念头数（thoughts.py 口径：lapse 的不计入 decayed）。 */
   decayed: number
-  /** 跌破 ABANDON_THRESHOLD 被 lapse 成 abandoned 的念头 id。 */
+  /** 跌破 ABANDON_THRESHOLD 被 lapse 成 abandoned 的念头 id（Python 只返回计数，此处保留 id 供断言）。 */
   lapsed: number[]
 }
 
@@ -159,6 +160,22 @@ export class ConcernCapError extends Error {
     this.name = 'ConcernCapError'
   }
 }
+
+/**
+ * Python ValueError 的对应物（W3 新增，reflow 消费）：语义级拒绝（目标不存在 /
+ * 状态不许 / 载荷为空）。活体 reflow 的 tend_inner 只接 ValueError（其余异常
+ * 冒泡把整拍记 failed）—— 这道"契约破坏 vs 语义拒绝"的分野要在类型上可辨。
+ * 只用于 W3 新增方法；既有方法的抛错类型保持 W1/W2 原样（复核已过，不回改）。
+ */
+export class ValueError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ValueError'
+  }
+}
+
+/** 一次发光的默认权重上调（mind/store.py:44 逐字）。 */
+export const CONCERN_LIT_WEIGHT_DELTA = 0.05
 
 export interface RegulationEventRow {
   id: number
@@ -507,6 +524,71 @@ export class ReadWriteMemory {
     return changes
   }
 
+  /**
+   * 发光（mind/store.light_concern 对应物，W3 reflow 消费）：意义评估把一条经验
+   * 关联到此关切。weight 上调（默认增量 CONCERN_LIT_WEIGHT_DELTA）、last_lit_at
+   * 刷新、lit_count+1。dimming/dormant 被重新点亮会回到 active —— 但只在 active
+   * 未满时（上限不因发光而突破）；released 不可点亮（复活一个已释放的关切是
+   * 整合期的判断，不是代码的）—— 两条拒绝抛 ValueError（reflow 只 log 不杀拍，
+   * SA-64）。
+   */
+  lightConcern(
+    concernId: number,
+    opts: { weightDelta?: number; now: Date },
+  ): { id: number; weight: number; status: string } {
+    const delta = opts.weightDelta ?? CONCERN_LIT_WEIGHT_DELTA
+    const ts = formatPyIso(opts.now)
+    return this.#tx(() => {
+      const row = this.#db.prepare(
+        'SELECT status, weight FROM concerns WHERE id = ?',
+      ).get(concernId) as { status: string; weight: number } | undefined
+      if (!row) {
+        throw new ValueError(`no concern ${concernId}`)
+      }
+      if (row.status === 'released') {
+        throw new ValueError(`concern ${concernId} is released; code must not relight it`)
+      }
+      const newWeight = clamp01(row.weight + delta)
+      let newStatus = row.status
+      if (row.status === 'dimming' || row.status === 'dormant') {
+        const active = this.#db.prepare(
+          "SELECT COUNT(*) AS n FROM concerns WHERE status = 'active'",
+        ).get() as { n: number }
+        if (active.n < ACTIVE_CONCERN_CAP) newStatus = 'active'
+      }
+      this.#db.prepare(
+        `UPDATE concerns SET weight = ?, status = ?, last_lit_at = ?, lit_count = lit_count + 1
+         WHERE id = ?`,
+      ).run(newWeight, newStatus, ts, concernId)
+      return { id: concernId, weight: newWeight, status: newStatus }
+    })
+  }
+
+  /**
+   * tend_inner 的关切形式（mind/store.tend_concern_description 对应物，蓝图 §4.2）：
+   * 只改 description —— weight/status/last_lit_at 一概不动（点亮是意义评估的路，
+   * 释放是她的）。released 不可照料（红线 #3 的照料侧）；空描述/不存在抛
+   * ValueError。
+   */
+  tendConcernDescription(concernId: number, description: string, opts: { now: Date }): void {
+    if (!description.trim()) {
+      throw new ValueError('concern description must be non-empty')
+    }
+    this.#tx(() => {
+      const row = this.#db.prepare(
+        'SELECT status FROM concerns WHERE id = ?',
+      ).get(concernId) as { status: string } | undefined
+      if (!row) {
+        throw new ValueError(`no concern ${concernId}`)
+      }
+      if (row.status === 'released') {
+        throw new ValueError(`concern ${concernId} is released; tending it is not the code's call`)
+      }
+      this.#db.prepare('UPDATE concerns SET description = ? WHERE id = ?')
+        .run(description, concernId)
+    })
+  }
+
   // ============================== 叙事 ==============================
 
   /**
@@ -544,6 +626,36 @@ export class ReadWriteMemory {
       ).all(...statuses) as Record<string, unknown>[]
     }
     return rows.map((r) => this.#threadRow(r))
+  }
+
+  /**
+   * tend_inner 的叙事线形式（mind/store.append_thread_progress 对应物，蓝图 §4.2）：
+   * 给一条 open/suspended 线追加一句带日期的进展。刷新 updated_at 正是要点 ——
+   * 面对一条悬置张力本身就是照料，会重置 30 天超龄时钟（§3.3）。closed 线
+   * （resolved/absorbed）已携带告别，不得在此重开；拒绝抛 ValueError。
+   * 拼接形态逐字：`{旧 content}\n[{YYYY-MM-DD}] {line.strip()}`。
+   */
+  appendThreadProgress(threadId: number, line: string, opts: { now: Date }): void {
+    if (!line.trim()) {
+      throw new ValueError('thread progress line must be non-empty')
+    }
+    const ts = formatPyIso(opts.now)
+    const day = ts.slice(0, 10) // moment.date().isoformat()（tz-aware UTC 的日期部分）
+    this.#tx(() => {
+      const row = this.#db.prepare(
+        'SELECT status, content FROM narrative_threads WHERE id = ?',
+      ).get(threadId) as { status: string; content: string } | undefined
+      if (!row) {
+        throw new ValueError(`no thread ${threadId}`)
+      }
+      if (row.status !== 'open' && row.status !== 'suspended') {
+        throw new ValueError(`thread ${threadId} is ${row.status}; only open/suspended can be tended`)
+      }
+      const content = `${row.content}\n[${day}] ${line.trim()}`
+      this.#db.prepare(
+        'UPDATE narrative_threads SET content = ?, updated_at = ? WHERE id = ?',
+      ).run(content, ts, threadId)
+    })
   }
 
   #threadRow(r: Record<string, unknown>): ThreadRow {
@@ -584,6 +696,25 @@ export class ReadWriteMemory {
       "SELECT COUNT(*) AS n FROM experiences WHERE integrated = 0 AND source <> 'environment'",
     ).get() as { n: number }
     return row.n
+  }
+
+  /**
+   * 某 source 最新经验的 ts（mind/store.latest_experience_ts 对应物）：
+   * 耐久去重标记（如 cheap_tick 的"每个沉默期只写一次 silence"，SA-69）。
+   * 未知 source 抛 ValueError（Python 逐字：unknown experience source）。
+   */
+  latestExperienceTs(source: ExperienceSource): string | null {
+    const known: readonly string[] = [
+      'conversation', 'wake_action', 'action_result', 'silence',
+      'owner_event', 'system', 'thought_lapse', 'environment',
+    ]
+    if (!known.includes(source)) {
+      throw new ValueError(`unknown experience source: '${String(source)}'`)
+    }
+    const row = this.#db.prepare(
+      'SELECT MAX(ts) AS ts FROM experiences WHERE source = ?',
+    ).get(source) as { ts: string | null } | undefined
+    return row?.ts ?? null
   }
 
   /** 最近 N 条经验（mind/store.recent_experiences 对应物：ORDER BY id DESC）。 */
@@ -734,14 +865,14 @@ export class ReadWriteMemory {
         "SELECT COUNT(*) AS n FROM thoughts WHERE status = 'open'",
       ).get() as { n: number }
       if (open.n >= THOUGHT_OPEN_CAP) {
-        // TODO(M2-W1): charge 并列时的选位口径（charge ASC 内的次序键）未在规格里
-        // 钉死，这里取 id ASC（最老优先）；W3 接线前须与 thoughts.py:65-135 对拍。
+        // 挤占次序键逐字对拍（W1 TODO#3 销账）：thoughts.py:106-108
+        // `ORDER BY charge ASC, ts ASC, id ASC` —— 最低 charge，平局按最老 ts、最小 id。
         const lowest = this.#db.prepare(
-          "SELECT id, content, charge, related_concern_id FROM thoughts WHERE status = 'open' "
-          + 'ORDER BY charge ASC, id ASC LIMIT 1',
-        ).get() as { id: number; content: string; charge: number; related_concern_id: number | null }
+          "SELECT id, content, charge FROM thoughts WHERE status = 'open' "
+          + 'ORDER BY charge ASC, ts ASC, id ASC LIMIT 1',
+        ).get() as { id: number; content: string; charge: number }
         if (!(charge > lowest.charge)) return null // 软拒：不严格大于最低者即拒
-        this.#lapseThought(lowest, ts)
+        this.#abandonInTx(lowest.id, lowest.content, 'capacity_displacement', ts)
       }
       const info = this.#db.prepare(
         `INSERT INTO thoughts (ts, content, kind, source, related_concern_id, source_ref, charge)
@@ -751,30 +882,31 @@ export class ReadWriteMemory {
     })
   }
 
-  /** 事务内工序：open→abandoned + thought_lapse 经验（SA-175/177 共用；调用方持有事务）。 */
-  #lapseThought(
-    row: { id: number; content: string; related_concern_id: number | null; charge?: number },
-    ts: string,
-    newCharge?: number,
-  ): void {
-    if (newCharge === undefined) {
-      this.#db.prepare("UPDATE thoughts SET status = 'abandoned' WHERE id = ?").run(row.id)
-    } else {
-      this.#db.prepare("UPDATE thoughts SET status = 'abandoned', charge = ? WHERE id = ?")
-        .run(newCharge, row.id)
-    }
-    // TODO(M2-W1): thought_lapse 经验的 content 模板未经与 thoughts.py 对拍（规格只
-    // 钉了 source='thought_lapse' 与 salience=0.2）；W3 接线前须逐字校准。
+  /**
+   * 事务内工序：open→abandoned + thought_lapse 经验（SA-175/177 共用；调用方持有
+   * 事务）——thoughts.py:43-62 `_abandon_in_tx` 逐字对拍（W1 TODO#1 销账）：
+   * - 只改 status，**不写 charge**（Python 弃置时不落新 charge）；
+   * - 经验 content 模板逐字 `放掉了一个没想完的念头:{clip(summary,100)} ({reason})`
+   *   （clip 不 strip、省略号在 100 之外）；reason ∈ {capacity_displacement, decay}；
+   * - related_concern_id 不带（Python insert_experience_in_tx 未传该列）。
+   */
+  #abandonInTx(thoughtId: number, summary: string, reason: string, ts: string): void {
+    this.#db.prepare("UPDATE thoughts SET status = 'abandoned' WHERE id = ?").run(thoughtId)
+    const cps = [...summary]
+    const clipped = cps.length <= 100 ? summary : cps.slice(0, 100).join('') + '…'
     this.#db.prepare(
-      `INSERT INTO experiences (ts, source, content, salience, related_concern_id)
-       VALUES (?, 'thought_lapse', ?, ?, ?)`,
-    ).run(ts, `[念头消散] ${row.content}`, THOUGHT_LAPSE_SALIENCE, row.related_concern_id)
+      `INSERT INTO experiences (ts, source, content, salience)
+       VALUES (?, 'thought_lapse', ?, ?)`,
+    ).run(ts, `放掉了一个没想完的念头:${clipped} (${reason})`, THOUGHT_LAPSE_SALIENCE)
   }
 
   /**
    * 注意力域第二道闸（store 层，§2.3 三层闸之 2）：id 不在本拍注入集内即拒。
    * 仅 open→resolved（状态机唯一入口边；非法边由库层触发器兜底）。
-   * 返回 false = 拒绝（不在注入集 / 不存在 / 非 open）—— 调用方记 rejected_resolve。
+   * 返回契约对拍（W1 TODO#4 销账）：thoughts.py:138-171 逐字一致 ——
+   * 集外 → false / 不存在 → false / 非 open → false / 成功 open→resolved → true；
+   * 拒绝路径零副作用。（Python 侧的 thought_resolve_rejected/thought_resolved
+   * log_event 属 store 层遥测面，见 W3 报告新增 TODO。）
    */
   resolveThought(id: number, injectedIds: Iterable<number>): boolean {
     if (!Number.isInteger(id)) return false
@@ -791,24 +923,28 @@ export class ReadWriteMemory {
   /**
    * SA-177：念头衰减一拍一次（decay_charge，beats=1）；跌破 ABANDON_THRESHOLD=0.15
    * → 同一事务内 abandoned + thought_lapse 经验（salience 0.2），原子。
+   * 计数口径对拍 thoughts.py:293-325：decayed 只数**存续**的（lapse 的不计）；
+   * lapse 行只改 status 不写衰减后 charge（W1 TODO#1 一并修正）。
    */
   decayAllOpenThoughts(opts: { now: Date }): DecayThoughtsResult {
     const ts = formatPyIso(opts.now)
     return this.#tx(() => {
       const rows = this.#db.prepare(
-        "SELECT id, content, charge, related_concern_id FROM thoughts WHERE status = 'open' ORDER BY id",
-      ).all() as { id: number; content: string; charge: number; related_concern_id: number | null }[]
+        "SELECT id, content, charge FROM thoughts WHERE status = 'open' ORDER BY id",
+      ).all() as { id: number; content: string; charge: number }[]
       const lapsed: number[] = []
+      let decayed = 0
       for (const row of rows) {
         const next = decayCharge(row.charge, 1)
         if (next < ABANDON_THRESHOLD) {
-          this.#lapseThought(row, ts, next)
+          this.#abandonInTx(row.id, row.content, 'decay', ts)
           lapsed.push(row.id)
         } else {
           this.#db.prepare('UPDATE thoughts SET charge = ? WHERE id = ?').run(next, row.id)
+          decayed += 1
         }
       }
-      return { decayed: rows.length, lapsed }
+      return { decayed, lapsed }
     })
   }
 
@@ -965,6 +1101,65 @@ export class ReadWriteMemory {
       if (Number(info.changes) !== 1) {
         throw new Error('lykoi-memory: finishAutonomyRun found no such run row')
       }
+    })
+  }
+
+  /**
+   * 自主笔记 append（memory/store.append_autonomy_note 对应物，append-only 由
+   * 库层双触发器保证）。自主环只写 notes，**从不**直写 insights —— 晋升是
+   * 整合期的受治理动作（W4 integrator）。kind 注释级枚举
+   * observation|reflection|question（无 CHECK，纪律在调用方）。
+   */
+  appendAutonomyNote(
+    autonomyRunId: string,
+    kind: string,
+    content: string,
+    opts: { confidence?: number | null; sourceType?: string | null; sourceUrls?: readonly string[] | null; now: Date },
+  ): number {
+    if (typeof autonomyRunId !== 'string' || autonomyRunId.length === 0) {
+      throw new TypeError('lykoi-memory: autonomy note run id must be a non-empty string')
+    }
+    return this.#tx(() => {
+      const info = this.#db.prepare(
+        `INSERT INTO autonomy_notes
+           (created_at, autonomy_run_id, kind, content, confidence, source_type, source_urls_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        formatPyIso(opts.now),
+        autonomyRunId,
+        kind,
+        content,
+        opts.confidence ?? null,
+        opts.sourceType ?? null,
+        opts.sourceUrls && opts.sourceUrls.length > 0 ? JSON.stringify(opts.sourceUrls) : null,
+      )
+      return Number(info.lastInsertRowid)
+    })
+  }
+
+  /**
+   * 每次 wake +1（mind/store.bump_wakes_since 对应物）：同一次心跳把
+   * integration_state.wakes_since 与 learning_layer_state['l4_focus_wakes_since']
+   * **都 +1**（整合与专注思考是同一条节律上的两台机器；清零点不同 —— 层 1 由
+   * reset_integration_cycle 在"确实做了事"后清零，层 2 每周期后清零，W4 接）。
+   * 返回层 1 计数。
+   */
+  bumpWakesSince(opts: { now: Date }): number {
+    return this.#tx(() => {
+      this.#db.prepare(
+        'UPDATE integration_state SET wakes_since = wakes_since + 1 WHERE id = 1',
+      ).run()
+      const row = this.#db.prepare(
+        'SELECT wakes_since AS n FROM integration_state WHERE id = 1',
+      ).get() as { n: number } | undefined
+      if (!row) {
+        throw new Error('lykoi-memory: integration_state row missing (schema violation)')
+      }
+      this.#db.prepare(
+        `INSERT INTO learning_layer_state (key, value, set_at) VALUES (?, 1, ?)
+         ON CONFLICT(key) DO UPDATE SET value = value + 1, set_at = excluded.set_at`,
+      ).run('l4_focus_wakes_since', formatPyIso(opts.now))
+      return Number(row.n)
     })
   }
 
