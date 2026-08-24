@@ -1,42 +1,22 @@
 /**
- * 写层测试共用夹具。
+ * lykoi-snapshot 测试夹具。
  *
- * 两条数据来源，两条纪律：
- * 1. 合成 fixture —— 表 DDL/索引/触发器逐字取自 WO-M0-STATE-CONTRACT §1（不含她的
- *    任何数据），保证触发器契约测试在 devstate 缺席的机器上也必跑；
- * 2. golden devstate —— `LYKOI_DEVSTATE_DB` 注入，**只许只读**；一切写测试先
- *    copy 进 os.tmpdir 的独立文件再 rw 打开，测试结束不回写；她的行内容零输出。
+ * 合成 fixture：DDL/索引/触发器逐字取自 WO-M0-STATE-CONTRACT §1（与
+ * lykoi-memory/test/fixture.ts 同源同字；测试树不跨包 import 所以各持一份 ——
+ * 改 DDL 必须两处同改）。不含她的任何数据；devstate 相关测试归 lykoi-memory。
  */
-import { cpSync, mkdtempSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-
-export const DEVSTATE = process.env.LYKOI_DEVSTATE_DB
-export const devstateSkip = DEVSTATE
-  ? false
-  : 'LYKOI_DEVSTATE_DB 未注入（devstate 副本缺席时 skip 不 fail）'
+import type { RestartEvent, SnapshotDeps } from '../src/index.ts'
 
 export function tmp(): string {
-  return mkdtempSync(join(tmpdir(), 'lykoi-memory-rw-'))
+  return mkdtempSync(join(tmpdir(), 'lykoi-snapshot-'))
 }
 
-/** golden devstate → os.tmpdir 独立副本（写测试唯一允许的打开对象）。 */
-export function copyDevstate(): string {
-  const dest = join(tmp(), 'devstate-copy.db')
-  cpSync(DEVSTATE!, dest)
-  return dest
-}
-
-/** C-22 业务行格式（isoformat：+00:00 偏移、微秒零省略、非零六位）。 */
-export const PY_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?\+00:00$/
-
-/**
- * 合成 fixture：本波写面覆盖的表，DDL/索引/触发器逐字 = WO-M0-STATE-CONTRACT §1.2
- * （regulation_events/experiences/thoughts/history 的触发器原文一字不改——
- * R-06：触发器消息是契约的一部分，不得改字）。
- */
-export function makeWritableFixture(): string {
+export function makeFixture(): string {
   const path = join(tmp(), 'fixture.db')
   const db = new DatabaseSync(path)
   db.exec(`
@@ -78,8 +58,6 @@ export function makeWritableFixture(): string {
       released_at TEXT, release_reason TEXT
     );
     CREATE INDEX idx_concerns_status ON concerns(status);
-    INSERT INTO concerns (id, kind, title, description, weight, origin, status, created_at)
-      VALUES (1, 'interest', 'fixture-concern', '', 0.5, 'seed', 'active', '2026-08-20T00:00:00+00:00');
 
     CREATE TABLE experiences (
       id INTEGER PRIMARY KEY, ts TEXT NOT NULL,
@@ -194,9 +172,50 @@ export function makeWritableFixture(): string {
   return path
 }
 
-/** 裸连接（测试断言/触发器红测直发 SQL 用）。 */
+/** 裸连接（种数据/断言用）。 */
 export function rawOpen(path: string): DatabaseSync {
   const db = new DatabaseSync(path)
   db.exec('PRAGMA busy_timeout = 10000')
   return db
+}
+
+/**
+ * 全库逻辑摘要（学 test_cb_deliberation_zero_write 的手法，SA-47/48）：
+ * 逐表 SELECT * ORDER BY rowid 后哈希。read() 前后必须相等（零写），
+ * 且必须配对照组（一次真实写后必须变 —— 否则断言可能假性通过）。
+ */
+export function dbDigest(path: string): string {
+  const db = new DatabaseSync(path, { readOnly: true })
+  try {
+    const hash = createHash('sha256')
+    const tables = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all() as { name: string }[]
+    for (const { name } of tables) {
+      hash.update(`== ${name} ==`)
+      const rows = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()
+      hash.update(JSON.stringify(rows))
+    }
+    return hash.digest('hex')
+  } finally {
+    db.close()
+  }
+}
+
+/** 缺省 deps：外部读数取安静值；restart 恒 null（W2 接口位契约）。 */
+export function stubDeps(overrides: Partial<SnapshotDeps> = {}): SnapshotDeps & {
+  events: [string, Record<string, unknown>][]
+} {
+  const events: [string, Record<string, unknown>][] = []
+  return {
+    approvalPendingCount: () => 0,
+    notificationsRemainingToday: () => 2,
+    proactiveRemainingToday: () => 1,
+    unprocessedRestartEvent: (): RestartEvent | null => null,
+    logEvent: (name: string, fields: Record<string, unknown>) => {
+      events.push([name, fields])
+    },
+    ...overrides,
+    events,
+  }
 }

@@ -1,0 +1,17 @@
+{
+  "name": "lykoi-snapshot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "感知快照 maintain/read 劈分版（SA-33..44：四写顺序 / 九项键序 / 注意力预算 / floor SA-173..174 / G-6 落地）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "lykoi-memory": "0.1.0",
+    "lykoi-regulation": "0.1.0"
+  }
+}

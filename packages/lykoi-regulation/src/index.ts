@@ -152,6 +152,11 @@ export const ABANDON_THRESHOLD = 0.15
 export const THOUGHT_LAPSE_SALIENCE = 0.2
 /** 快照念头块 Top-N（SPEC-MIND §2.2：regulation.THOUGHT_SNAPSHOT_TOP = 3）。 */
 export const THOUGHT_SNAPSHOT_TOP = 3
+/**
+ * SA-44：question 类念头 open 超时（小时）→ 悬决压力（出口 ②，regulation.py:85 逐字）。
+ * W2 快照的 _apply_lazy_overdue_penalty 消费（与 thread 30 天超龄共用 suspension_overdue 因）。
+ */
+export const QUESTION_OVERDUE_HOURS = 48
 
 // ============================== 八 effects（SA-79/80） ==============================
 

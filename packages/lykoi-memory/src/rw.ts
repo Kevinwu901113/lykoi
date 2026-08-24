@@ -31,6 +31,7 @@ import {
   decayCharge,
   decayValue,
   clamp01,
+  QUESTION_OVERDUE_HOURS,
   THOUGHT_LAPSE_SALIENCE,
   THOUGHT_OPEN_CAP,
   type RegulationVariableName,
@@ -39,6 +40,9 @@ import {
   EXPECTED_MIND_SCHEMA_VERSION,
   parseStateTimestamp,
   type AutonomyStateRow,
+  type ConcernRow,
+  type ExperienceRow,
+  type HistoryRow,
   type RegulationFieldRow,
   type ThoughtRow,
 } from './index.ts'
@@ -106,8 +110,10 @@ export interface FinishAutonomyRunOptions {
   status: 'completed' | 'failed' | 'stale'
   finishedAt: Date
   /**
-   * decision JSON —— 由调用方序列化（Python json.dumps 与 JSON.stringify 的
-   * 分隔符格式不同，序列化口径归 W2 决策层定，本层不擅代）。
+   * decision JSON —— 由调用方序列化。口径已由 W2 决策层定案（W1 TODO#6 销账）：
+   * 新体 = `serializeDecision`（lykoi-decide：JSON.stringify over 保序 as_dict，
+   * 紧凑分隔符）；与 Python 历史行（json.dumps 的 ", "/": " 分隔符）并存，
+   * 读侧 JSON.parse 双向兼容 —— 见 lykoi-decide/src/index.ts 的序列化注释。
    */
   decision?: string | null
   nextWakeAt?: Date | null
@@ -123,6 +129,78 @@ const THOUGHT_SOURCES: readonly ThoughtSource[] = [
   'wake', 'conversation', 'integration', 'contemplate',
 ]
 const RUN_STATUSES = ['completed', 'failed', 'stale'] as const
+
+// ============================== W2 补齐面（快照/决策消费） ==============================
+
+/** active 关切数上限（mind/store.py:36 逐字：满了想加新的必须先释放旧的）。 */
+export const ACTIVE_CONCERN_CAP = 12
+/** last_lit_at 超 7 天 → dimming（mind/store.py:39）。 */
+export const DIMMING_AFTER_DAYS = 7
+/** 超 21 天 → dormant——绝不自动 released，红线 #3（mind/store.py:40）。 */
+export const DORMANT_AFTER_DAYS = 21
+/** 悬置超 30 天未动 → 压低 coherence 的判据（mind/store.py:41）。 */
+export const SUSPENDED_OVERDUE_DAYS = 30
+
+/** concerns.kind 枚举（mind/store.py:46 逐字）。 */
+export const CONCERN_KINDS = [
+  'interest', 'project', 'question', 'ritual', 'relationship_thread',
+] as const
+export type ConcernKind = (typeof CONCERN_KINDS)[number]
+/** concerns.origin 枚举（mind/store.py:51 一带；DDL CHECK 七值并集）。 */
+export const CONCERN_ORIGINS = [
+  'seed', 'grown', 'relationship', 'floor', 'emergent', 'owner_directed', 'derived',
+] as const
+export type ConcernOrigin = (typeof CONCERN_ORIGINS)[number]
+
+/** create_concern 的有限性拒绝（mind/store.py:74 ConcernCapError 对应物）。 */
+export class ConcernCapError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ConcernCapError'
+  }
+}
+
+export interface RegulationEventRow {
+  id: number
+  ts: string
+  name: string
+  delta: number
+  valueAfter: number
+  cause: string
+}
+
+export interface ThreadRow {
+  id: number
+  kind: string
+  content: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  resolution: string | null
+}
+
+export interface NarrativeVersionRow {
+  id: number
+  createdAt: string
+  content: string
+  changeSummary: string
+  trigger: string
+  narrativeClass: string | null
+}
+
+export interface InsightRow {
+  id: number
+  created: string
+  updated: string
+  category: string
+  content: string
+}
+
+export interface ConcernTransition {
+  id: number
+  from: string
+  to: string
+}
 
 // ============================== 实现 ==============================
 
@@ -275,6 +353,351 @@ export class ReadWriteMemory {
       value: r.value,
       baseline: r.baseline,
       updatedAt: r.updated_at,
+    }))
+  }
+
+  /**
+   * 最近调节事件（mind/store.recent_regulation_events 对应物：ORDER BY id DESC，
+   * 新的在前 —— 快照 recent_causes 的呈现序即此序）。name=null 时全量表尾。
+   */
+  recentRegulationEvents(name: string | null, n: number): RegulationEventRow[] {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError('lykoi-memory: limit must be a non-negative integer')
+    }
+    const rows = (name === null
+      ? this.#db.prepare(
+        'SELECT id, ts, name, delta, value_after, cause FROM regulation_events ORDER BY id DESC LIMIT ?',
+      ).all(n)
+      : this.#db.prepare(
+        'SELECT id, ts, name, delta, value_after, cause FROM regulation_events WHERE name = ? '
+        + 'ORDER BY id DESC LIMIT ?',
+      ).all(name, n)) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as number,
+      ts: r.ts as string,
+      name: r.name as string,
+      delta: r.delta as number,
+      valueAfter: r.value_after as number,
+      cause: r.cause as string,
+    }))
+  }
+
+  /**
+   * 指定因集合中最新事件的 ts（mind/store.last_cause_event_ts 对应物：
+   * SELECT MAX(ts)；append-only 事件账本兼作耐重启的去重标记）。空集合 → null。
+   */
+  lastCauseEventTs(causes: readonly string[]): string | null {
+    if (causes.length === 0) return null
+    const marks = causes.map(() => '?').join(',')
+    const row = this.#db.prepare(
+      `SELECT MAX(ts) AS ts FROM regulation_events WHERE cause IN (${marks})`,
+    ).get(...causes) as { ts: string | null } | undefined
+    return row?.ts ?? null
+  }
+
+  // ============================== concerns ==============================
+
+  /**
+   * 关切列表（mind/store.list_concerns 对应物：ORDER BY weight DESC, id ——
+   * 快照 Top-N 截取直接依赖这个次序）。status 缺省 = 全部状态（含 released，
+   * 种子幂等 SA-166 的读法）。
+   */
+  listConcerns(status?: string | readonly string[]): ConcernRow[] {
+    let rows: Record<string, unknown>[]
+    if (status === undefined) {
+      rows = this.#db.prepare(
+        'SELECT * FROM concerns ORDER BY weight DESC, id',
+      ).all() as Record<string, unknown>[]
+    } else {
+      const statuses = typeof status === 'string' ? [status] : [...status]
+      const marks = statuses.map(() => '?').join(',')
+      rows = this.#db.prepare(
+        `SELECT * FROM concerns WHERE status IN (${marks}) ORDER BY weight DESC, id`,
+      ).all(...statuses) as Record<string, unknown>[]
+    }
+    return rows.map((r) => ({
+      id: r.id as number,
+      kind: r.kind as string,
+      title: r.title as string,
+      description: r.description as string,
+      weight: r.weight as number,
+      origin: r.origin as string,
+      parentId: (r.parent_id ?? null) as number | null,
+      status: r.status as string,
+      createdAt: r.created_at as string,
+      lastLitAt: (r.last_lit_at ?? null) as string | null,
+      litCount: r.lit_count as number,
+    }))
+  }
+
+  /**
+   * 建关切（mind/store.create_concern 对应物）。受有限性约束：active 满 12 则
+   * ConcernCapError —— 代码不替她腾位置，释放是整合期她的判断（红线 #3）。
+   * 校验与错误文案序沿 Python：kind → origin → title → weight → cap。
+   */
+  createConcern(
+    kind: string,
+    title: string,
+    opts: {
+      weight: number
+      origin: string
+      description?: string
+      parentId?: number | null
+      now: Date
+    },
+  ): number {
+    if (!(CONCERN_KINDS as readonly string[]).includes(kind)) {
+      throw new Error(`unknown concern kind: '${kind}'`)
+    }
+    if (!(CONCERN_ORIGINS as readonly string[]).includes(opts.origin)) {
+      throw new Error(`unknown concern origin: '${opts.origin}'`)
+    }
+    if (!title.trim()) {
+      throw new Error('concern title must be non-empty')
+    }
+    if (!(opts.weight >= 0.0 && opts.weight <= 1.0)) {
+      throw new Error('concern weight must be in [0,1]')
+    }
+    const ts = formatPyIso(opts.now)
+    return this.#tx(() => {
+      const active = this.#db.prepare(
+        "SELECT COUNT(*) AS n FROM concerns WHERE status = 'active'",
+      ).get() as { n: number }
+      if (active.n >= ACTIVE_CONCERN_CAP) {
+        throw new ConcernCapError(
+          `active concerns at cap (${ACTIVE_CONCERN_CAP}); release one first — 取舍即生命`,
+        )
+      }
+      const info = this.#db.prepare(
+        `INSERT INTO concerns (kind, title, description, weight, origin, parent_id, status, created_at)
+         VALUES (?,?,?,?,?,?, 'active', ?)`,
+      ).run(kind, title, opts.description ?? '', opts.weight, opts.origin, opts.parentId ?? null, ts)
+      return Number(info.lastInsertRowid)
+    })
+  }
+
+  /**
+   * SA-34 第一写：确定性变暗（mind/store.mark_dimming_dormant 对应物，蓝图 §3.2）。
+   * last_lit_at（缺则 created_at）超 7 天 → dimming；超 21 天 → dormant。
+   * 本方法 NEVER 写 'released' —— 释放只属于整合期的她或 owner 后门（红线 #3）。
+   * 严格大于（Python `days > DORMANT_AFTER_DAYS`）；dimming 仅对 active 行。
+   */
+  markDimmingDormant(opts: { now: Date }): ConcernTransition[] {
+    const changes: ConcernTransition[] = []
+    this.#tx(() => {
+      const rows = this.#db.prepare(
+        `SELECT id, status, COALESCE(last_lit_at, created_at) AS ref_ts
+           FROM concerns WHERE status IN ('active', 'dimming')`,
+      ).all() as { id: number; status: string; ref_ts: string }[]
+      for (const row of rows) {
+        const days
+          = (opts.now.getTime() - parseStateTimestamp(row.ref_ts).getTime()) / 86_400_000
+        let target: string | null = null
+        if (days > DORMANT_AFTER_DAYS) {
+          target = 'dormant'
+        } else if (days > DIMMING_AFTER_DAYS && row.status === 'active') {
+          target = 'dimming'
+        }
+        if (target && target !== row.status) {
+          this.#db.prepare('UPDATE concerns SET status = ? WHERE id = ?').run(target, row.id)
+          changes.push({ id: row.id, from: row.status, to: target })
+        }
+      }
+    })
+    return changes
+  }
+
+  // ============================== 叙事 ==============================
+
+  /**
+   * 认知当前叙事（mind/store.current_cognitive_narrative 对应物，WO-P4R-06 /
+   * SA-41）：最新的非 narrative_only 版本 —— 空整合的虚构改写绝不被提升为
+   * "当前自我叙事"。`IS NOT` 是 NULL 安全的：未标记的历史行仍认知可见（fail-safe）。
+   */
+  currentCognitiveNarrative(): NarrativeVersionRow | undefined {
+    const row = this.#db.prepare(
+      "SELECT * FROM narrative_versions WHERE narrative_class IS NOT 'narrative_only' "
+      + 'ORDER BY id DESC LIMIT 1',
+    ).get() as Record<string, unknown> | undefined
+    if (!row) return undefined
+    return {
+      id: row.id as number,
+      createdAt: row.created_at as string,
+      content: row.content as string,
+      changeSummary: row.change_summary as string,
+      trigger: row.trigger as string,
+      narrativeClass: (row.narrative_class ?? null) as string | null,
+    }
+  }
+
+  /** 叙事线列表（mind/store.list_threads 对应物：ORDER BY id）。 */
+  listThreads(status?: string | readonly string[]): ThreadRow[] {
+    let rows: Record<string, unknown>[]
+    if (status === undefined) {
+      rows = this.#db.prepare('SELECT * FROM narrative_threads ORDER BY id')
+        .all() as Record<string, unknown>[]
+    } else {
+      const statuses = typeof status === 'string' ? [status] : [...status]
+      const marks = statuses.map(() => '?').join(',')
+      rows = this.#db.prepare(
+        `SELECT * FROM narrative_threads WHERE status IN (${marks}) ORDER BY id`,
+      ).all(...statuses) as Record<string, unknown>[]
+    }
+    return rows.map((r) => this.#threadRow(r))
+  }
+
+  #threadRow(r: Record<string, unknown>): ThreadRow {
+    return {
+      id: r.id as number,
+      kind: r.kind as string,
+      content: r.content as string,
+      status: r.status as string,
+      createdAt: r.created_at as string,
+      updatedAt: r.updated_at as string,
+      resolution: (r.resolution ?? null) as string | null,
+    }
+  }
+
+  /**
+   * 悬置超龄线（mind/store.overdue_suspended_threads 对应物：suspended 且
+   * updated_at 距今超 days 天；过滤在代码侧按解析后的时钟差算，不做字符串比较）。
+   */
+  overdueSuspendedThreads(opts: { now: Date; days?: number }): ThreadRow[] {
+    const days = opts.days ?? SUSPENDED_OVERDUE_DAYS
+    const rows = this.#db.prepare(
+      "SELECT * FROM narrative_threads WHERE status = 'suspended' ORDER BY id",
+    ).all() as Record<string, unknown>[]
+    return rows
+      .filter((r) => (opts.now.getTime()
+        - parseStateTimestamp(r.updated_at as string).getTime()) / 86_400_000 > days)
+      .map((r) => this.#threadRow(r))
+  }
+
+  // ============================== experiences（读侧） ==============================
+
+  /**
+   * 未整合行为经验数（mind/store.count_pending_experiences 对应物）。
+   * W1 environment 沉淀明确不计（integrated = 0 AND source <> 'environment'）。
+   */
+  countPendingExperiences(): number {
+    const row = this.#db.prepare(
+      "SELECT COUNT(*) AS n FROM experiences WHERE integrated = 0 AND source <> 'environment'",
+    ).get() as { n: number }
+    return row.n
+  }
+
+  /** 最近 N 条经验（mind/store.recent_experiences 对应物：ORDER BY id DESC）。 */
+  recentExperiences(n: number): ExperienceRow[] {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError('lykoi-memory: limit must be a non-negative integer')
+    }
+    const rows = this.#db.prepare(
+      `SELECT id, ts, source, content, salience, related_concern_id, integrated, integration_id
+         FROM experiences ORDER BY id DESC LIMIT ?`,
+    ).all(n) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as number,
+      ts: r.ts as string,
+      source: r.source as string,
+      content: r.content as string,
+      salience: r.salience as number,
+      relatedConcernId: (r.related_concern_id ?? null) as number | null,
+      integrated: r.integrated as number,
+      integrationId: (r.integration_id ?? null) as number | null,
+    }))
+  }
+
+  // ============================== thoughts（读侧） ==============================
+
+  /**
+   * 快照注入的 Top-N open 念头（thoughts.get_thoughts_for_snapshot 对应物，出口 ①）。
+   * 排序键逐字：charge DESC, ts ASC, id ASC —— 最强的先看见，平局按最老、最小 id。
+   * 不足 top_n 合法，空列表是正确渲染而非警告（SA-38）。
+   */
+  getThoughtsForSnapshot(topN: number): ThoughtRow[] {
+    if (!Number.isInteger(topN) || topN < 0) {
+      throw new TypeError('lykoi-memory: limit must be a non-negative integer')
+    }
+    const rows = this.#db.prepare(
+      `SELECT id, ts, content, kind, source, related_concern_id, source_ref, charge, status
+         FROM thoughts WHERE status = 'open' ORDER BY charge DESC, ts ASC, id ASC LIMIT ?`,
+    ).all(topN) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as number,
+      ts: r.ts as string,
+      content: r.content as string,
+      kind: r.kind as string,
+      source: r.source as string,
+      relatedConcernId: (r.related_concern_id ?? null) as number | null,
+      sourceRef: (r.source_ref ?? null) as string | null,
+      charge: r.charge as number,
+      status: r.status as string,
+    }))
+  }
+
+  /**
+   * 超时未答的 question 念头（thoughts.overdue_questions 对应物，出口 ②）：
+   * open ∧ kind='question' ∧ ts < now - QUESTION_OVERDUE_HOURS。
+   * 比较沿 Python：cutoff 以 isoformat 形态与业务行做字符串比较（同格式串序=时间序）。
+   */
+  overdueQuestions(opts: { now: Date }): ThoughtRow[] {
+    const cutoff = formatPyIso(new Date(opts.now.getTime() - QUESTION_OVERDUE_HOURS * 3_600_000))
+    const rows = this.#db.prepare(
+      `SELECT id, ts, content, kind, source, related_concern_id, source_ref, charge, status
+         FROM thoughts WHERE status = 'open' AND kind = 'question' AND ts < ? ORDER BY ts`,
+    ).all(cutoff) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as number,
+      ts: r.ts as string,
+      content: r.content as string,
+      kind: r.kind as string,
+      source: r.source as string,
+      relatedConcernId: (r.related_concern_id ?? null) as number | null,
+      sourceRef: (r.source_ref ?? null) as string | null,
+      charge: r.charge as number,
+      status: r.status as string,
+    }))
+  }
+
+  // ============================== history / insights（读侧） ==============================
+
+  /**
+   * 某 event_type 最近 N 条，**oldest-first**（memory/store.get_recent_history_of_type
+   * 对应物：id DESC 取表尾后 reversed —— 节律采样 conversation_timestamps 依赖此序）。
+   */
+  getRecentHistoryOfType(eventType: string, n: number): HistoryRow[] {
+    if (!Number.isInteger(n) || n < 0) {
+      throw new TypeError('lykoi-memory: limit must be a non-negative integer')
+    }
+    const rows = this.#db.prepare(
+      'SELECT id, ts, event_type, content FROM history WHERE event_type = ? ORDER BY id DESC LIMIT ?',
+    ).all(eventType, n) as Record<string, unknown>[]
+    return rows.reverse().map((r) => ({
+      id: r.id as number,
+      ts: r.ts as string,
+      eventType: r.event_type as string,
+      content: r.content as string,
+    }))
+  }
+
+  /**
+   * insights 按类读取（memory/store.get_insights 对应物：ORDER BY id ——
+   * persona 投影 _bullets 的行序即此序）。category=null → 全量。
+   */
+  getInsights(category: string | null): InsightRow[] {
+    const rows = (category === null
+      ? this.#db.prepare(
+        'SELECT id, created, updated, category, content FROM insights ORDER BY id',
+      ).all()
+      : this.#db.prepare(
+        'SELECT id, created, updated, category, content FROM insights WHERE category = ? ORDER BY id',
+      ).all(category)) as Record<string, unknown>[]
+    return rows.map((r) => ({
+      id: r.id as number,
+      created: r.created as string,
+      updated: r.updated as string,
+      category: r.category as string,
+      content: r.content as string,
     }))
   }
 
@@ -546,9 +969,22 @@ export class ReadWriteMemory {
   }
 
   /**
-   * 最近 N 次唤醒（供 W2 快照 `上一拍` 块）。
-   * TODO(M2-W2): Python get_autonomy_runs 的排序键未逐字核实，这里按 started_at
-   * DESC（业务行全为同一 isoformat 形态，字符串序 == 时间序）；W2 消费前对拍。
+   * 过去一小时行动总数（memory/store.autonomy_actions_last_hour 对应物：
+   * SUM(action_count) WHERE started_at >= cutoff，从 DB 汇总所以重启不清零；
+   * cutoff 以 isoformat 形态做字符串比较，同 Python `cutoff.isoformat()` 口径）。
+   */
+  autonomyActionsLastHour(opts: { now: Date }): number {
+    const cutoff = formatPyIso(new Date(opts.now.getTime() - 3_600_000))
+    const row = this.#db.prepare(
+      'SELECT COALESCE(SUM(action_count), 0) AS n FROM autonomy_runs WHERE started_at >= ?',
+    ).get(cutoff) as { n: number }
+    return Number(row.n)
+  }
+
+  /**
+   * 最近 N 次唤醒（W2 快照 `上一拍` 块消费）。
+   * 排序键对拍（W1 TODO#5 销账）：Python memory/store.get_autonomy_runs =
+   * `ORDER BY started_at DESC`、无次级键 —— 本实现逐字一致。
    */
   getAutonomyRuns(limit: number): AutonomyRunRow[] {
     if (!Number.isInteger(limit) || limit < 0) {

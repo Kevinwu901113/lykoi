@@ -1,0 +1,17 @@
+{
+  "name": "lykoi-decide",
+  "version": "0.1.0",
+  "private": true,
+  "description": "统一决策契约（SA-01..32：KINDS 渲染锚 / build_candidates 全动态规则 / demote/fail-closed / inner 通道；G-2 移除发言权；G-7 器官注入；persona 内核九段 SA-154..161）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "lykoi-regulation": "0.1.0",
+    "lykoi-snapshot": "0.1.0"
+  }
+}
