@@ -55,7 +55,17 @@ L5 suggestions（SA-141..153 铁律）。持 G-4 墙钟锚 + SA-130 例外。
 
 | G-11 | rest 候选 note 引用已移除的 next_wake 字段且含"5-360"手写副本漂移点（W2 新增 TODO#1） | 新文案：`load {CAUSES['rested'][1]:+.2f};下一拍由心脏节律决定`——随 G-2 同因，消灭死引用与漂移点；W3 落地，旧新文案入报告 |
 
-## 追认清单（攒批，M2 收口时呈 Kevin）
+## 追认清单（M2 收口版，2026-08-24 五波全落后呈 Kevin）
 
-G-5（unfollowed 维持现状）、G-6（budget_multiplier 接通）、G-11（rest note 改文案）、
-G-2 触及的 prompt sha 变更表（DECIDE 1634→1601：`a495848d…` → `d54726e3…`）。
+1. G-5（unfollowed 维持现状，治理理由=contemplate/tend_inner 推进内部状态）
+2. G-6（budget_multiplier 接通）
+3. G-11（rest note 改文案 `load -0.10;下一拍由心脏节律决定`，消灭死引用+漂移点）
+4. G-2 prompt sha 变更：DECIDE 1634→1601（`a495848d…` → `d54726e3…`）
+5. **ENVELOPE raw sha 变更（W5/G-10 出生修正恰两处：D-02① 工具白名单入契约 +
+   D-03 降级后果一句）**：1677 `9d4f169e…` → 1748 `88587c8e…`；反向恢复测试钉
+   "其余逐字"（恢复两处后 sha == 旧值）
+6. 包改名 lykoi-converse-min → lykoi-converse（W5，蓝图授权+理由入报告）
+7. G-4 墙钟锚落法读法：只迁触发锚（L2/L4），SA-127/121/148 周期算术保留、
+   SA-130 影子期结算保周期序号（W4 报告 §G-4 节）
+
+呈报同批：M2 收口遗留总账（W5 报告 §七，14 项全部归 M3）。
