@@ -55,7 +55,7 @@ L5 suggestions（SA-141..153 铁律）。持 G-4 墙钟锚 + SA-130 例外。
 
 | G-11 | rest 候选 note 引用已移除的 next_wake 字段且含"5-360"手写副本漂移点（W2 新增 TODO#1） | 新文案：`load {CAUSES['rested'][1]:+.2f};下一拍由心脏节律决定`——随 G-2 同因，消灭死引用与漂移点；W3 落地，旧新文案入报告 |
 
-## 追认清单（M2 收口版，2026-08-24 五波全落后呈 Kevin）
+## 追认清单（M2 收口版——**Kevin 2026-08-24 已批准全部七条**）
 
 1. G-5（unfollowed 维持现状，治理理由=contemplate/tend_inner 推进内部状态）
 2. G-6（budget_multiplier 接通）
