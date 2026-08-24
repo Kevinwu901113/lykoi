@@ -53,6 +53,9 @@ L5 suggestions（SA-141..153 铁律）。持 G-4 墙钟锚 + SA-130 例外。
 每波：治理复核（抽查 SA/S 条目对拍）→ commit 入库 → 下一波。W1–W2 可并行推进的部分
 由治理侧裁量，缺省串行。
 
+| G-11 | rest 候选 note 引用已移除的 next_wake 字段且含"5-360"手写副本漂移点（W2 新增 TODO#1） | 新文案：`load {CAUSES['rested'][1]:+.2f};下一拍由心脏节律决定`——随 G-2 同因，消灭死引用与漂移点；W3 落地，旧新文案入报告 |
+
 ## 追认清单（攒批，M2 收口时呈 Kevin）
 
-G-5（unfollowed 维持现状）、G-6（budget_multiplier 接通）、G-2 触及的 prompt sha 变更表。
+G-5（unfollowed 维持现状）、G-6（budget_multiplier 接通）、G-11（rest note 改文案）、
+G-2 触及的 prompt sha 变更表（DECIDE 1634→1601：`a495848d…` → `d54726e3…`）。
