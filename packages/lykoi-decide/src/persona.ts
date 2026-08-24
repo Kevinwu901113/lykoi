@@ -12,9 +12,9 @@
  * 那部分。时变内容（restart notices / notes / insights）不属于内核，由调用方
  * 围绕它叠加（SA-155）。
  *
- * TODO(M2-W5): TOML 文件加载（tomllib 对应物）+ 进程级缓存 get_persona
- * （改 TOML 需重启，与模块级 prompt 常量同一契约）随 W5 身份收口接线；
- * 本波交付校验器 + 装配器（fixture 数据对拍 sha 见测试）。
+ * W5 收口：TOML 文件加载（tomllib 对应物）+ 进程级缓存 getPersona
+ * （改 TOML 需重启，与模块级 prompt 常量同一契约）见 ./persona-toml.ts；
+ * 种子（出生证语义）见 ./seed.ts。
  */
 
 // ============================== 类型（config.py:31-73 对应） ==============================

@@ -24,6 +24,11 @@
  * focus_insight_history（:818-827）、concern_focus_state（:836-844）、
  * rule_suggestions（:922-945 + dedup_key UNIQUE=C-14 + 双索引）。
  *
+ * W5 增量（身份与对话收口需要，DDL 逐字取自 migrations.py:481-489）：
+ * identity_bindings（UNIQUE(channel, channel_key)；users 的 FK 引用方 ——
+ * WO-P2-S1B 把首次绑定定义成一次刻意的人工登记动作，这张表就是"她长着哪些
+ * 通道"的事实源）。不播种任何绑定行：绑定属她的数据，不属中性基线。
+ *
  * 生产纪律不变：本文件只被测试树 import；golden devstate 永远只读，写测试先
  * copy 进 os.tmpdir（各包夹具自持这半段）。
  */
@@ -229,6 +234,16 @@ export const STATE_FIXTURE_DDL = `
     );
     INSERT OR IGNORE INTO contexts (id, kind, title, created_at)
       VALUES ('ctx_direct_user_001', 'direct', NULL, '2026-08-09T00:00:00+00:00');
+
+    CREATE TABLE IF NOT EXISTS identity_bindings (
+        id          INTEGER PRIMARY KEY,
+        user_id     TEXT NOT NULL REFERENCES users(id),
+        channel     TEXT NOT NULL,
+        channel_key TEXT NOT NULL,
+        verified_by TEXT NOT NULL,
+        created_at  TEXT NOT NULL,
+        UNIQUE(channel, channel_key)
+    );
 
     CREATE TABLE IF NOT EXISTS memory_scopes (
       table_name TEXT NOT NULL, row_id INTEGER NOT NULL,

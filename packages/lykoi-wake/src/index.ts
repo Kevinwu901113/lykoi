@@ -41,7 +41,7 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  parsePersonaData, serializeDecision,
+  OrganInventoryCache, parsePersonaData, serializeDecision, unwiredActionCatalog,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
@@ -52,7 +52,9 @@ import {
   cheapTick, CHEAP_TICK_INTERVAL_S, emptyNotifications, executeAndReflow,
   type DispatchFn, type NotificationsView, type WakeCounts,
 } from 'lykoi-reflow'
-import { HOURLY_ACTION_CAP, maintain, read, type SnapshotDeps } from 'lykoi-snapshot'
+import {
+  HOURLY_ACTION_CAP, maintain, read, unprocessedRestartEvent, type SnapshotDeps,
+} from 'lykoi-snapshot'
 import { systemClock, type Clock } from './clock.ts'
 
 export * from './clock.ts'
@@ -333,7 +335,12 @@ export const inject = ['heart', 'lykoiLlm', 'audit']
 export interface Config {
   /** state 副本路径（golden devstate 永远只读——生产接的是治理侧发的可写副本）。 */
   dbPath: string
-  /** persona 数据（parsePersonaData 的输入面）。TODO(M2-W5): TOML 加载器接管。 */
+  /**
+   * persona 数据（parsePersonaData 的输入面）。TOML 装载器已在 lykoi-decide
+   * （loadPersona/getPersona，W5）；wake 入 cordis.yml 时（M3，W3 TODO⑤）由
+   * 治理配置面决定改配 personaToml 路径 —— 本插件当前不进 profile，不擅自改
+   * 配置形状。
+   */
   persona: Record<string, unknown>
   /** LLM 路由与模型（真实 adapter/model 归 M3 治理配置；route 缺省即归因科目）。 */
   route: string
@@ -362,6 +369,11 @@ export function apply(ctx: Context, config: Config) {
 
   const persona = parsePersonaData(config.persona)
   const notifications: NotificationsView = emptyNotifications // M3 接 kernel 通知队列
+  const organs = new OrganInventoryCache({
+    bindings: () => store.identityBindingInventory(),
+    catalog: unwiredActionCatalog, // M3 接 kernel KNOWN_ACTIONS + is_hard_gated
+    logEvent,
+  })
 
   const llm: LlmFn = async (messages, meta) => {
     // dsh-llm 词汇映射：前导 system 段收进单一 system 槽（'\n\n' 连接——顺序
@@ -396,19 +408,25 @@ export function apply(ctx: Context, config: Config) {
     llm,
     dispatchFn: unwiredDispatch, // M3 接真 kernel
     snapshotDeps: {
-      // W2 TODO#2 部分接线：四读数接口位。approval/notifications/proactive 的
-      // 权威源都在 kernel/shared（M3/W5）；此处为 dev 缺省视图（与快照测试
-      // stubDeps 同口径），restart 生产者归 W5（恒 null = 键不出现，SA-165）。
+      // W2 TODO#2 余量（W5 判定）：restart 已接权威源（history event_type='restart'
+      // 读面，SA-165 严格大于语义在 lykoi-snapshot/restart）；approval/notifs/
+      // proactive 的权威源是 kernel 审批队列 / 通知账本 / proactive_chat 账本 ——
+      // 三个器官都归 M3，此处仍为 dev 缺省视图（与快照测试 stubDeps 同口径），
+      // 如实留 M3。
       approvalPendingCount: () => 0,
       notificationsRemainingToday: () => 2, // kernel AUTONOMOUS_DAILY_CAP=2 的静态视图
       proactiveRemainingToday: () => 1, //    shared/proactive_chat 日 1 条的静态视图
-      unprocessedRestartEvent: () => null,
+      unprocessedRestartEvent: (sinceIso) => unprocessedRestartEvent(store, sinceIso),
       logEvent,
     },
     messageDeps: {
       persona,
       acquired: () => buildPersonaPrompt(store),
-      organBlock: () => null, // TODO(M2-W5): 器官清单真实来源（G-7 注入位已在 buildMessages）
+      // G-7 收口（W5）：器官清单接真源 —— 身份/设备轴 = identity_bindings 登记处
+      // （rw 读面，channel_key 物理不存在）；动作轴 = kernel KNOWN_ACTIONS（M3，
+      // unwired = 空动作面 + isHardGated fail-closed）。独处的她和聊天的她读的是
+      // 同一台 OrganInventoryCache 渲染器。
+      organBlock: () => organs.block(),
     },
     logEvent,
     // SA-171 接真（W4）：整合与专注挂 lykoi-learn 的闸+周期。origin 分账

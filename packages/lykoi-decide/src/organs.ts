@@ -20,12 +20,15 @@
  *  4. 时效与健康不进清单 —— 通道最后一次收到事件、浏览器起没起来：易变量混进
  *     静态清单会每轮改字节、打碎前缀缓存。
  *
- * W2 形态：纯渲染器 + 数据输入接口位（M1 尚无 kernel.dispatch/identity 登记面
- * 可直读）。TODO(M2-W5): 接真实来源（mind.store.identity_binding_inventory +
- * kernel dispatch 的 KNOWN_ACTIONS 对应物 + is_hard_gated）、进程级缓存
- * build_organ_block（SA-160：空清单 → null；invalidate 零读；每次构建落
- * organ_inventory_built 事件；读不到登记处落 organ_inventory_bindings_failed
- * 而不毁一轮对话）。
+ * W2 形态：纯渲染器 + 数据输入接口位。W5 收口：OrganInventoryCache =
+ * build_organ_block 对应物（SA-160：进程级缓存、空清单 → null、invalidate
+ * 零读、每次构建落 organ_inventory_built、读不到登记处落
+ * organ_inventory_bindings_failed 而不毁一轮对话）；身份/设备轴接真源 =
+ * lykoi-memory/rw 的 identityBindingInventory（identity_binding_inventory
+ * 对应物，channel_key 在返回形状上物理不存在）；动作轴的权威源是 kernel
+ * dispatch 的 KNOWN_ACTIONS + 不可变治理核的 is_hard_gated —— M3 才有真
+ * kernel，本波 unwiredActionCatalog = 空动作面 + isHardGated 恒真
+ * （fail closed 成 "ask" 的同向：往少了说）。
  */
 
 export const BLOCK_HEADER = '[器官清单(只读)]'
@@ -139,7 +142,80 @@ export function renderOrganInventory(input: OrganInventoryInput): string {
   )
 }
 
-/** 空清单 → null（SA-160 的注入判定形态；进程级缓存归 W5 的接线层）。 */
+/** 空清单 → null（SA-160 的注入判定形态）。 */
 export function organBlockFromInventory(input: OrganInventoryInput): string | null {
   return renderOrganInventory(input) || null
+}
+
+// ============================== 进程级缓存（SA-160；W5 收口） ==============================
+
+/** 动作能力轴的来源面（kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated）。 */
+export interface OrganActionCatalog {
+  knownActions: readonly string[]
+  isHardGated(actionType: string): boolean
+}
+
+/**
+ * kernel dispatch 未接线（M3）时的显式替身：零可派发动作（动作段整段不出现 ——
+ * 器官清单如实说"接得通的没有"），isHardGated 恒真 = 治理核 fail closed 成
+ * "ask" 的同向（方向永远是往少了说）。
+ */
+export const unwiredActionCatalog: OrganActionCatalog = {
+  knownActions: [],
+  isHardGated: () => true,
+}
+
+/**
+ * build_organ_block / invalidate 对应物（organs.py:162-186 逐字语义；SA-160）：
+ * 进程级缓存的清单块。静态：三条来源都只在部署/绑定/整合这种边界上变，所以
+ * 每进程算一次就够 —— 它待在稳定前缀里，每轮重算等于每轮赌一次字节相同。
+ * 整合边界刷新（S-27）走 invalidate()：释放缓存本身不做任何读。
+ */
+export class OrganInventoryCache {
+  #bindings: () => readonly OrganBindingRow[]
+  #catalog: OrganActionCatalog
+  #logEvent: ((name: string, fields: Record<string, unknown>) => void) | undefined
+  #cached: string | null = null
+  #built = false
+
+  constructor(opts: {
+    /** 身份绑定读面（lykoi-memory/rw identityBindingInventory 等价形状）。 */
+    bindings: () => readonly OrganBindingRow[]
+    catalog: OrganActionCatalog
+    logEvent?: (name: string, fields: Record<string, unknown>) => void
+  }) {
+    this.#bindings = opts.bindings
+    this.#catalog = opts.catalog
+    this.#logEvent = opts.logEvent
+  }
+
+  /** 缓存的清单块，或 null（空清单）。每次真构建落 organ_inventory_built。 */
+  block(): string | null {
+    if (!this.#built) {
+      let bindings: readonly OrganBindingRow[] = []
+      try {
+        bindings = this.#bindings()
+      } catch (exc) {
+        // 读不到登记处不该毁掉一轮对话（organs.py:87-89）：身份段整段省略。
+        this.#logEvent?.('organ_inventory_bindings_failed', {
+          error_type: exc instanceof Error ? exc.name : 'Error',
+        })
+      }
+      const text = renderOrganInventory({
+        bindings,
+        knownActions: this.#catalog.knownActions,
+        isHardGated: (a) => this.#catalog.isHardGated(a),
+      })
+      this.#cached = text || null
+      this.#built = true
+      this.#logEvent?.('organ_inventory_built', { chars: (this.#cached ?? '').length })
+    }
+    return this.#cached
+  }
+
+  /** 丢掉缓存，下次调用重新派生。释放缓存本身零读（SA-160）。 */
+  invalidate(): void {
+    this.#cached = null
+    this.#built = false
+  }
 }

@@ -1,0 +1,31 @@
+{
+  "name": "lykoi-converse",
+  "version": "0.1.0",
+  "private": true,
+  "description": "对话路径：真装配器（S-23..S-34 三段带十二块）+ 信封周期（S-35..S-53 + G-10 D-01..08 修正版）+ 回合骨架；由 M1 lykoi-converse-min 演进（改名理由见 W5 报告：它已是她的对话心智，不再是管线证明）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-adapter-telegram": "0.1.0",
+    "lykoi-audit": "0.1.0",
+    "lykoi-decide": "0.1.0",
+    "lykoi-learn": "0.1.0",
+    "lykoi-llm": "0.1.0",
+    "lykoi-memory": "0.1.0",
+    "lykoi-reflow": "0.1.0",
+    "lykoi-regulation": "0.1.0",
+    "lykoi-snapshot": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-budget": "0.1.0",
+    "lykoi-llm-deepseek": "0.1.0"
+  }
+}

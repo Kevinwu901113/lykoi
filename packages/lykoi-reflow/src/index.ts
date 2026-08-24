@@ -533,7 +533,58 @@ export function cheapTick(opts: {
   return out
 }
 
-// TODO(M2-W5): conversationTurnReflow（reflow.py:294-323 —— 对话回合经验 +
-// normal_interaction + reply_to 关联戳 + via=chat_turn/reply_to 的 contact
-// 解决）随 SPEC-CONV 对话路径重建接入；contact_answered 的唯一写入点
-// （resolveContactAnswered）本波已就位，届时只接不改。
+// ============================== 对话回合回流（W3#2 → W5 落地） ==============================
+
+/** Kevin 显式引用的 autonomous 呼唤（surface 已校验的通知记录子集）。 */
+export interface ReplyToNotification {
+  id: number
+  ts?: string | null
+  [key: string]: unknown
+}
+
+/**
+ * One finished chat turn → one conversation experience（摘要 + history 行号
+ * 引用，蓝图 §3.4）+ normal interaction relief; an outstanding contact attempt
+ * is resolved as answered（reflow.py:294-323 逐字）。
+ *
+ * `replyToNotification` 是 Kevin 显式引用的 autonomous 呼唤（surface 已校验）：
+ * 关联戳在通知记录上（首写幂等 —— kernel notifications.mark_replied 归 M3 真
+ * 队列，本波 markReplied 接口位），经验内容携带引用让整合管线看见"这句回话
+ * 是在回应哪次主动接触"；contact_answered 仍走同一唯一写入点
+ * （resolveContactAnswered，W3 已就位只接不改），只是 via 标成 reply_to。
+ *
+ * 写集（与自主拍 executeAndReflow 对拍分立，见 conversation-turn.test.ts）：
+ * experiences 一行（source=conversation）+ regulation_events 两至三行
+ * （experience_recorded / normal_interaction / 条件 contact_answered）——
+ * 零 concerns 点亮、零 autonomy_notes、零 dispatch。
+ */
+export function conversationTurnReflow(opts: {
+  store: ReflowStore & { lastCauseEventTs(causes: readonly string[]): string | null }
+  notifications: NotificationsView
+  userText: string
+  replyText: string
+  historyId: number
+  now: Date
+  replyToNotification?: ReplyToNotification | null
+  /** kernel/notifications.mark_replied 接口位（M3 接真队列；首写幂等归实现方）。 */
+  markReplied?: (notificationId: number, historyId: number, now: Date) => void
+  logEvent?: LogEvent
+}): void {
+  const { store, notifications, now, logEvent } = opts
+  // 摘要模板逐字（reflow.py:308-311）：user/reply 各裁 80 字。
+  let content
+    = `和 Kevin 聊了一轮(history #${opts.historyId}):`
+    + `他说「${clipStripped(opts.userText, 80)}」,我答「${clipStripped(opts.replyText, 80)}」`
+  let via = 'chat_turn'
+  const replyTo = opts.replyToNotification ?? null
+  if (replyTo !== null) {
+    via = 'reply_to'
+    opts.markReplied?.(replyTo.id, opts.historyId, now)
+    // Python `reply_to_notification.get('ts', '?')`：键缺席 → '?'；值为 None → 'None'。
+    const ts = 'ts' in replyTo ? pyStr(replyTo.ts) : '?'
+    content += `——这是他在回应我 ${ts} 的主动呼唤(通知 #${replyTo.id})`
+  }
+  recordExperience(store, 'conversation', content, { now })
+  store.applyRegulationCause('normal_interaction', { now })
+  resolveContactAnswered({ store, notifications, now, via, logEvent })
+}

@@ -31,14 +31,20 @@
     provider: mock
 - id: lykoi-llm
   name: lykoi-llm
-# ==== M1 波次 2：最小对话环 + telegram 器官 ====
-# converse-min 是管线证明（非心智；装配器+信封是 M2 lykoi-decide）。
-# 它硬依赖 audit/lykoiLlm，telegram 经 ctx.get 可选消费——telegram 未启用时安静待命。
-- id: converse-min
-  name: lykoi-converse-min
+# ==== M2 W5：对话心智（由 M1 converse-min 演进）+ telegram 器官 ====
+# lykoi-converse = 真装配器 + 信封周期（S-23..S-53 + G-10）。它需要一个可写
+# state 副本（dbPath）与 owner 域 persona TOML（personaToml）——两者都是治理侧
+# 供给的部署事实，dev profile 默认 disabled；启用是治理侧动作（golden devstate
+# 永远只读，不得直接接进来）。
+- id: converse
+  name: lykoi-converse
+  disabled: true
   config:
+    dbPath: var/dev-state.db
+    personaToml: packages/lykoi-decide/test/fixtures/lykoi_base.toml
     route: mock
     model: mock-model
+    restartMarker: var/restart-marker.json
 # telegram 生产传输默认 disabled（工单④）：本波骨架不接真网；启用是治理侧动作
 # （需 lykoiMemory 的 state 副本路径与 tokenEnv 环境引用一并配好——凭据永不落明文）。
 # dev 用 fake transport 的装配只存在于测试（lykoi-adapter-telegram/testing），不进 profile。

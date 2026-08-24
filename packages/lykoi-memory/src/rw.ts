@@ -966,6 +966,52 @@ export class ReadWriteMemory {
     }))
   }
 
+  // ============================== 身份登记处读面（W5） ==============================
+
+  /**
+   * owner_primary 用户 id（mind/store.owner_primary_user_id 逐字对应）：
+   * schema（WO-P2-01）的部分唯一索引保证该行至多一个 —— "the owner" 是一行，
+   * 永远不是硬编码特例。没绑 owner → null。L3 实体轴（对话路径的 subject）读它。
+   */
+  ownerPrimaryUserId(): string | null {
+    const row = this.#db.prepare(
+      "SELECT id FROM users WHERE role = 'owner_primary' AND status = 'active' LIMIT 1",
+    ).get() as { id: string } | undefined
+    return row?.id ?? null
+  }
+
+  /**
+   * 器官清单的身份/设备两条轴（mind/store.identity_binding_inventory 逐字对应；
+   * SA-161/D5 定界）：每条绑定的 (channel, user_id, display_name, role)，按
+   * channel, user_id 排序。**只读，且刻意不返回 channel_key** —— 那是渠道内的
+   * 寻址标识（Telegram 的 chat id）；器官清单要回答的是"我长着什么"，寻址是
+   * 另一个问题。少给一列，清单就少一样可以被不可信输入引用的东西。
+   *
+   * users 表在极早期 fixture 里可能还没有对应行 —— LEFT JOIN 让一条孤儿绑定
+   * 仍然出现在清单里（role/display_name 为 null）：一个绑定存在却不显示，
+   * 比显示得不完整坏得多。
+   */
+  identityBindingInventory(): {
+    channel: string
+    user_id: string
+    display_name: string | null
+    role: string | null
+  }[] {
+    const rows = this.#db.prepare(
+      `SELECT b.channel AS channel, b.user_id AS user_id,
+              u.display_name AS display_name, u.role AS role
+         FROM identity_bindings AS b
+         LEFT JOIN users AS u ON u.id = b.user_id
+        ORDER BY b.channel, b.user_id`,
+    ).all() as Record<string, unknown>[]
+    return rows.map((r) => ({
+      channel: r.channel as string,
+      user_id: r.user_id as string,
+      display_name: (r.display_name ?? null) as string | null,
+      role: (r.role ?? null) as string | null,
+    }))
+  }
+
   // ============================== thoughts ==============================
 
   /**

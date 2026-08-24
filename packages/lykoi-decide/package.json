@@ -13,5 +13,8 @@
   "dependencies": {
     "lykoi-regulation": "0.1.0",
     "lykoi-snapshot": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-memory": "0.1.0"
   }
 }

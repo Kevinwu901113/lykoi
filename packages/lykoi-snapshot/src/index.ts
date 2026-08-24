@@ -47,6 +47,7 @@ import { floorMaintain } from './floor.ts'
 
 export * from './num.ts'
 export * from './floor.ts'
+export * from './restart.ts'
 
 // ============== 注意力预算（snapshot.py:44-48 逐字；SA-38） ==============
 export const SNAPSHOT_CONCERN_TOP_N = 6
@@ -131,8 +132,9 @@ export interface RestartEvent {
  *  - proactiveRemainingToday     = shared/proactive_chat.remaining_today
  *    （日 1 条、冷却 6h，比通知更紧）
  *  - unprocessedRestartEvent     = cognition/restart.unprocessed_restart_event
- *    （SA-165：history ts 严格大于她上次醒来才算未处理）。
- *    TODO(M2-W5): restart 记录/消费接线；本波接口位可恒返 null（键即不出现）。
+ *    （SA-165：history ts 严格大于她上次醒来才算未处理）。W5 已接真源
+ *    （./restart.ts 的 unprocessedRestartEvent 读 history event_type='restart'；
+ *    wake 插件面接线）。
  */
 export interface SnapshotDeps {
   approvalPendingCount(): number
