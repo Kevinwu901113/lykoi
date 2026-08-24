@@ -28,14 +28,18 @@ import {
 import type {} from 'lykoi-llm'
 import type { InboundMessage, TelegramAdapterService } from 'lykoi-adapter-telegram'
 import {
-  loadPersona, seedPersona, OrganInventoryCache, unwiredActionCatalog, type LogEvent,
+  loadPersona, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
+import {
+  createDispatch, kernelActionCatalog, setIdentityBindingLookup, setKernelLogEvent,
+  unwiredResources,
+} from 'lykoi-kernel'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { emptyNotifications } from 'lykoi-reflow'
 import { latestRestartEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
-  ContextBudgetError, Conversation, composeSurfaceReply, unwiredConverseDispatch,
-  type ConverseLlmFn, type ConverseLlmResult,
+  ContextBudgetError, Conversation, composeSurfaceReply,
+  type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import type { ConverseMessage } from './contract.ts'
 
@@ -94,6 +98,11 @@ export function apply(ctx: Context, config: Config) {
   const store = new ReadWriteMemory(resolve(config.dbPath), { logEvent })
   ctx.effect(() => () => store.close(), 'lykoi-converse rw handle')
 
+  // M3-W1 接线：kernel 遥测出口 + scope key 的 identity_bindings 读点（进程级
+  // 注入位 —— wake 与本插件递的是同一 db 的等价读点，后设者胜、语义相同）。
+  setKernelLogEvent(logEvent)
+  setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
+
   const persona = loadPersona(resolve(config.personaToml))
 
   // --- 出生序（文件头注释） ---
@@ -109,9 +118,22 @@ export function apply(ctx: Context, config: Config) {
 
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),
-    catalog: unwiredActionCatalog, // M3 接 kernel KNOWN_ACTIONS + is_hard_gated
+    // M3-W1 接线：真 catalog —— kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated。
+    catalog: kernelActionCatalog,
     logEvent,
   })
+
+  // M3-W1 接线：真 kernel dispatch。origin 由接线方盖章（converse=interactive，
+  // S-55：origin 永不由模型给）；immutable sink = lykoi-audit（审计门 fail
+  // closed 在 kernel 内）；资源注册表 = W1 显式替身（器官真身随 W3/M5 波）。
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: unwiredResources() })
+  const dispatchFn: ConverseDispatchFn = async (action) => {
+    const observation = await kernelDispatch(
+      { type: action.type, params: action.params },
+      { context: { origin: 'interactive' } },
+    )
+    return { success: observation.success, data: observation.data, error: observation.error }
+  }
 
   // --- LLM seam → lykoiLlm（gate 前置 / charge 后置的结构保证在那一层） ---
   const toDshMessage = (m: ConverseMessage): Message => {
@@ -183,8 +205,8 @@ export function apply(ctx: Context, config: Config) {
     logEvent,
     organs,
     restartEvent: () => latestRestartEvent(store),
-    notifications: emptyNotifications, // M3 接 kernel 通知队列（markReplied 同批）
-    dispatchFn: unwiredConverseDispatch, // M3 接真 kernel（audit 落在 dispatch 层）
+    notifications: emptyNotifications, // M3-W3 接 kernel 通知队列（markReplied 同批）
+    dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
 

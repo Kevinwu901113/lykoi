@@ -1012,6 +1012,20 @@ export class ReadWriteMemory {
     }))
   }
 
+  /**
+   * (channel, channel_key) 绑到的 user_id，未绑定 null
+   * （mind/store.identity_binding_user_id 逐字对应；M3-W1 新增读点）。
+   * 消费方：lykoi-kernel scope key 的 messenger 轴（setIdentityBindingLookup
+   * 注入）—— 绑定过的收件人塌到稳定 user 键，未绑定停在更窄的 channel 键。
+   * 只读；绑定本身永不在此写 —— 首次绑定是 owner 侧的显式手工动作。
+   */
+  identityBindingUserId(channel: string, channelKey: string): string | null {
+    const row = this.#db.prepare(
+      'SELECT user_id FROM identity_bindings WHERE channel = ? AND channel_key = ?',
+    ).get(channel, channelKey) as { user_id: string } | undefined
+    return row?.user_id ?? null
+  }
+
   // ============================== thoughts ==============================
 
   /**

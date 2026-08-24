@@ -323,6 +323,27 @@ export const STATE_FIXTURE_DDL = `
     );
     CREATE INDEX IF NOT EXISTS idx_rule_suggestions_status ON rule_suggestions(status);
     CREATE INDEX IF NOT EXISTS idx_rule_suggestions_question ON rule_suggestions(question_message_id);
+
+    CREATE TABLE IF NOT EXISTS delegation_contracts (
+      id TEXT PRIMARY KEY, requester TEXT NOT NULL, contract_yaml TEXT NOT NULL,
+      state TEXT NOT NULL CHECK(state IN
+          ('draft','dispatched','running','collected','verified','rejected','expired')),
+      agent_user_id TEXT NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_delegation_contracts_state ON delegation_contracts(state);
+
+    -- R-18（STATE-CONTRACT）：verdict 的 CHECK 以 migrations.py:1046 现行 DDL 为准
+    -- （IS NULL OR IN(...)），不得从冻结稿重新生成 —— 冻结稿的 IN ('accepted',
+    -- 'rejected', NULL) 在 SQL 三值逻辑下一个值都拦不住（IN 列表含 NULL 且左值
+    -- 不匹配任何非 NULL 项时求值为 NULL 而非 FALSE，CHECK 只在 FALSE 时失败）。
+    CREATE TABLE IF NOT EXISTS execution_receipts (
+      id TEXT PRIMARY KEY, contract_id TEXT NOT NULL REFERENCES delegation_contracts(id),
+      evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)),
+      verdict TEXT CHECK(verdict IS NULL OR verdict IN ('accepted','rejected')),
+      verified_at TEXT, created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_execution_receipts_contract ON execution_receipts(contract_id);
 `
 
 /** 在 path 建一个空白合成 fixture（schema + 中性基线行，零她的数据）。 */

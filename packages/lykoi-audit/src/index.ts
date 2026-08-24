@@ -20,8 +20,9 @@ import { dirname, resolve } from 'node:path'
 
 /**
  * 一条审计事件。`type` 必填；`ts` 缺省时由 sink 补 ISO-8601 UTC（毫秒 + Z）。
- * TODO(M3): 审计行的规范信封（actor/decision/evidence 等字段）由治理移植波定义；
- * M1 的 sink 保持哑管道，不发明信封 schema。
+ * 审计行的规范信封（M3-W1 起）由 lykoi-kernel 定义并自带 ts —— dispatch 主链的
+ * action_dispatch/action_result（含 decision/origin/exemption/delegation 栏）与
+ * delegation_* 事件族；本 sink 保持哑管道，对新事件类零改动可用（不发明 schema）。
  */
 export interface AuditEvent {
   type: string

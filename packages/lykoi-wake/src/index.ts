@@ -41,10 +41,14 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  OrganInventoryCache, parsePersonaData, serializeDecision, unwiredActionCatalog,
+  OrganInventoryCache, parsePersonaData, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
+import {
+  createDispatch, kernelActionCatalog, setIdentityBindingLookup, setKernelLogEvent,
+  unwiredResources,
+} from 'lykoi-kernel'
 import { maybeRunFocusCycle, maybeRunIntegration } from 'lykoi-learn'
 import type {} from 'lykoi-llm'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
@@ -367,13 +371,32 @@ export function apply(ctx: Context, config: Config) {
   const store = new ReadWriteMemory(resolve(config.dbPath), { logEvent })
   ctx.effect(() => () => store.close(), 'lykoi-wake rw handle')
 
+  // M3-W1 接线：kernel 遥测出口 + scope key 的 identity_bindings 读点。
+  setKernelLogEvent(logEvent)
+  setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
+
   const persona = parsePersonaData(config.persona)
-  const notifications: NotificationsView = emptyNotifications // M3 接 kernel 通知队列
+  const notifications: NotificationsView = emptyNotifications // M3-W3 接 kernel 通知队列
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),
-    catalog: unwiredActionCatalog, // M3 接 kernel KNOWN_ACTIONS + is_hard_gated
+    // M3-W1 接线：真 catalog —— kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated。
+    catalog: kernelActionCatalog,
     logEvent,
   })
+
+  // M3-W1 接线：真 kernel dispatch（reflow 的 DispatchFn 接口位在此换真身）。
+  // origin 由接线方盖章（wake=autonomous —— 永不由模型给）；runId 贯穿审计行；
+  // immutable sink = lykoi-audit（pre-dispatch 审计门 fail closed 在 kernel 内，
+  // 红线 #5：被门拦下以**结果**回到她身上）。资源注册表 = W1 显式替身（器官
+  // 真身随 W3/M5 波；替身 handler 大声抛 → 正常失败观察，绝不静默成功）。
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: unwiredResources() })
+  const dispatchFn: DispatchFn = async (actionType, params, runId) => {
+    const observation = await kernelDispatch(
+      { type: actionType, params },
+      { context: { origin: 'autonomous', runId } },
+    )
+    return { success: observation.success, data: observation.data, error: observation.error }
+  }
 
   const llm: LlmFn = async (messages, meta) => {
     // dsh-llm 词汇映射：前导 system 段收进单一 system 槽（'\n\n' 连接——顺序
@@ -406,7 +429,7 @@ export function apply(ctx: Context, config: Config) {
       },
     },
     llm,
-    dispatchFn: unwiredDispatch, // M3 接真 kernel
+    dispatchFn, // M3-W1 已接真 kernel（origin=autonomous 由上面的适配器盖章）
     snapshotDeps: {
       // W2 TODO#2 余量（W5 判定）：restart 已接权威源（history event_type='restart'
       // 读面，SA-165 严格大于语义在 lykoi-snapshot/restart）；approval/notifs/

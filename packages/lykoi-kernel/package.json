@@ -1,0 +1,16 @@
+{
+  "name": "lykoi-kernel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "治理特权层骨架（M3-W1；CF-B1 非插件库模块）：dispatch 主链 SK-01..12 + 三层门 SK-15..21 + scoped grants SK-22..26 + pending SK-27..29 + policy core TS 对应物 + scope key SK-69 + 委托台账 SK-61..67 + 豁免消费位 SK-47/48",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "lykoi-memory": "0.1.0"
+  }
+}

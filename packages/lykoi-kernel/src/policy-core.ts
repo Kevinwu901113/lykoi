@@ -1,0 +1,90 @@
+/**
+ * 不可变治理核 TS 对应物（guardian/policy_core.py 逐字迁；正本 = 治理仓库
+ * wo/WO-M3-SPEC-KERNEL/guardian-live-20260825/policy_core.py，sha256 前缀
+ * 144b9bfb 与服务器逐位对账；core-v1-repo 镜像作废）。
+ *
+ * 活体形态：root-owned、运行时只读、stdlib-only、不 import lykoi 包 —— live
+ * kernel 咨询它但削不动它。新体形态（SK-13 语义对应）：core 是**编译期 import**
+ * 的本模块，物理上没有 env 重定向面；"加载失败 fail CLOSED"的分支保留在
+ * approval 侧（_policyCore 为 null 时 hard_decision → 'ask'、autonomous 能力面
+ * → 'deny'），以 `_setPolicyCoreForTest(null)` 红测。root 属主 + manifest 三向
+ * 核对的物理不可变性归 M3-W4 完整性门（SK-70..76 / GK-13）。
+ *
+ * 三旋钮（SK-73）：
+ * - hardDecision(actionType)："ask" 强制走所有者（降级任何 live "allow"）、
+ *   "deny" 永不可跑、null 交给 live 规则。live 规则只能收紧。
+ * - capabilityProfile(origin, actionType)：origin 级可达地板。只约束
+ *   autonomous：恰好 AUTONOMOUS_ALLOWED 内可达，其余一律 "deny"；其它 origin
+ *   返回 null（无意见）。kernel 在 hard "ask" **之前**评估能力 "deny"，所以
+ *   autonomous 请求硬门动作（terminal.exec）是拒绝，不是排队给一个不存在的
+ *   审批人（GT-4）。
+ * - is_protected_path：文件系统禁区判定 —— 依赖 guardian/path_guard（realpath
+ *   fail closed），归 M3-W4 完整性门；本波逐字钉 PROTECTED_PATHS 常量。
+ */
+
+// 必须永远走所有者审批的动作类型，无论 live approval_rules.json 怎么写。
+// 无限制 shell 是典型；delegation.dispatch 随 WO-GW-01 加入（owner-adopted
+// executor recommendation, 2026-08-21）：生出子代理必须面对所有者。
+export const HARD_ASK_TYPES: ReadonlySet<string> = new Set([
+  'terminal.exec',
+  'delegation.dispatch',
+])
+
+// 即使所有者批准也永不可跑的动作类型。当前为空 —— 保留位；按动作的拒绝在
+// live 规则里，按路径的在 PROTECTED_PATHS。
+export const HARD_DENY_TYPES: ReadonlySet<string> = new Set([])
+
+// autonomous 运行时可达动作的**全集**（allow-list 不是 deny-list：不在此表 =
+// 对 origin="autonomous" 拒绝）。活体放在 root-owned + manifest-hashed 的
+// guardian 里，所以她改 live 规则也扩不了自己的自主面。
+// **8 项逐字**（guardian-live-20260825 取证实录；SPEC-CONV"9 项"系计数误差，
+// DK-02 已闭合）。GK-12：建议问答机对 `messenger.send ∈ AUTONOMOUS_ALLOWED`
+// 的依赖由显式结构测试钉死（test/policy-core.test.ts）。
+export const AUTONOMOUS_ALLOWED: ReadonlySet<string> = new Set([
+  'research_browser.open',
+  'research_browser.read_text',
+  'research_browser.extract_links',
+  'research_browser.screenshot',
+  'autonomy.queue_notification',
+  'autonomy.initiate_chat', // WO-NIGHT-01/B3: 主动开口(对话消息; 日1条/冷却6h 在资源层强制)
+  // WO-P2-S1A/S1B: 她自己的社交器官。send 的日1条/冷却6h 同样在资源层强制;
+  // read 无副作用。绑定校验在设备层(只接受 identity_bindings 内的发送者)。
+  'messenger.send',
+  'messenger.read',
+])
+
+// 任何资源都永不可达的文件系统禁区（realpath 经 path_guard 应用，symlink/".."
+// 逃不出前缀）。逐字钉活体取证值；is_protected_path 判定函数随 M3-W4 的
+// path_guard 对应物落地。
+export const PROTECTED_PATHS: readonly string[] = [
+  '/home/lykoi/secrets',
+  '/home/lykoi/projects/lykoi/guardian',
+]
+
+export type HardDecision = 'deny' | 'ask' | null
+export type CapabilityDecision = 'allow' | 'deny' | null
+
+/** "deny" / "ask" / null（交给 live 规则）。 */
+export function hardDecision(actionType: string): HardDecision {
+  if (HARD_DENY_TYPES.has(actionType)) return 'deny'
+  if (HARD_ASK_TYPES.has(actionType)) return 'ask'
+  return null
+}
+
+/**
+ * origin 级可达地板："allow" / "deny" / null。只约束 autonomous —— allow-list
+ * 内 "allow"，其余 "deny"；其它 origin 一律 null（无意见）。
+ */
+export function capabilityProfile(origin: string, actionType: string): CapabilityDecision {
+  if (origin !== 'autonomous') return null
+  return AUTONOMOUS_ALLOWED.has(actionType) ? 'allow' : 'deny'
+}
+
+/** approval 侧咨询的 core 形状（null = 加载失败 → fail CLOSED）。 */
+export interface PolicyCoreLike {
+  hardDecision(actionType: string): HardDecision
+  capabilityProfile(origin: string, actionType: string): CapabilityDecision
+}
+
+/** 内建 core 的句柄形态（approval 缺省咨询它）。 */
+export const builtinPolicyCore: PolicyCoreLike = { hardDecision, capabilityProfile }
