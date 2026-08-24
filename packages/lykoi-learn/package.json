@@ -1,0 +1,20 @@
+{
+  "name": "lykoi-learn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "学习环 L1..L5：分流（SA-83..88）/整合（SA-89..108）/检索（SA-109..116）/专注（SA-117..140）/建议队列（SA-141..153 铁律）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./l1": "./src/l1.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "lykoi-regulation": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-memory": "0.1.0"
+  }
+}

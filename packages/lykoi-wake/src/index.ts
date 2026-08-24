@@ -45,6 +45,7 @@ import {
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
+import { maybeRunFocusCycle, maybeRunIntegration } from 'lykoi-learn'
 import type {} from 'lykoi-llm'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import {
@@ -117,10 +118,14 @@ export interface WakeDeps {
   logEvent: LogEvent
   /** 仲裁接口位（interactive_lock 对应；M3/W5 接真锁；缺省不让位）。 */
   shouldYieldToChat?: () => boolean
-  /** SA-171 接口位：层 1 整合（W4 接线；只在 completed 后被驱动，异常被吞）。 */
-  integrate?: () => Promise<void>
-  /** SA-171 接口位：层 2 专注（W4 接线；独立于层 1 的成败）。 */
-  focus?: () => Promise<void>
+  /**
+   * SA-171：层 1 整合（W4 已接真——插件面接 lykoi-learn.maybeRunIntegration；
+   * 只在 completed 后被驱动，异常被吞）。runId = 本拍的 run_id（SA-172：origin
+   * 三归因挤在同一路由上，账靠 runId 贯穿）。
+   */
+  integrate?: (info: { runId: string }) => Promise<void>
+  /** SA-171：层 2 专注（W4 已接真——lykoi-learn.maybeRunFocusCycle；独立于层 1 的成败）。 */
+  focus?: (info: { runId: string }) => Promise<void>
   /** run_id 源（缺省 uuid4().hex 对应物；测试注定值）。 */
   runIdFn?: () => string
 }
@@ -267,11 +272,11 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   })
 
   if (status === 'completed') {
-    // SA-171 接口位：整合与专注串行、只在 completed、各自吞掉一切异常——回头
-    // 想一件事永远不该杀掉心跳（W4 接真机器）。
+    // SA-171：整合与专注串行、只在 completed、各自吞掉一切异常——回头想一件事
+    // 永远不该杀掉心跳（真机器在 lykoi-learn，经插件面的闭包接入）。
     if (deps.integrate) {
       try {
-        await deps.integrate()
+        await deps.integrate({ runId })
       } catch (exc) {
         deps.logEvent('autonomy_integrate_failed', {
           error: exc instanceof Error ? exc.message : String(exc),
@@ -280,7 +285,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     }
     if (deps.focus) {
       try {
-        await deps.focus()
+        await deps.focus({ runId })
       } catch (exc) {
         deps.logEvent('autonomy_focus_failed', {
           error: exc instanceof Error ? exc.message : String(exc),
@@ -346,15 +351,38 @@ export const Config: Schema<Config> = Schema.object({
 })
 
 export function apply(ctx: Context, config: Config) {
-  // W1 TODO#9 定案：wake 编排是 rw 句柄在插件树里的持有者（开在 load、关在卸载）。
-  const store = new ReadWriteMemory(resolve(config.dbPath))
-  ctx.effect(() => () => store.close(), 'lykoi-wake rw handle')
-
-  const persona = parsePersonaData(config.persona)
   const logEvent = auditLogEvent(ctx.audit, (err) => {
     ctx.logger.error('lykoi-wake: audit record failed: %s', String(err))
   })
+  // W1 TODO#9 定案：wake 编排是 rw 句柄在插件树里的持有者（开在 load、关在卸载）。
+  // W3 TODO#1 落地：store 层遥测经构造注入接 audit（thought_resolve_rejected /
+  // focus_cycle_* / rule_suggestion_* 等 store 内部事件位由此可见）。
+  const store = new ReadWriteMemory(resolve(config.dbPath), { logEvent })
+  ctx.effect(() => () => store.close(), 'lykoi-wake rw handle')
+
+  const persona = parsePersonaData(config.persona)
   const notifications: NotificationsView = emptyNotifications // M3 接 kernel 通知队列
+
+  const llm: LlmFn = async (messages, meta) => {
+    // dsh-llm 词汇映射：前导 system 段收进单一 system 槽（'\n\n' 连接——顺序
+    // 保持 buildMessages 的装配序），其余消息作 user 段。
+    let i = 0
+    const systemParts: string[] = []
+    while (i < messages.length && messages[i]!.role === 'system') {
+      systemParts.push(messages[i]!.content)
+      i += 1
+    }
+    const result = await ctx.lykoiLlm.call({
+      provider: config.route,
+      model: config.model,
+      ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
+      messages: messages.slice(i).map((m) => createUserMessage({
+        content: [{ type: 'text', text: m.content }],
+        source: { kind: 'user' },
+      })),
+    }, { runId: meta.runId })
+    return { content: result.text }
+  }
 
   const deps: WakeDeps = {
     store,
@@ -365,26 +393,7 @@ export function apply(ctx: Context, config: Config) {
         return ctx.heart.nextAt
       },
     },
-    llm: async (messages, meta) => {
-      // dsh-llm 词汇映射：前导 system 段收进单一 system 槽（'\n\n' 连接——顺序
-      // 保持 buildMessages 的装配序），其余消息作 user 段。
-      let i = 0
-      const systemParts: string[] = []
-      while (i < messages.length && messages[i]!.role === 'system') {
-        systemParts.push(messages[i]!.content)
-        i += 1
-      }
-      const result = await ctx.lykoiLlm.call({
-        provider: config.route,
-        model: config.model,
-        ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
-        messages: messages.slice(i).map((m) => createUserMessage({
-          content: [{ type: 'text', text: m.content }],
-          source: { kind: 'user' },
-        })),
-      }, { runId: meta.runId })
-      return { content: result.text }
-    },
+    llm,
     dispatchFn: unwiredDispatch, // M3 接真 kernel
     snapshotDeps: {
       // W2 TODO#2 部分接线：四读数接口位。approval/notifications/proactive 的
@@ -402,6 +411,25 @@ export function apply(ctx: Context, config: Config) {
       organBlock: () => null, // TODO(M2-W5): 器官清单真实来源（G-7 注入位已在 buildMessages）
     },
     logEvent,
+    // SA-171 接真（W4）：整合与专注挂 lykoi-learn 的闸+周期。origin 分账
+    // （SA-172）：同一 autonomous_cognition 路由上按 origin 记三本账，runId 用
+    // 本拍的（一拍一个 run_id）。now 从 clock 取——学习环写面全显式传时刻（C-23）。
+    integrate: async ({ runId }) => {
+      await maybeRunIntegration({
+        store, persona, logEvent, now: systemClock.now(),
+        completion: (messages) => llm(messages, {
+          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_INTEGRATE,
+        }),
+      })
+    },
+    focus: async ({ runId }) => {
+      await maybeRunFocusCycle({
+        store, persona, logEvent, now: systemClock.now(),
+        completion: (messages) => llm(messages, {
+          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_FOCUS,
+        }),
+      })
+    },
   }
 
   const wake: WakeService = {

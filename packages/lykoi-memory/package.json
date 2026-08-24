@@ -15,6 +15,7 @@
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-learn": "0.1.0",
     "lykoi-regulation": "0.1.0"
   }
 }

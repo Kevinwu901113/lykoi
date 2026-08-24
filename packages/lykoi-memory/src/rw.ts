@@ -23,8 +23,19 @@
  * Date.now() 缺省 —— 避免在 clock.now() 唯一真实读点之外偷读墙钟。
  * （W1 TODO#7 已落：clock 薄件在 lykoi-wake —— 生产走 systemClock、测试走
  * VirtualClock，全部调用方经它取 now 后显式传入，本层纪律不变。）
+ *
+ * 遥测纪律（W3 新增 TODO#1 定案，W4 落地）：Python 侧 store/thoughts 的内部
+ * log_event 位（thought_resolve_rejected / release_rejected_non_dormant /
+ * focus_cycle_* / rule_suggestion_* …）在新体走**构造注入**而非编排层补发——
+ * 决定性理由：resolveThought 的三条拒绝分支（集外/不存在/非 open）对调用方
+ * 只是同一个 false，编排层不重复读库就无法还原 Python 的事件粒度；把发射点
+ * 与写点钉在同一处也消灭"写了没报/报了没写"的漂移。接法 = `new
+ * ReadWriteMemory(path, { logEvent })`，缺省 no-op（rw 保持纯库形态，不知道
+ * audit 的存在）；wake 编排把 auditLogEvent 递进来。事件是遥测不是控制流：
+ * 全部在事务 COMMIT 之后发（拒绝类事件在拒绝点发），发射失败由注入方自吞。
  */
 import { DatabaseSync } from 'node:sqlite'
+import { classifyExperience, RULE_VERSION } from 'lykoi-learn/l1'
 import {
   ABANDON_THRESHOLD,
   applyDeltaValue,
@@ -177,6 +188,77 @@ export class ValueError extends Error {
 /** 一次发光的默认权重上调（mind/store.py:44 逐字）。 */
 export const CONCERN_LIT_WEIGHT_DELTA = 0.05
 
+// ============================== W4 学习环状态层（常量与类型） ==============================
+
+/** 行原形（snake_case 列名的 plain object，同 Python dict）——W4 起新方法的返回形态。 */
+export type RawRow = Record<string, unknown>
+
+/** Python 字符串切片的码点口径（answer_text[:2048] 一类的有界裁剪）。 */
+function cpSlice(s: string, n: number): string {
+  const cps = [...s]
+  return cps.length <= n ? s : cps.slice(0, n).join('')
+}
+
+/** 层 1 取料水位线键（store.py:1357）。 */
+export const L2_INTAKE_WATERMARK_KEY = 'l2_intake_watermark_id'
+/** 层 2 节律计数键（store.py:1701）。 */
+export const L4_FOCUS_WAKES_KEY = 'l4_focus_wakes_since'
+/** SA-91 取料口 WHERE 片段（store.py:1380-1381 逐字）。 */
+const INTAKE_CLAUSE = "ec.class = 'working' AND e.integrated = 0 AND e.id > ?"
+
+const NARRATIVE_TRIGGERS: readonly string[] = ['integration', 'owner_edit']
+const NARRATIVE_CLASSES: readonly string[]
+  = ['absorption', 'reflection', 'narrative_only', 'legacy', 'owner_edit']
+const THREAD_KIND_ENUM: readonly string[]
+  = ['open_question', 'commitment', 'suspended_tension', 'arc']
+const THREAD_STATUS_ENUM: readonly string[] = ['open', 'suspended', 'resolved', 'absorbed']
+/** focus_cycles.outcome 枚举（store.py:1714 逐字）。 */
+export const FOCUS_OUTCOME_ENUM: readonly string[]
+  = ['idle', 'advanced', 'revised', 'no_progress', 'failed']
+/** SA-129 insight 状态机五态（store.py:1715 逐字）。 */
+export const FOCUS_INSIGHT_STATUS_ENUM: readonly string[]
+  = ['shadow', 'active', 'contested', 'revised', 'withdrawn']
+
+// SA-131 血缘的产物/原料类型词汇（store.py:1706-1712 逐字）。**不是 CHECK 约束**
+// ——表是多态的，词汇钉死在 schema 里等于每加一类产物就要一次迁移。对齐面在此。
+export const LINEAGE_PRODUCT_INSIGHT = 'insight'
+export const LINEAGE_PRODUCT_CONCERN = 'concern'
+export const LINEAGE_PRODUCT_SUGGESTION = 'rule_suggestion'
+export const LINEAGE_SOURCE_SUGGESTION = 'rule_suggestion'
+export const LINEAGE_SOURCE_EXPERIENCE = 'experience'
+export const LINEAGE_SOURCE_CONCERN = 'concern'
+export const LINEAGE_SOURCE_INSIGHT = 'insight'
+
+/** SA-143：三种建议 kind，与 _V14 的 CHECK 枚举同源（store.py:2224 逐字）。 */
+export const RULE_SUGGESTION_KINDS: readonly string[]
+  = ['concern_release', 'permission_rule', 'standing_grant']
+const SUGGESTION_STATUS_ENUM: readonly string[]
+  = ['pending', 'asked', 'accepted', 'declined', 'expired', 'applied_by_owner']
+/**
+ * 状态机的边，写成数据而不是散在 if 里（store.py:2230-2240 逐字）。值 = 允许的
+ * **来源**状态集合。applied_by_owner 由 owner console 打——**她自己没有任何路径
+ * 打到它**；pending ← declined/expired 是冷却期满后的再武装。
+ */
+export const SUGGESTION_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
+  asked: ['pending'],
+  accepted: ['asked'],
+  declined: ['asked'],
+  expired: ['asked'],
+  applied_by_owner: ['accepted'],
+  pending: ['declined', 'expired'],
+}
+
+/**
+ * WO-P4R12 项2 红线 #3 候选闸的拒绝类型（store.py ReleaseCandidacyError 对应物）：
+ * 非 dormant 的释放在物理层被拒。
+ */
+export class ReleaseCandidacyError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ReleaseCandidacyError'
+  }
+}
+
 export interface RegulationEventRow {
   id: number
   ts: string
@@ -221,13 +303,19 @@ export interface ConcernTransition {
 
 // ============================== 实现 ==============================
 
+/** store 层遥测发射面（W3 TODO#1 定案：注入，缺省 no-op；形状同 lykoi-decide 的 LogEvent）。 */
+export type StoreLogEvent = (name: string, fields: Record<string, unknown>) => void
+
 export class ReadWriteMemory {
   #db: DatabaseSync
+  /** store 层遥测（见文件头"遥测纪律"）。telemetry records, it does not gate。 */
+  #log: StoreLogEvent
   /** 连接实际生效的 busy_timeout（观测位，供测试断言 C-01 口径）。 */
   readonly busyTimeoutMs: number
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, opts?: { logEvent?: StoreLogEvent }) {
     // 显式 rw：这是整个包唯一会以写模式打开 state 的入口。
+    this.#log = opts?.logEvent ?? (() => {})
     this.#db = new DatabaseSync(dbPath)
     try {
       this.#db.exec('PRAGMA busy_timeout = 10000') // C-01
@@ -289,6 +377,12 @@ export class ReadWriteMemory {
    * 「每条经验必发 experience_recorded」的联动调用序在 reflow 侧（W3），
    * 本层不隐式发因 —— 调用方紧随其后 applyRegulationCause('experience_recorded')。
    * 触发器保证行 append-only + integrated 仅 0→1（库层，见触发器契约红测）。
+   *
+   * SA-86/88（WO-L1）：档案/原料分流与经验写入**同事务**（store.py:761-767 逐字
+   * 理由：不存在"经验已落库但没有分类"的中间态——否则层 1 取原料时会漏掉刚写
+   * 的这条,而它恰恰是最新的）。判据是纯函数（lykoi-learn/l1，SA-83），这里不做
+   * 任何额外判断；INSERT OR IGNORE = 回填与实时写入相遇时先到者胜且答案相同。
+   * pending 计数随写同步（_sync_pending 对应物）。
    */
   recordExperience(
     source: ExperienceSource,
@@ -300,13 +394,42 @@ export class ReadWriteMemory {
     }
     const salience = opts.salience ?? 0.5
     const ts = formatPyIso(opts.now)
-    return this.#tx(() => {
+    let pending = 0
+    const experienceId = this.#tx(() => {
       const info = this.#db.prepare(
         `INSERT INTO experiences (ts, source, content, salience, related_concern_id)
          VALUES (?, ?, ?, ?, ?)`,
       ).run(ts, source, content, salience, opts.relatedConcernId ?? null)
-      return Number(info.lastInsertRowid)
+      const id = Number(info.lastInsertRowid)
+      this.#recordClassInTx(id, source, content, ts)
+      pending = this.#syncPendingInTx()
+      return id
     })
+    this.#log('mind_experience', { id: experienceId, source, salience, pending })
+    return experienceId
+  }
+
+  /** SA-88：分类行与经验同生共死（调用方持有事务；experience_class.record_class_in_tx 对应物）。 */
+  #recordClassInTx(experienceId: number, source: string, content: string | null, classifiedAt: string): void {
+    this.#db.prepare(
+      'INSERT OR IGNORE INTO experience_class '
+      + '(experience_id, class, classified_at, rule_version) VALUES (?,?,?,?)',
+    ).run(experienceId, classifyExperience(source, content), classifiedAt, RULE_VERSION)
+  }
+
+  /**
+   * mind/store._sync_pending 对应物（调用方持有事务）：W1 environment 事实是
+   * 耐久沉积——不计入旧口径 pending（integration_state.experiences_pending 列）。
+   * 该列在新体只是账面列（触发闸走 countIntakePending 的 intake 口径，SA-90）。
+   */
+  #syncPendingInTx(): number {
+    const row = this.#db.prepare(
+      "SELECT COUNT(*) AS n FROM experiences WHERE integrated = 0 AND source <> 'environment'",
+    ).get() as { n: number }
+    this.#db.prepare(
+      'UPDATE integration_state SET experiences_pending = ? WHERE id = 1',
+    ).run(row.n)
+    return Number(row.n)
   }
 
   // ============================== 调节场 ==============================
@@ -324,7 +447,7 @@ export class ReadWriteMemory {
     }
     const [name, delta] = entry
     const ts = formatPyIso(opts.now)
-    return this.#tx(() => {
+    const result = this.#tx(() => {
       const row = this.#db.prepare(
         'SELECT value, updated_at FROM regulation_field WHERE name = ?',
       ).get(name) as { value: number; updated_at: string } | undefined
@@ -342,6 +465,11 @@ export class ReadWriteMemory {
       ).run(ts, name, delta, after, cause)
       return { cause, name, delta, valueBefore: decayed, valueAfter: after, ts }
     })
+    // mind_regulation（store.py:276）：value_after 圆整 4 位仅是遥测呈现，非认知值。
+    this.#log('mind_regulation', {
+      name, cause, delta, value_after: Number(result.valueAfter.toFixed(4)),
+    })
+    return result
   }
 
   /**
@@ -476,7 +604,7 @@ export class ReadWriteMemory {
       throw new Error('concern weight must be in [0,1]')
     }
     const ts = formatPyIso(opts.now)
-    return this.#tx(() => {
+    const concernId = this.#tx(() => {
       const active = this.#db.prepare(
         "SELECT COUNT(*) AS n FROM concerns WHERE status = 'active'",
       ).get() as { n: number }
@@ -491,6 +619,8 @@ export class ReadWriteMemory {
       ).run(kind, title, opts.description ?? '', opts.weight, opts.origin, opts.parentId ?? null, ts)
       return Number(info.lastInsertRowid)
     })
+    this.#log('mind_concern_created', { id: concernId, kind, title, origin: opts.origin })
+    return concernId
   }
 
   /**
@@ -538,7 +668,7 @@ export class ReadWriteMemory {
   ): { id: number; weight: number; status: string } {
     const delta = opts.weightDelta ?? CONCERN_LIT_WEIGHT_DELTA
     const ts = formatPyIso(opts.now)
-    return this.#tx(() => {
+    const lit = this.#tx(() => {
       const row = this.#db.prepare(
         'SELECT status, weight FROM concerns WHERE id = ?',
       ).get(concernId) as { status: string; weight: number } | undefined
@@ -562,6 +692,10 @@ export class ReadWriteMemory {
       ).run(newWeight, newStatus, ts, concernId)
       return { id: concernId, weight: newWeight, status: newStatus }
     })
+    this.#log('mind_concern_lit', {
+      id: concernId, weight: Number(lit.weight.toFixed(4)), status: lit.status,
+    })
+    return lit
   }
 
   /**
@@ -905,19 +1039,34 @@ export class ReadWriteMemory {
    * 仅 open→resolved（状态机唯一入口边；非法边由库层触发器兜底）。
    * 返回契约对拍（W1 TODO#4 销账）：thoughts.py:138-171 逐字一致 ——
    * 集外 → false / 不存在 → false / 非 open → false / 成功 open→resolved → true；
-   * 拒绝路径零副作用。（Python 侧的 thought_resolve_rejected/thought_resolved
-   * log_event 属 store 层遥测面，见 W3 报告新增 TODO。）
+   * 拒绝路径零副作用。遥测（W3 TODO#1 落地）：thought_resolve_rejected 带
+   * Python 逐字 reason（not_in_injected_set / not_found / not_open）、成功发
+   * thought_resolved —— 三条拒绝分支只有 store 自己分得清，这正是"注入而非
+   * 编排层补发"的定案理由。
    */
   resolveThought(id: number, injectedIds: Iterable<number>): boolean {
     if (!Number.isInteger(id)) return false
     const allowed = injectedIds instanceof Set ? injectedIds : new Set(injectedIds)
-    if (!allowed.has(id)) return false
-    return this.#tx(() => {
-      const info = this.#db.prepare(
-        "UPDATE thoughts SET status = 'resolved' WHERE id = ? AND status = 'open'",
-      ).run(id)
-      return Number(info.changes) === 1
+    if (!allowed.has(id)) {
+      this.#log('thought_resolve_rejected', { id, reason: 'not_in_injected_set' })
+      return false
+    }
+    const outcome = this.#tx(() => {
+      const row = this.#db.prepare('SELECT status FROM thoughts WHERE id = ?').get(id) as
+        | { status: string }
+        | undefined
+      if (!row || row.status !== 'open') {
+        return row ? 'not_open' : 'not_found'
+      }
+      this.#db.prepare("UPDATE thoughts SET status = 'resolved' WHERE id = ?").run(id)
+      return 'resolved'
     })
+    if (outcome !== 'resolved') {
+      this.#log('thought_resolve_rejected', { id, reason: outcome })
+      return false
+    }
+    this.#log('thought_resolved', { id })
+    return true
   }
 
   /**
@@ -951,7 +1100,8 @@ export class ReadWriteMemory {
   /**
    * SA-176：settle 仅整合路径可调（红线 #3）——仅 resolved→absorbed，必携
    * integration_id（thoughts_terminal_integration 触发器在库层再兜一遍）。
-   * TODO(M2-W4): 「仅整合路径可调」的静态扫描绊线随 integrator 移植波一起立。
+   * 「仅整合路径可调」的静态扫描绊线已随 W4 立起（lykoi-learn 的 boundary 测试：
+   * 全仓 src 内 `.settleThought(` 调用点唯 lykoi-learn/src/l2.ts —— W1 TODO 销账）。
    */
   settleThought(id: number, integrationId: number): void {
     if (!Number.isInteger(integrationId)) {
@@ -966,6 +1116,7 @@ export class ReadWriteMemory {
         throw new Error('lykoi-memory: settleThought only moves resolved→absorbed (SA-176)')
       }
     })
+    this.#log('thought_settled', { id, integration_id: integrationId })
   }
 
   /** 归档：resolved/abandoned→archived（状态机仅有的两条入 archived 边）。 */
@@ -978,6 +1129,7 @@ export class ReadWriteMemory {
         throw new Error('lykoi-memory: archiveThought only moves resolved/abandoned→archived')
       }
     })
+    this.#log('thought_archived', { id })
   }
 
   /** open 念头（写层调用方 / 测试断言用；与只读入口同口径）。 */
@@ -1201,6 +1353,993 @@ export class ReadWriteMemory {
       externalReadCount: (r.external_read_count ?? null) as number | null,
       notificationCount: (r.notification_count ?? null) as number | null,
     }))
+  }
+
+  // ============================== W4 · L1/L2 取料口与整合写面 ==============================
+  // 学习环各层（lykoi-learn）零 SQL——五张 _V13/_V14 影子表与取料口全部只经这里
+  // 读写（蓝图 §0 单写者纪律；store.py:1697-1699 逐字姿态）。新体 W4 起的方法
+  // 返回**行原形**（snake_case 列名的 plain object，同 Python dict）——学习环的
+  // payload/血缘按列名取数，映射层是多余的漂移点。
+
+  /** 读一个学习层标量状态（learning_layer_state 键值表），缺键返回 null。 */
+  getLearningLayerState(key: string): number | null {
+    const row = this.#db.prepare(
+      'SELECT value FROM learning_layer_state WHERE key = ?',
+    ).get(key) as { value: number } | undefined
+    return row ? Number(row.value) : null
+  }
+
+  /**
+   * SA-92：层 1 取料水位线——只有 experiences.id 严格大于它的原料进 nightly 队列。
+   * 值由活体迁移 _V12 在上线那一刻写死为当时的 MAX(experiences.id)；缺键返回 0
+   * ——"没有历史积压需要豁免"，这正是空库该有的语义（store.py:1370-1377 逐字）。
+   */
+  getIntakeWatermarkId(): number {
+    return this.getLearningLayerState(L2_INTAKE_WATERMARK_KEY) ?? 0
+  }
+
+  /**
+   * SA-91：nightly 消化队列（store.py:1384-1420 逐字）——原料池未消化项中，
+   * 水位线**之上**的那些：`class='working' AND integrated = 0 AND id > watermark`。
+   * 与被取代的 pending_experiences 相比两处实质变化：① source<>'environment'
+   * 硬排除没有了（1178 条关于 Kevin 的感知被一行 SQL 挡在门外 55 天）；② 多了
+   * 水位线（补消化 1178 条是伪需求）。bySalience 按显著性降序（同分 id 升序，
+   * 确定性），否则时间序（id 升序）。limit=null 不设上限。
+   */
+  intakePending(limit: number | null, bySalience: boolean): RawRow[] {
+    if (limit !== null && limit < 0) {
+      throw new ValueError('limit must be >= 0')
+    }
+    const order = bySalience ? 'e.salience DESC, e.id ASC' : 'e.id ASC'
+    const floor = this.getIntakeWatermarkId()
+    const sql = `SELECT e.* FROM experiences AS e
+                   JOIN experience_class AS ec ON ec.experience_id = e.id
+                   WHERE ${INTAKE_CLAUSE}
+                   ORDER BY ${order}`
+    const rows = (limit === null
+      ? this.#db.prepare(sql).all(floor)
+      : this.#db.prepare(sql + ' LIMIT ?').all(floor, limit)) as RawRow[]
+    return rows
+  }
+
+  /**
+   * SA-90：队列长度（intakePending 的口径）。整合触发闸读它——触发闸必须与
+   * 取料口同口径：若闸门还读旧的 countPendingExperiences，一个只有感知流入的
+   * 夜晚会被判成 "no_pending" 而永不整合（store.py:1426-1428 逐字）。
+   */
+  countIntakePending(): number {
+    const floor = this.getIntakeWatermarkId()
+    const row = this.#db.prepare(
+      `SELECT COUNT(*) AS n FROM experiences AS e
+         JOIN experience_class AS ec ON ec.experience_id = e.id
+         WHERE ${INTAKE_CLAUSE}`,
+    ).get(floor) as { n: number }
+    return Number(row.n)
+  }
+
+  /** integration_state 单行（G-4 墙钟锚读 last_integration_at；wakes_since 现为账面列）。 */
+  getIntegrationState(): RawRow {
+    const row = this.#db.prepare('SELECT * FROM integration_state WHERE id = 1').get() as
+      | RawRow
+      | undefined
+    if (!row) {
+      throw new Error('lykoi-memory: integration_state row missing (schema violation)')
+    }
+    return row
+  }
+
+  /**
+   * 整合消化（store.py:1244-1262 逐字）：只翻 integrated/integration_id 标记
+   * （schema 触发器保证其余列动不了，且 0→1 仅一次）。返回实际翻转行数。
+   */
+  markExperiencesIntegrated(ids: readonly number[], integrationId: number, opts: { now: Date }): number {
+    if (ids.length === 0) return 0
+    let pending = 0
+    const changed = this.#tx(() => {
+      const marks = ids.map(() => '?').join(',')
+      const info = this.#db.prepare(
+        `UPDATE experiences SET integrated = 1, integration_id = ? WHERE id IN (${marks}) AND integrated = 0`,
+      ).run(integrationId, ...ids)
+      pending = this.#syncPendingInTx()
+      return Number(info.changes)
+    })
+    this.#log('mind_experiences_integrated', {
+      count: changed, integration_id: integrationId, pending,
+    })
+    return changed
+  }
+
+  /** 整合收尾（store.py:1544-1556）：记录时间、清零 wake 计数、重算 pending。 */
+  resetIntegrationCycle(opts: { now: Date }): void {
+    this.#tx(() => {
+      this.#db.prepare(
+        'UPDATE integration_state SET last_integration_at = ?, wakes_since = 0 WHERE id = 1',
+      ).run(formatPyIso(opts.now))
+      this.#syncPendingInTx()
+    })
+    this.#log('mind_integration_cycle_reset', {})
+  }
+
+  /**
+   * 释放（store.py:425-464 逐字语义）：只能由整合期的她或 owner 后门调用（红线
+   * #3）。requires a non-empty reason。WO-P4R12 项2 物理层候选闸：仅 dormant 放行
+   * ——拒绝点在 store 发 release_rejected_non_dormant（不依赖上层是否 catch）。
+   * viaOwner=true 是 owner 后门，绕过候选闸；reason 校验与"已释放"检查依然生效。
+   */
+  releaseConcern(concernId: number, reason: string, opts: { now: Date; viaOwner?: boolean }): void {
+    if (!reason.trim()) {
+      throw new ValueError('release requires a reason (release_reason)')
+    }
+    const moment = formatPyIso(opts.now)
+    this.#tx(() => {
+      const row = this.#db.prepare('SELECT status FROM concerns WHERE id = ?').get(concernId) as
+        | { status: string }
+        | undefined
+      if (!row) {
+        throw new ValueError(`no concern ${concernId}`)
+      }
+      if (row.status === 'released') {
+        throw new ValueError(`concern ${concernId} already released`)
+      }
+      if (!opts.viaOwner && row.status !== 'dormant') {
+        this.#log('release_rejected_non_dormant', {
+          concern_id: concernId, status: row.status, reason,
+        })
+        throw new ReleaseCandidacyError(
+          `concern ${concernId} is '${row.status}', not 'dormant'; only dormant `
+          + `concerns are release candidates (红线 #3) — use viaOwner for owner console`,
+        )
+      }
+      this.#db.prepare(
+        "UPDATE concerns SET status = 'released', released_at = ?, release_reason = ? WHERE id = ?",
+      ).run(moment, reason, concernId)
+    })
+    this.#log('mind_concern_released', { id: concernId, reason })
+  }
+
+  /** 单行读（store.py:505-511）。 */
+  getConcern(concernId: number): RawRow | null {
+    const row = this.#db.prepare('SELECT * FROM concerns WHERE id = ?').get(concernId) as
+      | RawRow
+      | undefined
+    return row ?? null
+  }
+
+  /**
+   * SA-99 物理闸（store.py:516-571 逐字）：narrative_versions 的 INSERT 仲裁在
+   * **store 而不是 integrator 的约定**。strict-empty（acceptedOps<=0）→ INSERT
+   * 被跳过（行根本不进表，连全量读也浮不出）；absorb-lie（class='absorption'
+   * 且 expOps<=0）→ 拒绝。两条都是**纯计数**，change_summary 自由文本从不被
+   * 检查。acceptedOps === null 标记 TRUSTED caller（owner_edit / legacy backfill /
+   * test seed），旁路闸门——owner 写入缝。返回新版本 id，被拒返回 null。
+   */
+  addNarrativeVersion(opts: {
+    content: string
+    changeSummary: string
+    trigger: string
+    now: Date
+    narrativeClass?: string | null
+    acceptedOps?: number | null
+    expOps?: number | null
+  }): number | null {
+    const narrativeClass = opts.narrativeClass ?? null
+    const acceptedOps = opts.acceptedOps ?? null
+    if (!NARRATIVE_TRIGGERS.includes(opts.trigger)) {
+      throw new ValueError(`unknown narrative trigger: '${opts.trigger}'`)
+    }
+    if (narrativeClass !== null && !NARRATIVE_CLASSES.includes(narrativeClass)) {
+      throw new ValueError(`unknown narrative class: '${narrativeClass}'`)
+    }
+    if (!opts.content.trim() || !opts.changeSummary.trim()) {
+      throw new ValueError('narrative content and change_summary must be non-empty')
+    }
+    if (acceptedOps !== null) {
+      if (narrativeClass === 'absorption' && (opts.expOps ?? 0) <= 0) {
+        this.#log('narrative_write_rejected_absorb_lie', {
+          trigger: opts.trigger, accepted_ops: acceptedOps, exp_ops: opts.expOps ?? 0,
+        })
+        return null
+      }
+      if (acceptedOps <= 0) {
+        this.#log('narrative_write_skipped_strict_empty', {
+          trigger: opts.trigger, narrative_class: narrativeClass,
+        })
+        return null
+      }
+    }
+    const versionId = this.#tx(() => {
+      const info = this.#db.prepare(
+        'INSERT INTO narrative_versions (created_at, content, change_summary, trigger, narrative_class) '
+        + 'VALUES (?,?,?,?,?)',
+      ).run(formatPyIso(opts.now), opts.content, opts.changeSummary, opts.trigger, narrativeClass)
+      return Number(info.lastInsertRowid)
+    })
+    this.#log('mind_narrative_version', { id: versionId, trigger: opts.trigger })
+    return versionId
+  }
+
+  /** 建叙事线（store.py:615-632）：起始 status='open'。 */
+  createThread(kind: string, content: string, opts: { now: Date }): number {
+    if (!THREAD_KIND_ENUM.includes(kind)) {
+      throw new ValueError(`unknown thread kind: '${kind}'`)
+    }
+    if (!content.trim()) {
+      throw new ValueError('thread content must be non-empty')
+    }
+    const moment = formatPyIso(opts.now)
+    const threadId = this.#tx(() => {
+      const info = this.#db.prepare(
+        "INSERT INTO narrative_threads (kind, content, status, created_at, updated_at) VALUES (?,?,'open',?,?)",
+      ).run(kind, content, moment, moment)
+      return Number(info.lastInsertRowid)
+    })
+    this.#log('mind_thread_created', { id: threadId, kind })
+    return threadId
+  }
+
+  /**
+   * 线更新（store.py:635-669）：解决/吸收必须留下交代（resolution）——这是她对
+   * 一条线的告别,不许默默关掉。
+   */
+  updateThread(
+    threadId: number,
+    opts: { status?: string | null; content?: string | null; resolution?: string | null; now: Date },
+  ): void {
+    const status = opts.status ?? null
+    if (status !== null && !THREAD_STATUS_ENUM.includes(status)) {
+      throw new ValueError(`unknown thread status: '${status}'`)
+    }
+    if ((status === 'resolved' || status === 'absorbed') && !(opts.resolution ?? '').trim()) {
+      throw new ValueError(`closing a thread as ${status} requires a resolution`)
+    }
+    this.#tx(() => {
+      const row = this.#db.prepare('SELECT id FROM narrative_threads WHERE id = ?').get(threadId)
+      if (!row) {
+        throw new ValueError(`no thread ${threadId}`)
+      }
+      const sets = ['updated_at = ?']
+      const params: (string | number)[] = [formatPyIso(opts.now)]
+      if (status !== null) {
+        sets.push('status = ?')
+        params.push(status)
+      }
+      if (opts.content !== undefined && opts.content !== null) {
+        sets.push('content = ?')
+        params.push(opts.content)
+      }
+      if (opts.resolution !== undefined && opts.resolution !== null) {
+        sets.push('resolution = ?')
+        params.push(opts.resolution)
+      }
+      params.push(threadId)
+      this.#db.prepare(`UPDATE narrative_threads SET ${sets.join(', ')} WHERE id = ?`).run(...params)
+    })
+    this.#log('mind_thread_updated', { id: threadId, status })
+  }
+
+  /** open 念头按注意力序（thoughts.py:245-260：charge DESC, ts ASC, id ASC，无上限）。 */
+  getOpenThoughts(): RawRow[] {
+    return this.#db.prepare(
+      "SELECT * FROM thoughts WHERE status='open' ORDER BY charge DESC, ts ASC, id ASC",
+    ).all() as RawRow[]
+  }
+
+  /**
+   * 等待本次整合清算的念头（integrator._thoughts_since_last_integration 对应物）：
+   * resolved/abandoned 全量、id 序——清算不受 Top-N 注意力帽限制（工单 §5）。
+   */
+  thoughtsAwaitingClearance(): RawRow[] {
+    return this.#db.prepare(
+      "SELECT * FROM thoughts WHERE status IN ('resolved', 'abandoned') ORDER BY id",
+    ).all() as RawRow[]
+  }
+
+  /**
+   * insights 写口（memory/store.upsert_insight 对应物）：按 (category, content)
+   * 去重——已存在只刷 updated 并返回原 id。重申语义（SA-133）建立在这上面。
+   */
+  upsertInsight(category: string, content: string, opts: { now: Date }): number {
+    const moment = formatPyIso(opts.now)
+    return this.#tx(() => {
+      const existing = this.#db.prepare(
+        'SELECT id FROM insights WHERE category = ? AND content = ?',
+      ).get(category, content) as { id: number } | undefined
+      if (existing) {
+        this.#db.prepare('UPDATE insights SET updated = ? WHERE id = ?').run(moment, existing.id)
+        return Number(existing.id)
+      }
+      const info = this.#db.prepare(
+        'INSERT INTO insights (created, updated, category, content) VALUES (?, ?, ?, ?)',
+      ).run(moment, moment, category, content)
+      return Number(info.lastInsertRowid)
+    })
+  }
+
+  /**
+   * L3 检索的唯一 SQL（relevance._candidate_rows 对应物，relevance.py:327-390 逐字）：
+   * 硬过滤（实体/时间）+ 关键词 OR 预筛，拉回候选行。**只读，一条 SELECT。**
+   * "怎么算相关"不在这里——SQL 只负责把全表缩到候选集（预筛比打分宽），命中
+   * 定稿在 lykoi-learn/l3 的打分函数。
+   *
+   * SA-116 第二道保险：%/_/\\ 按字面转义（词项本身已不含通配符——切段时被当
+   * 分隔符丢了；任何将来放宽切段规则的改动都不会让 % 通配整个档案）。已知窄口
+   * （relevance.py:338-341）：LIKE 比对**未归一** content，全角英文会漏——中文
+   * 不受影响，接受的取舍不是 bug。experience_class 用 LEFT JOIN：影子表缺行不该
+   * 让真实经验从检索域消失；memory_scopes 主键 (table_name,row_id) 保证实体轴
+   * JOIN 至多配一行，不放大结果。
+   */
+  relevanceCandidateRows(opts: {
+    terms: readonly string[]
+    subjectUserId: string | null
+    since: string | null
+    until: string | null
+  }): RawRow[] {
+    const clauses: string[] = []
+    const params: (string | number)[] = []
+    let join = ''
+    if (opts.subjectUserId !== null) {
+      join = " JOIN memory_scopes AS ms ON ms.table_name = 'experiences' AND ms.row_id = e.id"
+      clauses.push('ms.subject_user_id = ?')
+      params.push(opts.subjectUserId)
+    }
+    if (opts.since !== null) {
+      clauses.push('e.ts >= ?')
+      params.push(opts.since)
+    }
+    if (opts.until !== null) {
+      clauses.push('e.ts <= ?')
+      params.push(opts.until)
+    }
+    if (opts.terms.length > 0) {
+      const likes: string[] = []
+      for (const term of opts.terms) {
+        const escaped = term.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+        likes.push("e.content LIKE ? ESCAPE '\\'")
+        params.push(`%${escaped}%`)
+      }
+      clauses.push('(' + likes.join(' OR ') + ')')
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : ''
+    return this.#db.prepare(
+      `SELECT e.*, ec.class AS experience_class
+         FROM experiences AS e
+         LEFT JOIN experience_class AS ec ON ec.experience_id = e.id${join}
+         ${where}
+         ORDER BY e.id`,
+    ).all(...params) as RawRow[]
+  }
+
+  // ============================== W4 · 层 2 专注思考状态层（store.py:1697-2213） ==============================
+
+  /** 层 2 节律计数（store.py:1718-1720；G-4 后为账面列，触发闸走墙钟锚）。缺键 = 0。 */
+  getFocusWakesSince(): number {
+    return this.getLearningLayerState(L4_FOCUS_WAKES_KEY) ?? 0
+  }
+
+  /**
+   * 一次层 2 周期收尾（store.py:1723-1741）：节律计数**无条件**清零——层 2 的
+   * 空转意味着"今晚确实没有可想的关切"，来了就算数。G-4 后触发闸读的墙钟锚是
+   * focus_cycles.started_at（见 latestFocusCycleStartedAt），本方法保留 Python
+   * 写形（计数器账面 + 写集对拍）。
+   */
+  resetFocusCycle(opts: { now: Date }): void {
+    this.#tx(() => {
+      this.#db.prepare(
+        `INSERT INTO learning_layer_state (key, value, set_at) VALUES (?, 0, ?)
+         ON CONFLICT(key) DO UPDATE SET value = 0, set_at = excluded.set_at`,
+      ).run(L4_FOCUS_WAKES_KEY, formatPyIso(opts.now))
+    })
+  }
+
+  /**
+   * SA-122（store.py:1746-1764）：开周期行，返回**周期序号**（= focus_cycles.id）。
+   * 先开行再选关切：防自恋硬规则按序号取模，序号必须在选择之前确定。行以
+   * outcome='idle' 落地——进程中途死掉留下的是诚实空转记录，而不是没有记录。
+   */
+  openFocusCycle(opts: { now: Date }): number {
+    const cycleId = this.#tx(() => {
+      const info = this.#db.prepare('INSERT INTO focus_cycles (started_at) VALUES (?)')
+        .run(formatPyIso(opts.now))
+      return Number(info.lastInsertRowid)
+    })
+    this.#log('focus_cycle_opened', { cycle_id: cycleId })
+    return cycleId
+  }
+
+  /** 周期收尾写回台账行（store.py:1767-1803）；match_reasons 存 JSON 文本（§3.7 上一跳）。 */
+  finalizeFocusCycle(cycleId: number, opts: {
+    outcome: string
+    concernId?: number | null
+    selectionReason?: string
+    retrievedCount?: number
+    matchReasons?: readonly unknown[] | null
+    llmCalls?: number
+    note?: string
+    now: Date
+  }): void {
+    if (!FOCUS_OUTCOME_ENUM.includes(opts.outcome)) {
+      throw new ValueError(`unknown focus outcome: '${opts.outcome}'`)
+    }
+    const payload = JSON.stringify(opts.matchReasons ?? [])
+    this.#tx(() => {
+      this.#db.prepare(
+        `UPDATE focus_cycles
+            SET finished_at = ?, concern_id = ?, selection_reason = ?,
+                outcome = ?, retrieved_count = ?, match_reasons = ?,
+                llm_calls = ?, note = ?
+          WHERE id = ?`,
+      ).run(
+        formatPyIso(opts.now), opts.concernId ?? null, opts.selectionReason ?? '',
+        opts.outcome, opts.retrievedCount ?? 0, payload,
+        opts.llmCalls ?? 0, cpSlice(opts.note ?? '', 2048), cycleId,
+      )
+    })
+    this.#log('focus_cycle_finished', {
+      cycle_id: cycleId, outcome: opts.outcome, concern_id: opts.concernId ?? null,
+      retrieved: opts.retrievedCount ?? 0, llm_calls: opts.llmCalls ?? 0,
+      selection_reason: opts.selectionReason ?? '',
+    })
+  }
+
+  getFocusCycle(cycleId: number): RawRow | null {
+    const row = this.#db.prepare('SELECT * FROM focus_cycles WHERE id = ?').get(cycleId) as
+      | RawRow
+      | undefined
+    return row ?? null
+  }
+
+  /**
+   * G-4 墙钟锚（focus 侧）：最近一次周期的 started_at；一个周期都没跑过 → null。
+   * 台账行由 openFocusCycle 在**每一种**周期开头写（空转/失败/成功都算），所以
+   * 这个读数天然就是"上一次来过"的墙钟时刻——Python 的无条件 reset_focus_cycle
+   * 语义在墙钟锚下的对应物。
+   */
+  latestFocusCycleStartedAt(): string | null {
+    const row = this.#db.prepare(
+      'SELECT MAX(started_at) AS ts FROM focus_cycles',
+    ).get() as { ts: string | null } | undefined
+    return row?.ts ?? null
+  }
+
+  /** 当前（=最近开出的）周期序号；一个都没有 → 0（store.py:2201-2212；建议队列的算术口）。 */
+  currentFocusCycleId(): number {
+    const row = this.#db.prepare('SELECT MAX(id) AS n FROM focus_cycles').get() as
+      | { n: number | null }
+      | undefined
+    return Number(row?.n ?? 0)
+  }
+
+  /**
+   * SA-123（store.py:1825-1863 逐字）：层 2 选关切候选集——排除 released，
+   * **不排除 dormant**（层 2 的价值恰在把久未点亮的调出来想）。LEFT JOIN
+   * memory_scopes（没登记作用域的关切不消失，只是实体轴匿名）与
+   * concern_focus_state（缺行按零算）；in_cooldown 物化；基序 id 升序。
+   */
+  focusCandidates(currentCycleId: number): RawRow[] {
+    return this.#db.prepare(
+      `SELECT c.*,
+              ms.subject_user_id                    AS subject_user_id,
+              COALESCE(cfs.no_progress_streak, 0)   AS no_progress_streak,
+              COALESCE(cfs.cooldown_count, 0)       AS cooldown_count,
+              cfs.cooldown_until_cycle              AS cooldown_until_cycle,
+              cfs.release_suggested_at_cycle        AS release_suggested_at_cycle,
+              CASE WHEN COALESCE(cfs.cooldown_until_cycle, 0) > ?
+                   THEN 1 ELSE 0 END                AS in_cooldown
+         FROM concerns AS c
+         LEFT JOIN memory_scopes AS ms
+                ON ms.table_name = 'concerns' AND ms.row_id = c.id
+         LEFT JOIN concern_focus_state AS cfs ON cfs.concern_id = c.id
+        WHERE c.status <> 'released'
+        ORDER BY c.id`,
+    ).all(currentCycleId) as RawRow[]
+  }
+
+  /** 反刍计数（store.py:1866-1881）：缺行返回全零默认形状。 */
+  getConcernFocusState(concernId: number): RawRow {
+    const row = this.#db.prepare(
+      'SELECT * FROM concern_focus_state WHERE concern_id = ?',
+    ).get(concernId) as RawRow | undefined
+    if (row) return row
+    return {
+      concern_id: concernId, no_progress_streak: 0, cooldown_until_cycle: null,
+      cooldown_count: 0, last_cycle_id: null, release_suggested_at_cycle: null,
+      updated_at: null,
+    }
+  }
+
+  /**
+   * 写回反刍计数（store.py:1884-1919 逐字）：**全字段覆盖**——部分更新会让
+   * "streak 与 cooldown 是同一次判断的两个面"失真；concerns 表在这条路径上
+   * 一列不动（冷却是层 2 内务，不是关切的身份属性）。
+   */
+  updateConcernFocusState(concernId: number, opts: {
+    noProgressStreak: number
+    cooldownUntilCycle: number | null
+    cooldownCount: number
+    lastCycleId: number
+    releaseSuggestedAtCycle: number | null
+    now: Date
+  }): void {
+    this.#tx(() => {
+      this.#db.prepare(
+        `INSERT INTO concern_focus_state
+             (concern_id, no_progress_streak, cooldown_until_cycle,
+              cooldown_count, last_cycle_id, release_suggested_at_cycle, updated_at)
+         VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(concern_id) DO UPDATE SET
+             no_progress_streak = excluded.no_progress_streak,
+             cooldown_until_cycle = excluded.cooldown_until_cycle,
+             cooldown_count = excluded.cooldown_count,
+             last_cycle_id = excluded.last_cycle_id,
+             release_suggested_at_cycle = excluded.release_suggested_at_cycle,
+             updated_at = excluded.updated_at`,
+      ).run(
+        concernId, opts.noProgressStreak, opts.cooldownUntilCycle, opts.cooldownCount,
+        opts.lastCycleId, opts.releaseSuggestedAtCycle, formatPyIso(opts.now),
+      )
+    })
+  }
+
+  /** "建议释放"清单（store.py:1922-1941）：只读的建议——没有任何代码路径因上榜而释放。 */
+  concernsSuggestedForRelease(): RawRow[] {
+    return this.#db.prepare(
+      `SELECT c.*, cfs.cooldown_count, cfs.release_suggested_at_cycle,
+              cfs.no_progress_streak
+         FROM concern_focus_state AS cfs
+         JOIN concerns AS c ON c.id = cfs.concern_id
+        WHERE cfs.release_suggested_at_cycle IS NOT NULL
+          AND c.status <> 'released'
+        ORDER BY c.id`,
+    ).all() as RawRow[]
+  }
+
+  /**
+   * SA-131 血缘落账（store.py:1946-1982 逐字）：产物与它的每一条原料钉在一起，
+   * 返回**新写入**行数。五元组 UNIQUE + INSERT OR IGNORE：同周期重放幂等，
+   * 血缘的行数是可信的计数不是估计（C-17）。
+   */
+  recordLineage(opts: {
+    productKind: string
+    productId: string | number
+    sources: readonly (readonly [string, string | number])[]
+    cycleId: number
+    now: Date
+  }): number {
+    if (opts.sources.length === 0) return 0
+    const moment = formatPyIso(opts.now)
+    const written = this.#tx(() => {
+      let count = 0
+      const stmt = this.#db.prepare(
+        `INSERT OR IGNORE INTO product_lineage
+             (product_kind, product_id, source_kind, source_id, cycle_id, created_at)
+         VALUES (?,?,?,?,?,?)`,
+      )
+      for (const [kind, sid] of opts.sources) {
+        const info = stmt.run(opts.productKind, String(opts.productId), kind, String(sid),
+          opts.cycleId, moment)
+        count += Number(info.changes)
+      }
+      return count
+    })
+    this.#log('focus_lineage_recorded', {
+      product_kind: opts.productKind, product_id: String(opts.productId),
+      cycle_id: opts.cycleId, sources: written,
+    })
+    return written
+  }
+
+  /** 一个产物的全部血缘行（时间序；§3.7 可审计面）。 */
+  lineageForProduct(productKind: string, productId: string | number): RawRow[] {
+    return this.#db.prepare(
+      'SELECT * FROM product_lineage WHERE product_kind = ? AND product_id = ? ORDER BY id',
+    ).all(productKind, String(productId)) as RawRow[]
+  }
+
+  /** 反向：一条原料喂出过哪些结论。 */
+  lineageForSource(sourceKind: string, sourceId: string | number): RawRow[] {
+    return this.#db.prepare(
+      'SELECT * FROM product_lineage WHERE source_kind = ? AND source_id = ? ORDER BY id',
+    ).all(sourceKind, String(sourceId)) as RawRow[]
+  }
+
+  /** insights.content 只读（store.py:2016-2024）：insights 的唯一写者仍是 upsertInsight。 */
+  #insightContent(insightId: number): string {
+    const row = this.#db.prepare('SELECT content FROM insights WHERE id = ?').get(insightId) as
+      | { content: string }
+      | undefined
+    return row ? row.content : ''
+  }
+
+  getFocusInsightState(insightId: number): RawRow | null {
+    const row = this.#db.prepare(
+      'SELECT * FROM focus_insight_state WHERE insight_id = ?',
+    ).get(insightId) as RawRow | undefined
+    return row ?? null
+  }
+
+  /**
+   * 层 2 结论 + 影子状态（store.py:2038-2061）：content/category 从 insights 联出。
+   * status=null 给全部；下游消费者应当只读 'active'（见 promotedFocusInsights）。
+   */
+  listFocusInsights(status: string | readonly string[] | null): RawRow[] {
+    let statuses: string[] | null = null
+    if (status !== null) {
+      statuses = typeof status === 'string' ? [status] : [...status]
+      for (const value of statuses) {
+        if (!FOCUS_INSIGHT_STATUS_ENUM.includes(value)) {
+          throw new ValueError(`unknown focus insight status: '${value}'`)
+        }
+      }
+    }
+    const sql = `SELECT s.*, i.content AS content, i.category AS category
+                   FROM focus_insight_state AS s
+                   LEFT JOIN insights AS i ON i.id = s.insight_id`
+    if (statuses && statuses.length > 0) {
+      const marks = statuses.map(() => '?').join(',')
+      return this.#db.prepare(
+        sql + ` WHERE s.status IN (${marks}) ORDER BY s.insight_id`,
+      ).all(...statuses) as RawRow[]
+    }
+    return this.#db.prepare(sql + ' ORDER BY s.insight_id').all() as RawRow[]
+  }
+
+  /**
+   * SA-134（store.py:2064-2071 逐字）：转正的结论——**这是层 2 产物唯一的对外
+   * 消费口**。将来接下游时接的是这个函数，而不是 listFocusInsights 的全集——
+   * 那样影子期就成了摆设。
+   */
+  promotedFocusInsights(): RawRow[] {
+    return this.listFocusInsights('active')
+  }
+
+  /**
+   * SA-133（store.py:2074-2123 逐字）：给一条新结论落影子状态 + 一行历史。返回
+   * true = 这是**新结论**。重申（逐字相同结论 → 同一 insight_id）：状态行原样
+   * 保留（影子期不因重申而重新计时），只追加一行历史，返回 false——调用方据此
+   * 把本次周期判成"深挖无新结论"，重申如实喂进反刍计数，不伪装成进展。
+   */
+  recordFocusInsight(insightId: number, opts: {
+    cycleId: number
+    status?: string
+    reason?: string
+    now: Date
+  }): boolean {
+    const status = opts.status ?? 'shadow'
+    if (!FOCUS_INSIGHT_STATUS_ENUM.includes(status)) {
+      throw new ValueError(`unknown focus insight status: '${status}'`)
+    }
+    const moment = formatPyIso(opts.now)
+    let toStatus = status
+    const reaffirmed = this.#tx(() => {
+      const existing = this.#db.prepare(
+        'SELECT status FROM focus_insight_state WHERE insight_id = ?',
+      ).get(insightId) as { status: string } | undefined
+      const snapshot = this.#insightContent(insightId)
+      let fromStatus: string | null
+      if (existing) {
+        // 重申:状态行原样不动(影子期不重新计时),只留痕。
+        fromStatus = existing.status
+        toStatus = existing.status
+      } else {
+        this.#db.prepare(
+          `INSERT INTO focus_insight_state
+               (insight_id, status, created_cycle_id, updated_cycle_id, updated_at)
+           VALUES (?,?,?,?,?)`,
+        ).run(insightId, status, opts.cycleId, opts.cycleId, moment)
+        fromStatus = null
+        toStatus = status
+      }
+      this.#db.prepare(
+        `INSERT INTO focus_insight_history
+             (insight_id, cycle_id, from_status, to_status, content_snapshot, reason, at)
+         VALUES (?,?,?,?,?,?,?)`,
+      ).run(insightId, opts.cycleId, fromStatus, toStatus, snapshot,
+        opts.reason || (existing ? 'reaffirmed' : 'created'), moment)
+      return existing !== undefined
+    })
+    this.#log('focus_insight_recorded', {
+      insight_id: insightId, cycle_id: opts.cycleId, status: toStatus, reaffirmed,
+    })
+    return !reaffirmed
+  }
+
+  /**
+   * SA-129 状态迁移 + 一行历史（store.py:2126-2186 逐字）。返回 false = 这条
+   * insight 没有影子状态行（层 2 之外写进 insights 的行不归这套门管）。
+   * **历史永远保留**：撤回删的是"现行"资格，不是"她曾经这么认为过"。
+   * contested_since_cycle 三条规则：迁进 contested 钉住首个起争周期号；迁回
+   * shadow/active 清空；迁到 revised/withdrawn 保留。
+   */
+  setFocusInsightStatus(insightId: number, status: string, opts: {
+    cycleId: number
+    reason?: string
+    supersededBy?: number | null
+    contestedSinceCycle?: number | null
+    now: Date
+  }): boolean {
+    if (!FOCUS_INSIGHT_STATUS_ENUM.includes(status)) {
+      throw new ValueError(`unknown focus insight status: '${status}'`)
+    }
+    const moment = formatPyIso(opts.now)
+    let fromStatus = ''
+    const moved = this.#tx(() => {
+      const row = this.#db.prepare(
+        'SELECT status, contested_since_cycle FROM focus_insight_state WHERE insight_id = ?',
+      ).get(insightId) as { status: string; contested_since_cycle: number | null } | undefined
+      if (!row) return false
+      fromStatus = row.status
+      let keepContested: number | null
+      if (status === 'contested') {
+        keepContested = opts.contestedSinceCycle ?? row.contested_since_cycle ?? opts.cycleId
+      } else if (status === 'shadow' || status === 'active') {
+        keepContested = null
+      } else {
+        keepContested = row.contested_since_cycle
+      }
+      this.#db.prepare(
+        `UPDATE focus_insight_state
+            SET status = ?, updated_cycle_id = ?, contested_since_cycle = ?,
+                superseded_by = COALESCE(?, superseded_by), updated_at = ?
+          WHERE insight_id = ?`,
+      ).run(status, opts.cycleId, keepContested, opts.supersededBy ?? null, moment, insightId)
+      this.#db.prepare(
+        `INSERT INTO focus_insight_history
+             (insight_id, cycle_id, from_status, to_status, content_snapshot, reason, at)
+         VALUES (?,?,?,?,?,?,?)`,
+      ).run(insightId, opts.cycleId, row.status, status,
+        this.#insightContent(insightId), opts.reason ?? '', moment)
+      return true
+    })
+    if (moved) {
+      this.#log('focus_insight_status', {
+        insight_id: insightId, cycle_id: opts.cycleId,
+        from: fromStatus, to: status, reason: opts.reason ?? '',
+      })
+    }
+    return moved
+  }
+
+  /** 一条（或全部）结论的状态迁移史，时间序。追加式，永不删（store.py:2189-2198）。 */
+  focusInsightHistory(insightId?: number | null): RawRow[] {
+    if (insightId === undefined || insightId === null) {
+      return this.#db.prepare('SELECT * FROM focus_insight_history ORDER BY id').all() as RawRow[]
+    }
+    return this.#db.prepare(
+      'SELECT * FROM focus_insight_history WHERE insight_id = ? ORDER BY id',
+    ).all(insightId) as RawRow[]
+  }
+
+  // ============================== W4 · 规则建议队列状态层（store.py:2215-2506） ==============================
+  // **铁律**（§3.8 门阶梯最高一级，SA-141）：这一整节没有任何一行写
+  // approval_rules.json，也没有任何一行 import 审批件。她可以观察"这类事 Kevin
+  // 总是批准"、可以把它排进队列问他，但生效那一笔永远由 Kevin 在 root 会话落下。
+
+  /**
+   * SA-142..146 入队（store.py:2249-2332 逐字）：返回 {id, status, enqueued, reason}。
+   * enqueued 只有在**真的新排了一件事等他答**时才是 true。四种既有情形：
+   * pending/asked → already_queued（与 dedup_key UNIQUE 是同一件事的两个面）；
+   * accepted/applied_by_owner → already_decided（再问一遍是骚扰）；declined/expired
+   * 且仍在冷却 → cooldown（被拒绝的建议不许换个说法再问，§3.8 最要紧的克制）；
+   * 冷却已过 → **再武装**回 pending：文本与来源刷新，ask_count 与上次 answer_text
+   * **保留**（他上次怎么说的是事实，不该被一次重排抹掉）。
+   */
+  enqueueRuleSuggestion(opts: {
+    kind: string
+    dedupKey: string
+    suggestionText: string
+    rationale?: string
+    sourceKind?: string
+    sourceId?: string | number
+    cycleId?: number | null
+    now: Date
+  }): { id: number; status: string; enqueued: boolean; reason: string } {
+    if (!RULE_SUGGESTION_KINDS.includes(opts.kind)) {
+      throw new ValueError(`unknown rule suggestion kind: '${opts.kind}'`)
+    }
+    if (!opts.dedupKey) {
+      throw new ValueError('rule suggestion requires a dedup_key')
+    }
+    if (!(opts.suggestionText ?? '').trim()) {
+      throw new ValueError('rule suggestion requires suggestion_text')
+    }
+    const moment = formatPyIso(opts.now)
+    const cycle = opts.cycleId || null // Python `cycle_id or None`：0 → None
+    const rationale = opts.rationale ?? ''
+    const sourceKind = opts.sourceKind ?? ''
+    const sourceId = String(opts.sourceId ?? '')
+    let rearmedFrom: string | null = null
+    const result = this.#tx(() => {
+      const row = this.#db.prepare(
+        'SELECT * FROM rule_suggestions WHERE dedup_key = ?',
+      ).get(opts.dedupKey) as RawRow | undefined
+      if (row) {
+        const status = row.status as string
+        if (status === 'pending' || status === 'asked') {
+          return { id: Number(row.id), status, enqueued: false, reason: 'already_queued' }
+        }
+        if (status === 'accepted' || status === 'applied_by_owner') {
+          return { id: Number(row.id), status, enqueued: false, reason: 'already_decided' }
+        }
+        const cooldown = row.cooldown_until_cycle as number | null
+        if (cooldown !== null && (cycle ?? 0) < cooldown) {
+          return { id: Number(row.id), status, enqueued: false, reason: 'cooldown' }
+        }
+        this.#db.prepare(
+          `UPDATE rule_suggestions
+              SET status = 'pending', suggestion_text = ?, rationale = ?,
+                  source_kind = ?, source_id = ?, created_cycle_id = ?,
+                  question_message_id = NULL, question_text = '',
+                  asked_at_cycle = NULL, cooldown_until_cycle = NULL,
+                  updated_at = ?
+            WHERE id = ? AND status IN ('declined','expired')`,
+        ).run(opts.suggestionText.trim(), rationale, sourceKind, sourceId,
+          cycle, moment, Number(row.id))
+        rearmedFrom = status
+        return { id: Number(row.id), status: 'pending', enqueued: true, reason: 'rearmed' }
+      }
+      const info = this.#db.prepare(
+        `INSERT INTO rule_suggestions
+             (kind, dedup_key, suggestion_text, rationale, source_kind,
+              source_id, created_cycle_id, status, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?, 'pending', ?, ?)`,
+      ).run(opts.kind, opts.dedupKey, opts.suggestionText.trim(), rationale, sourceKind,
+        sourceId, cycle, moment, moment)
+      return { id: Number(info.lastInsertRowid), status: 'pending', enqueued: true, reason: 'new' }
+    })
+    if (result.reason === 'rearmed') {
+      this.#log('rule_suggestion_rearmed', {
+        suggestion_id: result.id, kind: opts.kind, dedup_key: opts.dedupKey,
+        was: rearmedFrom, cycle_id: cycle,
+      })
+    } else if (result.reason === 'new') {
+      this.#log('rule_suggestion_enqueued', {
+        suggestion_id: result.id, kind: opts.kind, dedup_key: opts.dedupKey,
+        source_kind: sourceKind, source_id: sourceId, cycle_id: cycle,
+      })
+    }
+    return result
+  }
+
+  getRuleSuggestion(suggestionId: number): RawRow | null {
+    const row = this.#db.prepare('SELECT * FROM rule_suggestions WHERE id = ?')
+      .get(suggestionId) as RawRow | undefined
+    return row ?? null
+  }
+
+  ruleSuggestionByDedupKey(dedupKey: string): RawRow | null {
+    const row = this.#db.prepare('SELECT * FROM rule_suggestions WHERE dedup_key = ?')
+      .get(dedupKey) as RawRow | undefined
+    return row ?? null
+  }
+
+  /**
+   * 按"她问出去的那条消息 id"找建议（store.py:2354-2371）——归属消歧的唯一口径。
+   * **只认 reply_to，不做语义匹配**：把"他大概是在说这个"当成"他同意这个"，
+   * 是这一整单最不该有的便利。
+   */
+  ruleSuggestionByQuestion(questionMessageId: string | number | null): RawRow | null {
+    if (questionMessageId === null) return null
+    const row = this.#db.prepare(
+      'SELECT * FROM rule_suggestions WHERE question_message_id = ? ORDER BY id DESC LIMIT 1',
+    ).get(String(questionMessageId)) as RawRow | undefined
+    return row ?? null
+  }
+
+  /** 队列只读视图（owner console 与用例的取数面）。 */
+  listRuleSuggestions(status: string | readonly string[] | null): RawRow[] {
+    let statuses: string[] | null = null
+    if (status !== null) {
+      statuses = typeof status === 'string' ? [status] : [...status]
+      for (const value of statuses) {
+        if (!SUGGESTION_STATUS_ENUM.includes(value)) {
+          throw new ValueError(`unknown rule suggestion status: '${value}'`)
+        }
+      }
+    }
+    if (statuses && statuses.length > 0) {
+      const marks = statuses.map(() => '?').join(',')
+      return this.#db.prepare(
+        `SELECT * FROM rule_suggestions WHERE status IN (${marks}) ORDER BY id`,
+      ).all(...statuses) as RawRow[]
+    }
+    return this.#db.prepare('SELECT * FROM rule_suggestions ORDER BY id').all() as RawRow[]
+  }
+
+  /**
+   * 下一条该问的建议：最早入队的那条（FIFO，store.py:2394-2407 逐字理由）——
+   * 建议队列不该有"她觉得哪条更重要"的旋钮：那正是把"她自己的权限边界"往她
+   * 自己手里挪的第一步。先来先问，可解释、可预期。
+   */
+  nextPendingRuleSuggestion(): RawRow | null {
+    const row = this.#db.prepare(
+      "SELECT * FROM rule_suggestions WHERE status = 'pending' ORDER BY id LIMIT 1",
+    ).get() as RawRow | undefined
+    return row ?? null
+  }
+
+  /** 已问出去、还没答复的建议。同一时刻**至多一条**（问答侧强制，SA-149）。 */
+  outstandingAskedRuleSuggestions(): RawRow[] {
+    return this.listRuleSuggestions('asked')
+  }
+
+  /**
+   * 问出去超过 ttlCycles 个周期仍无答复的建议——该判 expired 了（store.py:2416-2431）。
+   * **按周期序号不按墙钟**（与 §3.8 影子期同口径，SA-148）：一台停机三周的机器
+   * 不该因为钟走了三周就把她问过的事悄悄作废。
+   */
+  overdueAskedRuleSuggestions(cycleId: number, ttlCycles: number): RawRow[] {
+    return this.#db.prepare(
+      `SELECT * FROM rule_suggestions
+        WHERE status = 'asked' AND COALESCE(asked_at_cycle, 0) <= ?
+        ORDER BY id`,
+    ).all(cycleId - ttlCycles) as RawRow[]
+  }
+
+  /**
+   * pending → asked（store.py:2434-2465）：UPDATE 自带 WHERE status='pending'，
+   * "认领"是一次原子写不是先读后写。返回 false = 输了竞态——调用方据此撤回
+   * 已发出的问题，而不是留下一条 Kevin 在等、系统里却没有记录的问题。
+   */
+  markRuleSuggestionAsked(suggestionId: number, opts: {
+    questionMessageId: string | number | null
+    questionText: string
+    cycleId?: number | null
+    now: Date
+  }): boolean {
+    const claimed = this.#tx(() => {
+      const info = this.#db.prepare(
+        `UPDATE rule_suggestions
+            SET status = 'asked', question_message_id = ?, question_text = ?,
+                asked_at_cycle = ?, ask_count = ask_count + 1, updated_at = ?
+          WHERE id = ? AND status = 'pending'`,
+      ).run(
+        opts.questionMessageId === null ? null : String(opts.questionMessageId),
+        opts.questionText, opts.cycleId ?? null, formatPyIso(opts.now), suggestionId,
+      )
+      return Number(info.changes) === 1
+    })
+    this.#log('rule_suggestion_asked', {
+      suggestion_id: suggestionId, claimed,
+      question_message_id: String(opts.questionMessageId), cycle_id: opts.cycleId ?? null,
+    })
+    return claimed
+  }
+
+  /**
+   * 打终态（store.py:2468-2506）：accepted/declined/expired/applied_by_owner，
+   * 迁移边由 SUGGESTION_TRANSITIONS 数据表钉死；返回 false = 来源状态不允许。
+   * stagedInstructions 是"接受"那一路的产物：一段给 Kevin root 会话看的执行说明
+   * ——存在表里，不发给 guardian、不改任何文件（SA-152）。
+   */
+  resolveRuleSuggestion(suggestionId: number, status: string, opts: {
+    answerText?: string
+    cooldownUntilCycle?: number | null
+    stagedInstructions?: string
+    now: Date
+  }): boolean {
+    if (!SUGGESTION_STATUS_ENUM.includes(status)) {
+      throw new ValueError(`unknown rule suggestion status: '${status}'`)
+    }
+    const sources = SUGGESTION_TRANSITIONS[status] ?? []
+    const marks = sources.map(() => '?').join(',')
+    const moment = formatPyIso(opts.now)
+    const staged = opts.stagedInstructions ?? ''
+    const moved = this.#tx(() => {
+      const info = this.#db.prepare(
+        `UPDATE rule_suggestions
+            SET status = ?, answer_text = ?, cooldown_until_cycle = ?,
+                staged_instructions = CASE WHEN ? <> '' THEN ? ELSE staged_instructions END,
+                decided_at = ?, updated_at = ?
+          WHERE id = ? AND status IN (${marks})`,
+      ).run(status, cpSlice(opts.answerText ?? '', 2048), opts.cooldownUntilCycle ?? null,
+        staged, staged, moment, moment, suggestionId, ...sources)
+      return Number(info.changes) === 1
+    })
+    this.#log('rule_suggestion_resolved', {
+      suggestion_id: suggestionId, status, moved,
+      cooldown_until_cycle: opts.cooldownUntilCycle ?? null,
+    })
+    return moved
   }
 
   close(): void {

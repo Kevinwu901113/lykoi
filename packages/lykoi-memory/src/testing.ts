@@ -15,9 +15,19 @@
  * learning_layer_state（migrations.py:647-651；两键按 C-15 INSERT OR IGNORE
  * 硬幂等语义播种：水位线重放不得抬高）。
  *
+ * W4 增量（学习环 L1..L5 写面需要，DDL 逐字取自 STATE-CONTRACT §1）：
+ * users/contexts（migrations.py:471-495，memory_scopes 的 FK 目标；users 带
+ * owner_primary 部分唯一索引；两行契约种子 = 回填保守默认 user_001 与
+ * ctx_direct_user_001，属中性基线不属她的数据）、memory_scopes（:502-512）、
+ * experience_class（:589-594 + 双索引）、focus_cycles（:755-767 + 索引）、
+ * product_lineage（:779-788 五元组 UNIQUE=C-17）、focus_insight_state（:803-812）、
+ * focus_insight_history（:818-827）、concern_focus_state（:836-844）、
+ * rule_suggestions（:922-945 + dedup_key UNIQUE=C-14 + 双索引）。
+ *
  * 生产纪律不变：本文件只被测试树 import；golden devstate 永远只读，写测试先
  * copy 进 os.tmpdir（各包夹具自持这半段）。
  */
+import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 
 /** C-22 业务行格式（isoformat：+00:00 偏移、微秒零省略、非零六位）。 */
@@ -202,6 +212,102 @@ export const STATE_FIXTURE_DDL = `
       VALUES ('l2_intake_watermark_id', 0, '2026-08-24T00:00:00+00:00');
     INSERT OR IGNORE INTO learning_layer_state (key, value, set_at)
       VALUES ('l4_focus_wakes_since', 0, '2026-08-24T00:00:00+00:00');
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, display_name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('owner_primary','group_member','agent')),
+      created_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_owner_primary_unique ON users(role) WHERE role = 'owner_primary';
+    INSERT OR IGNORE INTO users (id, display_name, role, created_at, status)
+      VALUES ('user_001', 'owner', 'owner_primary', '2026-08-09T00:00:00+00:00', 'active');
+
+    CREATE TABLE IF NOT EXISTS contexts (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('direct','group','system')),
+      title TEXT, created_at TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO contexts (id, kind, title, created_at)
+      VALUES ('ctx_direct_user_001', 'direct', NULL, '2026-08-09T00:00:00+00:00');
+
+    CREATE TABLE IF NOT EXISTS memory_scopes (
+      table_name TEXT NOT NULL, row_id INTEGER NOT NULL,
+      subject_user_id TEXT REFERENCES users(id), origin_context TEXT REFERENCES contexts(id),
+      visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private','public','context')),
+      sensitivity TEXT NOT NULL DEFAULT 'content' CHECK(sensitivity IN ('content','state','existence')),
+      PRIMARY KEY(table_name, row_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS experience_class (
+      experience_id INTEGER PRIMARY KEY REFERENCES experiences(id),
+      class TEXT NOT NULL CHECK(class IN ('working','archive')),
+      classified_at TEXT NOT NULL, rule_version INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_experience_class_class ON experience_class(class);
+    CREATE INDEX IF NOT EXISTS idx_experience_class_rule_version ON experience_class(rule_version);
+
+    CREATE TABLE IF NOT EXISTS focus_cycles (
+      id INTEGER PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT,
+      concern_id INTEGER REFERENCES concerns(id),
+      selection_reason TEXT NOT NULL DEFAULT '',
+      outcome TEXT NOT NULL DEFAULT 'idle'
+              CHECK (outcome IN ('idle','advanced','revised','no_progress','failed')),
+      retrieved_count INTEGER NOT NULL DEFAULT 0,
+      match_reasons TEXT NOT NULL DEFAULT '[]',
+      llm_calls INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_focus_cycles_concern ON focus_cycles(concern_id);
+
+    CREATE TABLE IF NOT EXISTS product_lineage (
+      id INTEGER PRIMARY KEY, product_kind TEXT NOT NULL, product_id TEXT NOT NULL,
+      source_kind TEXT NOT NULL, source_id TEXT NOT NULL,
+      cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id), created_at TEXT NOT NULL,
+      UNIQUE (product_kind, product_id, source_kind, source_id, cycle_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_product_lineage_product ON product_lineage(product_kind, product_id);
+    CREATE INDEX IF NOT EXISTS idx_product_lineage_source ON product_lineage(source_kind, source_id);
+
+    CREATE TABLE IF NOT EXISTS focus_insight_state (
+      insight_id INTEGER PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('shadow','active','contested','revised','withdrawn')),
+      created_cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id),
+      updated_cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id),
+      contested_since_cycle INTEGER, superseded_by INTEGER, updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_focus_insight_state_status ON focus_insight_state(status);
+
+    CREATE TABLE IF NOT EXISTS focus_insight_history (
+      id INTEGER PRIMARY KEY, insight_id INTEGER NOT NULL,
+      cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id),
+      from_status TEXT, to_status TEXT NOT NULL,
+      content_snapshot TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_focus_insight_history_insight ON focus_insight_history(insight_id);
+
+    CREATE TABLE IF NOT EXISTS concern_focus_state (
+      concern_id INTEGER PRIMARY KEY REFERENCES concerns(id),
+      no_progress_streak INTEGER NOT NULL DEFAULT 0,
+      cooldown_until_cycle INTEGER, cooldown_count INTEGER NOT NULL DEFAULT 0,
+      last_cycle_id INTEGER, release_suggested_at_cycle INTEGER, updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS rule_suggestions (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('concern_release','permission_rule','standing_grant')),
+      dedup_key TEXT NOT NULL UNIQUE,
+      suggestion_text TEXT NOT NULL, rationale TEXT NOT NULL DEFAULT '',
+      source_kind TEXT NOT NULL DEFAULT '', source_id TEXT NOT NULL DEFAULT '',
+      created_cycle_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending'
+           CHECK (status IN ('pending','asked','accepted','declined','expired','applied_by_owner')),
+      question_message_id TEXT, question_text TEXT NOT NULL DEFAULT '',
+      asked_at_cycle INTEGER, ask_count INTEGER NOT NULL DEFAULT 0,
+      answer_text TEXT NOT NULL DEFAULT '', cooldown_until_cycle INTEGER,
+      staged_instructions TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, decided_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_rule_suggestions_status ON rule_suggestions(status);
+    CREATE INDEX IF NOT EXISTS idx_rule_suggestions_question ON rule_suggestions(question_message_id);
 `
 
 /** 在 path 建一个空白合成 fixture（schema + 中性基线行，零她的数据）。 */
@@ -212,4 +318,54 @@ export function createStateFixture(path: string): void {
   } finally {
     db.close()
   }
+}
+
+/**
+ * 逐表逻辑摘要（W4 提炼共享；原样取自 lykoi-wake/test/fixture.ts 的 logicalDigest
+ * 手法 = 活体 tests/test_cb_deliberation_zero_write._logical_digest §3.6）：
+ * 每表一条 sha256（表名+列名入摘要；行按全列排序）。写集对拍用它断言
+ * "恰好这些表变了，其余逐字节未动"；刻意用逻辑摘要而非文件字节——SQLite 的
+ * 页布局/journal 会无谓地抖。
+ */
+export function tableDigests(path: string): Record<string, string> {
+  const db = new DatabaseSync(path, { readOnly: true })
+  try {
+    const out: Record<string, string> = {}
+    const tables = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+    ).all() as { name: string }[]
+    for (const { name } of tables) {
+      const hash = createHash('sha256')
+      const cols = (db.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[])
+        .map((c) => c.name)
+      hash.update(`table:${name}(${cols.join(',')})\n`)
+      const order = cols.map((c) => `"${c}"`).join(', ')
+      const rows = db.prepare(`SELECT * FROM "${name}" ORDER BY ${order}`).all()
+      hash.update(JSON.stringify(rows))
+      hash.update('\n')
+      out[name] = hash.digest('hex')
+    }
+    return out
+  } finally {
+    db.close()
+  }
+}
+
+/** 全库逻辑摘要 = 逐表摘要的定序拼接（与 wake 夹具的 logicalDigest 同语义）。 */
+export function logicalDigest(path: string): string {
+  const digests = tableDigests(path)
+  const hash = createHash('sha256')
+  for (const name of Object.keys(digests).sort()) {
+    hash.update(`${name}=${digests[name]}\n`)
+  }
+  return hash.digest('hex')
+}
+
+/** 两份摘要的差集：值不同（或仅一侧存在）的表名，排序返回。写集对拍的断言面。 */
+export function changedTables(
+  before: Record<string, string>,
+  after: Record<string, string>,
+): string[] {
+  const names = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...names].filter((n) => before[n] !== after[n]).sort()
 }
