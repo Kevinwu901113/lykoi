@@ -163,12 +163,33 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   assert.equal(budget.usage('mock').routeTokens, 244)
   const charge = audit.events.find((e) => e.type === 'budget/charge')!
   assert.equal(charge.runId, 'converse-1-100')
-  // 隐私（D-08）：全链 audit 行零正文。
-  for (const event of audit.events) {
+  // 隐私（D-08）：**对话面**的 audit 行零正文。
+  // M3-W3 起她的回复是一次真的 `messenger.send` 动作（SK-78：E2 盖章唯一点在
+  // 设备层），所以 kernel 的 `action_dispatch` 行按 SK-05 逐字带 redacted params
+  // —— 那是活体口径（"审计带 redacted 副本"），不是 D-08 的适用面。两条口径的
+  // 分界写在这里：`action_dispatch`/`action_result` 是**特权层**的账（她做了什么，
+  // 参数在内），`converse/*`、`u3_cycle_*`、`inner_outer_pair` 是**对话面**的账
+  // （只记长度/哈希，正文归 history 表 = 她的记忆）。
+  const conversationFacing = audit.events.filter(
+    (e) => e.type !== 'action_dispatch' && e.type !== 'action_result',
+  )
+  for (const event of conversationFacing) {
     const flat = JSON.stringify(event)
     assert.equal(flat.includes('在吗'), false, `event ${event.type} carries user text`)
     assert.equal(flat.includes('在的，怎么了'), false, `event ${event.type} carries reply text`)
   }
+  // 反向钉住分界：**入站正文**在哪一层都不进事件流（她的话只有出站那条是动作
+  // 参数；他的话从来不是），所以特权层的行也不许带用户原话。
+  for (const event of audit.events) {
+    assert.equal(JSON.stringify(event).includes('在吗'), false,
+      `event ${event.type} carries user text`)
+  }
+  // E2 章：这条出站是"在场应答"，收件人 = 来话对端（设备层的结构事实）。
+  const replySend = audit.events.find(
+    (e) => e.type === 'action_dispatch' && e.action_type === 'messenger.send',
+  )!
+  assert.equal(replySend.exemption, 'E2')
+  assert.equal(replySend.origin, 'interactive')
   // 库面写集：history 一行（全文归她的记忆）+ conversation 经验 + normal_interaction。
   const store = new ReadWriteMemory(dbPath)
   try {

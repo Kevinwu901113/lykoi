@@ -42,3 +42,21 @@ export class MemoryTelegramTransport implements TelegramTransport {
     return { messageId: `m${++this.#nextMessageId}`, sent: true }
   }
 }
+
+/**
+ * 测试用的**出站 state 隔离**（数据纪律：她的 state 一个字节都不许落进仓库树）。
+ *
+ * 把出站器官全部持久面的 env 钉到一个 tmpdir 上，返回同一个目录。生产路径面的
+ * 统一钉法（GK-6 的 env 钉面收紧）归 W4 的完整性门 —— 这里只是测试侧的等价物。
+ */
+export function isolateOutboundState(dir: string): string {
+  const at = (name: string) => `${dir}/${name}`
+  process.env.LYKOI_CHAT_OUTBOX = at('chat_outbox.json')
+  process.env.LYKOI_TELEGRAM_UNDELIVERED = at('telegram_undelivered.json')
+  process.env.LYKOI_TELEGRAM_OUTBOX_CURSOR = at('telegram_outbox.cursor')
+  process.env.LYKOI_MESSENGER_LEDGER = at('messenger_outbound.json')
+  process.env.LYKOI_MESSENGER_TRANSPORT_LOG = at('messenger_transport.jsonl')
+  process.env.LYKOI_PROACTIVE_CHAT_LEDGER = at('proactive_chat.json')
+  process.env.LYKOI_NOTIFICATIONS = at('notifications.json')
+  return dir
+}

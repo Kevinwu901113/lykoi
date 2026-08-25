@@ -6,8 +6,9 @@
  *   eed9492246cc6451f060de211768d3128388046478deae7f1959de7cde56ea82）。
  * License：MIT（上游 LICENSE 原文见同目录 vendor/LICENSE）。
  *
- * 唯一改动点（CF-B6 定案 = 剥实例假名头；WO-M0-DSH-STUDY §7.2 选项 a）——共 6 处，
- * 全部以 "[lykoi CF-B6 edit n/6]" 注释标记，除此以外与上游逐字相同：
+ * 改动点共 7 处，全部以 "[lykoi CF-B6 edit n/7]" 注释标记，除此以外与上游逐字相同。
+ * 1-6 = CF-B6 定案（剥实例假名头；WO-M0-DSH-STUDY §7.2 选项 a）；
+ * 7 = M3-W3 加派项（S-52 json 模式通到 wire，治理复核 WO-M3-W2 §治理发现）：
  *   1/6 删 import getOrCreateAnonymousUserId（@deepseek-ai/dsh-anonymous-user-id 依赖随之整体移除）
  *   2/6 streamWithConnection：删 `const userId = this.config.resolveUserId();`
  *   3/6 streamWithConnection：this.request(...) 调用去掉 userId 实参
@@ -15,7 +16,12 @@
  *   5/6 request headers：删 `x-deepseek-harness-user-id` 与 `x-deepseek-harness-session-id` 两行
  *       （UA 归因头 attributionHeaders() 按 CF-B6 保留；`x-deepseek-harness-compact` 是
  *        purpose 标记非身份头，不在 CF-B6 剥除范围，保留）
- *   6/6 apply()：删 `let userId` / `resolveUserId` 定义及 adapter config 中的 `resolveUserId` 字段
+ *   6/7 apply()：删 `let userId` / `resolveUserId` 定义及 adapter config 中的 `resolveUserId` 字段
+ *   7/7 requestWithMessages：加 `response_format` 译码（options.responseFormat → wire
+ *       `response_format`；缺席即键不出现）。理由：活体把 json 模式列为 U3 缺陷①的
+ *       **止血主力**（③契约强化是同向第二层），而新体现有防线只剩 D-01 有界重试 +
+ *       契约强化，独缺这一层。上游 GenerateOptions 没有这一位，但这份 HTTP payload
+ *       是本 vendor 自己拼的，所以修法在我们自家手里，不必等上游。
  *
  * 凭据纪律不变：apiKeyEnv 是环境引用（credential-ref），按请求解析，永不落明文（上游原样）。
  */
@@ -25,7 +31,7 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { launchEnvironmentOf } from "@deepseek-ai/dsh-launch-environment";
 import { deepEqualJson, installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { MAX_TIMER_DELAY_MS, deadline, idleWatchdog, timeoutOf } from "@deepseek-ai/dsh-timeout";
-/* [lykoi CF-B6 edit 1/6] removed: import { getOrCreateAnonymousUserId } from "@deepseek-ai/dsh-anonymous-user-id"; */
+/* [lykoi CF-B6 edit 1/7] removed: import { getOrCreateAnonymousUserId } from "@deepseek-ai/dsh-anonymous-user-id"; */
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -264,7 +270,14 @@ function requestWithMessages(options, messages, defaults) {
 		...tools !== void 0 && tools.length > 0 ? { tools } : {},
 		...options.temperature !== void 0 ? { temperature: options.temperature } : {},
 		...options.maxTokens === void 0 ? {} : { max_tokens: options.maxTokens },
-		...options.stop !== void 0 ? { stop: options.stop } : {}
+		...options.stop !== void 0 ? { stop: options.stop } : {},
+		/* [lykoi CF-B6 edit 7/7] added: response_format wire 译码（S-52 止血主力）。
+		   上游 GenerateOptions 无此位（0.1.1-rc.2 恰 12 字段），而 DeepSeek 的
+		   chat/completions 支持 response_format:{type:'json_object'}。既然这份 payload
+		   是我们自己拼的（temperature/maxTokens 就在上两行译），这一位也归我们译。
+		   形态与既有两行同体例：**缺席即不出现在 wire body 上**（钮关 = 键不存在，
+		   不是 null 也不是空对象）——"以为强制了"比"知道没强制"危险。 */
+		...options.responseFormat === void 0 ? {} : { response_format: options.responseFormat }
 	};
 }
 /**
@@ -1419,10 +1432,10 @@ var DeepSeekAdapter = class extends LlmAdapter {
 				if (attachments === void 0) throw new LlmError("DeepSeek image conversion requires the durable attachment service.", "UNSUPPORTED_CONTENT");
 			}
 			const apiKey = await this.config.resolveApiKey(connection);
-			/* [lykoi CF-B6 edit 2/6] removed: const userId = this.config.resolveUserId(); */
+			/* [lykoi CF-B6 edit 2/7] removed: const userId = this.config.resolveUserId(); */
 			const consumer = new AbortController();
 			const watchdog = __addDisposableResource(env_1, idleWatchdog(options.signal === void 0 ? consumer.signal : AbortSignal.any([options.signal, consumer.signal]), connection.streamIdleTimeoutMs, STREAM_IDLE_TIMEOUT_CODE), false);
-			/* [lykoi CF-B6 edit 3/6] userId argument removed from this.request(...) */
+			/* [lykoi CF-B6 edit 3/7] userId argument removed from this.request(...) */
 			const iterator = this.request(options, watchdog.signal, connection, apiKey, attachments, () => {
 				watchdog.pulse();
 			})[Symbol.asyncIterator]();
@@ -1454,14 +1467,14 @@ var DeepSeekAdapter = class extends LlmAdapter {
 			__disposeResources(env_1);
 		}
 	}
-	/* [lykoi CF-B6 edit 4/6] userId parameter removed from request(...) signature */
+	/* [lykoi CF-B6 edit 4/7] userId parameter removed from request(...) signature */
 	async *request(options, signal, connection, apiKey, attachments, onActivity) {
 		const headers = {
 			"authorization": `Bearer ${apiKey}`,
 			"content-type": "application/json",
 			"accept": "text/event-stream",
 			...attributionHeaders(),
-			/* [lykoi CF-B6 edit 5/6] removed: "x-deepseek-harness-user-id" and conditional
+			/* [lykoi CF-B6 edit 5/7] removed: "x-deepseek-harness-user-id" and conditional
 			   "x-deepseek-harness-session-id" headers (instance-pseudonym headers; UA
 			   attribution header above kept, compact purpose flag below kept) */
 			...options.purpose === "compaction" ? { "x-deepseek-harness-compact": "1" } : {}
@@ -1808,7 +1821,7 @@ function apply(ctx, config) {
 		}
 		throw new LlmError(`llm-deepseek: no API key for provider route "${PROVIDER}"; store ${ref} through the credentials service (the web Models page writes it), or export ${ref} in the launching environment`, "MISSING_CREDENTIAL");
 	};
-	/* [lykoi CF-B6 edit 6/6] removed: let userId; const resolveUserId = () => userId ??=
+	/* [lykoi CF-B6 edit 6/7] removed: let userId; const resolveUserId = () => userId ??=
 	   getOrCreateAnonymousUserId(); and the resolveUserId field of the adapter config */
 	const adapter = new DeepSeekAdapter({
 		options,

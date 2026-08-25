@@ -46,9 +46,13 @@ import {
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
-  createDispatch, kernelActionCatalog, setIdentityBindingLookup, setKernelLogEvent,
-  unwiredResources,
+  createDispatch, isActive as chatIsActive, kernelActionCatalog,
+  notificationsRemainingToday, pendingCount, proactiveRemainingToday,
+  setIdentityBindingLookup, setKernelLogEvent,
 } from 'lykoi-kernel'
+import {
+  outboundOrganResources, setMessengerLogEvent, setTransportLogEvent,
+} from 'lykoi-adapter-telegram'
 import { maybeRunFocusCycle, maybeRunIntegration } from 'lykoi-learn'
 import type {} from 'lykoi-llm'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
@@ -182,8 +186,13 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   const { beats } = deps.heart.claim()
   if (beats === 0) return { status: 'idle', beats }
 
-  // 阶段 2：仲裁。yield 是零 LLM 零表写的廉价分支（TODO(M3)：interactive_lock
-  // 接真锁时定夺被让掉的拍是否回灌心脏——活体以 5 秒节律重试，聊天结束立刻醒）。
+  // 阶段 2：仲裁。yield 是零 LLM 零表写的廉价分支。
+  // **DK-11 已定（M3-W3）**：真锁接上（kernel/interactive-lock；Conversation 在
+  // 回合开头与结尾各打一次 markActive）；被让掉的拍**不回灌心脏** —— claim 已经
+  // 把积压拍取走了，于是它就此丢弃、等下一个基线拍。活体是 5 秒节律重试（聊天
+  // 结束立刻醒），新体心跳更粗，让位的代价是"最多晚一个基线拍醒"。刻意如此：
+  // 回灌会让她一让位就欠下一拍，聊得久了积压成串，反而在对话刚结束的那一刻炸出
+  // 一连串补偿拍 —— 那正是让位本身想避免的打扰。
   if (deps.shouldYieldToChat?.() === true) {
     return { status: 'yielded', beats }
   }
@@ -373,6 +382,11 @@ export function apply(ctx: Context, config: Config) {
 
   // M3-W1 接线：kernel 遥测出口 + scope key 的 identity_bindings 读点。
   setKernelLogEvent(logEvent)
+  // M3-W3：出站器官的两个遥测出口（与 setKernelLogEvent 同一条"后设者胜、语义
+  // 相同"的进程级注入纪律）——自主拍的 initiate_chat / queue_notification 走的是
+  // 同一批 handler，所以它们的账也该进同一个 audit。
+  setMessengerLogEvent(logEvent)
+  setTransportLogEvent(logEvent)
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
 
   const persona = parsePersonaData(config.persona)
@@ -389,7 +403,7 @@ export function apply(ctx: Context, config: Config) {
   // immutable sink = lykoi-audit（pre-dispatch 审计门 fail closed 在 kernel 内，
   // 红线 #5：被门拦下以**结果**回到她身上）。资源注册表 = W1 显式替身（器官
   // 真身随 W3/M5 波；替身 handler 大声抛 → 正常失败观察，绝不静默成功）。
-  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: unwiredResources() })
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: outboundOrganResources() })
   const dispatchFn: DispatchFn = async (actionType, params, runId) => {
     const observation = await kernelDispatch(
       { type: actionType, params },
@@ -431,17 +445,25 @@ export function apply(ctx: Context, config: Config) {
     llm,
     dispatchFn, // M3-W1 已接真 kernel（origin=autonomous 由上面的适配器盖章）
     snapshotDeps: {
-      // W2 TODO#2 余量（W5 判定）：restart 已接权威源（history event_type='restart'
-      // 读面，SA-165 严格大于语义在 lykoi-snapshot/restart）；approval/notifs/
-      // proactive 的权威源是 kernel 审批队列 / 通知账本 / proactive_chat 账本 ——
-      // 三个器官都归 M3，此处仍为 dev 缺省视图（与快照测试 stubDeps 同口径），
-      // 如实留 M3。
-      approvalPendingCount: () => 0,
-      notificationsRemainingToday: () => 2, // kernel AUTONOMOUS_DAILY_CAP=2 的静态视图
-      proactiveRemainingToday: () => 1, //    shared/proactive_chat 日 1 条的静态视图
+      // M3-W3 ④：三读数从 dev 静态视图**换真源**（W2 TODO#3 / 蓝图 W3 交付④）。
+      //  - approval  = kernel 审批队列 `pendingCount()`（TTL 过期/已消费的行由
+      //    `pendingActions` 自己滤掉，所以这个数就是"她现在真的在等几个 yes"）；
+      //  - notifs    = 通知账本现算 max(0, AUTONOMOUS_DAILY_CAP - 今日 autonomous)
+      //    ——**节流本身留在 kernel，这里是视图不是执行点**（SA-42 逐字）；
+      //  - proactive = proactive_chat 账本现算（日 1 条；冷却由执行点兜底）。
+      // 三个读数从此会随她真的做过什么而变 —— 恒定值那种"诚实呈现"是假的。
+      approvalPendingCount: () => pendingCount(),
+      notificationsRemainingToday: (now) => notificationsRemainingToday(now),
+      proactiveRemainingToday: (now) => proactiveRemainingToday(now),
       unprocessedRestartEvent: (sinceIso) => unprocessedRestartEvent(store, sinceIso),
       logEvent,
     },
+    // M3-W3 ⑤：仲裁接真锁（interactive_lock）。Conversation 在回合开头与结尾各
+    // 打一次 markActive；这一拍读到窗口内有对话就**让位**（零 LLM 零表写）。
+    // DK-11 语义（本波落法）：claim 已经把积压拍取走了，被让掉的拍**就此丢弃，
+    // 等下一个基线拍** —— 不回灌心脏，否则聊得久了会积压成串，在对话刚结束时
+    // 炸出一连串补偿拍，那正是让位想避免的打扰。
+    shouldYieldToChat: () => chatIsActive(),
     messageDeps: {
       persona,
       acquired: () => buildPersonaPrompt(store),

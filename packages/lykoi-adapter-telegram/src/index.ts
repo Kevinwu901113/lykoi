@@ -19,6 +19,14 @@ import type { LykoiMemoryService } from 'lykoi-memory'
 import { readFileSync } from 'node:fs'
 import { mkdir, open, rename } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import type { DelegatedAsk, OutboundOrgan } from './device.ts'
+import { setTransport as setMessengerTransport, type MessengerTransport } from './messenger.ts'
+
+export * from './device.ts'
+export * from './messenger.ts'
+export * from './outbox.ts'
+export * from './resources.ts'
+export * from './transport.ts'
 
 // ============================== 传输接口（可替换） ==============================
 
@@ -30,6 +38,12 @@ export interface TelegramMessage {
   senderId?: string
   text?: string
   ts?: string
+  /**
+   * WO-S3 / M3-W3：他回的是**哪一条**（`reply_to_message.message_id` 的归一化
+   * 形态）。归属消歧的唯一锚 —— 审批答复与建议答复都只认它。可选键：不引用任何
+   * 东西的消息保持它一直以来的形状。
+   */
+  replyToMessageId?: string
 }
 
 export interface TelegramUpdate {
@@ -48,8 +62,11 @@ export interface TelegramSendResult {
 export interface TelegramTransport {
   /** S-01：长轮询。offset = cursor+1 本身即平台侧 ack（双重去重第一道，S-02）。 */
   poll(offset: number, options: { timeoutS: number }): Promise<TelegramUpdate[]>
-  /** SPEC §7.1 出站：reply_to 必带（适配器层强制，见 TelegramAdapterService.send）。 */
-  send(chatId: string, text: string, replyTo: string): Promise<TelegramSendResult>
+  /**
+   * 出站。`replyTo` 为 null = 主动出站（M3-W3 起真的存在：chat_outbox 投递线与
+   * 审批/建议问句都走 `reply_to=null`，照常吃 messenger 的主动打扰预算）。
+   */
+  send(chatId: string, text: string, replyTo: string | null): Promise<TelegramSendResult>
 }
 
 // ============================== 盖章后的入站消息 ==============================
@@ -83,12 +100,37 @@ export interface TelegramAdapterCounters {
 }
 
 export interface TelegramAdapterService {
-  /** 出站（应答路径）。reply_to 必带——本波无 outbox/主动出站（SPEC §7.1）。 */
+  /**
+   * 裸出站（M1 的应答路径，reply_to 必带）—— **M3-W3 起它不再是回复的正路**：
+   * 她的回复走 `sendReply`（经 dispatch，E2 盖章，SK-78 三分支结局）。本方法保留
+   * 给不属于"她的一次动作"的传输面用途与既有测试。
+   */
   send(contextId: string, text: string, replyTo: string): Promise<TelegramSendResult>
   /** 手动驱动一轮长轮询（测试与外驱接口）；返回本轮处理的 update 数。 */
   pollOnce(): Promise<number>
   counters(): Readonly<TelegramAdapterCounters>
   cursor(): number
+
+  // --- M3-W3 出站器官（设备侧承重面） ---
+  /**
+   * 把出站器官接上（converse 的 apply 在装配好 kernel dispatch / 审批机 / 建议机
+   * 之后递进来）。**晚绑定**是刻意的：设备层与认知层互为对方的下游，活体用
+   * `messenger._TRANSPORT = transport` 的同一手法在启动时打通。
+   */
+  wireOutbound(organ: OutboundOrgan): void
+  /** SK-78：她的回复 —— 经 dispatch、盖 E2 章、三分支结局。未接线即抛。 */
+  sendReply(contextId: string, text: string, replyTo: string | null): Promise<void>
+  /** SK-77：本轮撞门的动作在设备层问（reply_to=当轮入站 message_id）。未接线即抛。 */
+  askAbout(action: DelegatedAsk, contextId: string, replyTo: string | null): Promise<void>
+  /** SK-79：长轮询间隙消费一次出站队列（未接线 = no-op）。 */
+  consumeOutboxOnce(): Promise<void>
+  /** 出站器官是否已接线（converse 的 `device_side_wired` 账面取值源）。 */
+  outboundWired(): boolean
+  /**
+   * messenger 的 transport 真身（`messenger._TRANSPORT = transport` 对应物）。
+   * `replyTo` 可为 null —— 主动出站走这里，裸 `send` 是它的 reply-only 门面。
+   */
+  transportSend(contextId: string, text: string, replyTo: string | null): Promise<TelegramSendResult>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -111,7 +153,8 @@ interface ArchiveItem {
   context_id: string
   sender_id: string
   text: string
-  reply_to: null
+  /** M3-W3：入站引用（messenger.ingest_inbound 的 `reply_to` 字段，逐字同名）。 */
+  reply_to: string | null
   source_ref_id: string
   id: number
 }
@@ -166,6 +209,8 @@ export class TelegramAdapter implements TelegramAdapterService {
   }
   #persistTail: Promise<unknown> = Promise.resolve()
   #seq = 0
+  /** M3-W3：出站器官（晚绑定，见 wireOutbound）。 */
+  #outbound: OutboundOrgan | null = null
 
   constructor(ctx: Context, options: {
     transport: TelegramTransport
@@ -192,6 +237,52 @@ export class TelegramAdapter implements TelegramAdapterService {
 
   cursor(): number {
     return this.#cursor
+  }
+
+  // --- M3-W3 出站器官面 ------------------------------------------------------
+
+  wireOutbound(organ: OutboundOrgan): void {
+    this.#outbound = organ
+  }
+
+  outboundWired(): boolean {
+    return this.#outbound !== null
+  }
+
+  #requireOutbound(): OutboundOrgan {
+    if (this.#outbound === null) {
+      throw new Error(
+        'lykoi-adapter-telegram: outbound organ is not wired (call wireOutbound first)',
+      )
+    }
+    return this.#outbound
+  }
+
+  /** SK-78：她的回复经 dispatch 出去，E2 章在出站器官里盖。 */
+  async sendReply(contextId: string, text: string, replyTo: string | null): Promise<void> {
+    await this.#requireOutbound().sendReply({ contextId, text, replyTo })
+  }
+
+  /** SK-77：认知侧交出的待批动作，在**这一层**问成一条带 reply_to 的问句。 */
+  async askAbout(action: DelegatedAsk, contextId: string, replyTo: string | null): Promise<void> {
+    await this.#requireOutbound().askAbout(action, { contextId, replyTo })
+  }
+
+  /**
+   * SK-79：长轮询间隙的一次出站消费。**自成一个 try** —— 出站这边出任何事
+   * （账本损坏 / 游标文件不可写）都不许改长轮询的节奏，既不触发它的退避，也不
+   * 让它少转一圈（§forbidden：嘴哑了不许把耳朵也带聋）。
+   */
+  async consumeOutboxOnce(): Promise<void> {
+    if (this.#outbound === null) return
+    try {
+      await this.#outbound.consumeOutboxOnce()
+    } catch (err) {
+      await this.#audit.record({
+        type: 'chat_outbox_consume_error',
+        error_type: err instanceof Error ? err.name : 'Error',
+      })
+    }
   }
 
   /**
@@ -272,7 +363,7 @@ export class TelegramAdapter implements TelegramAdapterService {
       context_id: chatId,
       sender_id: senderId,
       text,
-      reply_to: null,
+      reply_to: message.replyToMessageId ?? null,
       source_ref_id: String(message.messageId),
       id: 0, // 由 #archiveInbound 分配
     })
@@ -300,18 +391,45 @@ export class TelegramAdapter implements TelegramAdapterService {
       isOwner,
       chars: text.length,
     })
-    // S-08 路由顺序位：审批回答 → 规则建议回答 → 普通对话。本波无审批/建议
-    // （M3 接入时在此处、事件派发之前按序消费），当前一律进入普通对话级。
+    // S-08 三级路由的**消费位**（SK-82，M3-W3 接真）：审批回答 → 规则建议回答 →
+    // 普通对话。前两级**仅 `isOwner`**（严格窄于 `isBound`）：绑定了但不是 owner
+    // 的发信人是完全合法的通信对象，他写的任何东西都不许被读作一次审批（判据 5）。
+    // 前两级里任一 outcome !== 'ignored' 即**消费并 return** —— 这条消息就是那次
+    // 回合，不再同时当成一次对话提示；两级都 ignored 则原样落到普通对话级
+    // （零 DB 写、零 LLM 调用），所以正常对话毫发无损。
+    if (isOwner && this.#outbound !== null) {
+      const consumed = await this.#outbound.routeOwnerMessage({
+        text,
+        contextId: chatId,
+        replyTo: message.replyToMessageId ?? null,
+        messageId: String(message.messageId),
+      })
+      if (consumed) return
+    }
     // parallel：等待全部消费者处理完，才回到 pollOnce 推进游标（S-03 时序）。
     await this.#ctx.parallel('lykoi/telegram/inbound', stamped)
   }
 
   async send(contextId: string, text: string, replyTo: string): Promise<TelegramSendResult> {
-    // SPEC §7.1（本波 S 语义）：出站 reply_to 必带——无 outbox、无主动出站，
-    // 一切出站都是应答（reply_to 非 None 即不计打扰预算的那条合法路径）。
+    // M1 §7.1 的 S 语义（保留）：这条**裸**出站面 reply_to 必带。M3-W3 起主动
+    // 出站真的存在了（chat_outbox 投递线），它走的是 `transportSend`，不是这里。
     if (typeof replyTo !== 'string' || replyTo.length === 0) {
-      throw new TypeError('lykoi-adapter-telegram: send requires replyTo (M1 wave-2 has no outbox; every outbound is a reply — SPEC §7.1)')
+      throw new TypeError('lykoi-adapter-telegram: send requires replyTo (this is the reply-only surface; proactive outbound goes through the outbound organ — SPEC §7.1)')
     }
+    return await this.transportSend(contextId, text, replyTo)
+  }
+
+  /**
+   * M3-W3：**messenger 的 transport 真身**（活体 `messenger._TRANSPORT = transport`
+   * 那一行的对应物）。她的每一条出站 —— 回复 / 审批问句 / 建议问句 / 投递线 ——
+   * 最终都落到这里，因为 `messenger.send` 动作的 transport 在启动时被换成了它
+   * （**单写者 = 设备层**：Bot API 的单进程单写者纪律不许两个写者同时抢）。
+   *
+   * `replyTo` 在这一层可以是 null（主动出站），这正是它与上面那条裸面的区别。
+   */
+  async transportSend(
+    contextId: string, text: string, replyTo: string | null,
+  ): Promise<TelegramSendResult> {
     // messenger.send 同源校验：text/context_id 空 → 错（messenger.py:197-201）。
     if (typeof text !== 'string' || text.length === 0) {
       throw new TypeError('lykoi-adapter-telegram: send requires non-empty text')
@@ -330,8 +448,9 @@ export class TelegramAdapter implements TelegramAdapterService {
         messageId: result.messageId,
       })
     } else {
-      // TODO(M3): 未送达账本（telegram_undelivered 形状，SPEC §7.2）随出站游标波引入；
-      // 本波只计数+落审计。
+      // M3-W3：未送达账本已就位（`transport.recordUndelivered` 是**唯一**产生入口）。
+      // 这一层只计数+落审计 —— 记账由 `messenger.send` 的调用方按结局补
+      // （SK-78/SK-79 的"两种结局，没有第三种"）。
       this.#counters.sendFailed += 1
       await this.#audit.record({
         type: 'telegram/send_failed',
@@ -445,6 +564,13 @@ export function apply(ctx: Context, config: Config) {
     pollTimeoutS: config.pollTimeoutS,
   })
   ctx.provide('telegram', adapter)
+  // M3-W3：**这个进程的 `messenger.send` 从此真的说得出话**（活体
+  // `messenger._TRANSPORT = transport` 那一行的对应物，telegram_device.py:529）。
+  // 于是她的每一条出站 —— 回复 / 审批问句 / 建议问句 / 投递线 —— 都继承同一套
+  // 审批门 / 不可变审计 / 打扰预算，因为它们全都是 `messenger.send` 动作。
+  // **单写者纪律**：只有设备层做这次替换（Bot API 不许两个写者同时抢）。
+  setMessengerTransport(messengerTransportBridge(adapter))
+  ctx.effect(() => () => setMessengerTransport(null), 'lykoi-adapter-telegram messenger transport')
 
   if (config.autoStart) {
     // 长轮询常驻循环：错误指数退避 1→60s，成功即复位（telegram_device.py:543-551）。
@@ -456,6 +582,10 @@ export function apply(ctx: Context, config: Config) {
           try {
             await adapter.pollOnce()
             backoffS = INITIAL_BACKOFF_S
+            // SK-79：**嘴接在耳朵旁边** —— 长轮询的**间隙**消费出站队列，不碰
+            // 长轮询本身的节奏。`consumeOutboxOnce` 自带 try（出站出任何事都不
+            // 触发这里的退避，也不让长轮询少转一圈）。
+            await adapter.consumeOutboxOnce()
           } catch (err) {
             ctx.logger.warn('lykoi-adapter-telegram: poll failed, backing off %ds: %s',
               backoffS, String(err))
@@ -473,5 +603,33 @@ export function apply(ctx: Context, config: Config) {
       loop.catch(() => {})
       return () => abort.abort()
     }, 'lykoi-adapter-telegram poll loop')
+  }
+}
+
+/**
+ * `MessengerTransport`（资源层的窄协议）↔ 设备层的适配器桥。
+ *
+ * 活体是同一个对象两副面孔（`TelegramTransport` 同时实现 `send_message` /
+ * `fetch_updates` / `poll_updates`）；新体的入站 seam（poll/send）在 M1 就定了形，
+ * 所以这里用一层薄桥把两副面孔对上，而不是把 M1 的 seam 改形状。
+ *
+ * `fetchUpdates`（`messenger.read` 的后端）：M1 的 seam 上没有这个方法。返回空
+ * 记录 + `unsupported` 标记 —— **如实说没有**，不假装读到了零条。真身随
+ * `BotApiTransport`（本包 transport.ts，已实现 `fetchUpdates`）在生产接线时替入。
+ */
+export function messengerTransportBridge(adapter: TelegramAdapterService): MessengerTransport {
+  return {
+    async sendMessage(opts) {
+      const result = await adapter.transportSend(opts.contextId, opts.text, opts.replyTo ?? null)
+      return {
+        message_id: result.messageId,
+        context_id: opts.contextId,
+        sent: result.sent,
+        ...(result.error === undefined ? {} : { error: result.error }),
+      }
+    },
+    async fetchUpdates() {
+      return { messages: [], count: 0, error: 'unsupported_on_device_seam' }
+    },
   }
 }

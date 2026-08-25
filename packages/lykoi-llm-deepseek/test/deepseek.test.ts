@@ -177,3 +177,56 @@ test('凭据纪律：env 引用缺席时拒调（MISSING_CREDENTIAL），不发�
   assert.match(String(result.failureMessage), /no API key/)
   assert.equal(requests.length, 0, '缺 key 时一个字节都不许出站')
 })
+
+// ============================================================================
+// M3-W3 加派项⑥：S-52 json 模式**通到 wire**（vendor 改动点 7/7）
+// ============================================================================
+// 背景（治理复核 WO-M3-W2 §治理发现）：dsh-llm 0.1.1-rc.2 的 GenerateOptions 恰
+// 12 字段、没有 response_format，所以 S-52 的钮一直停在 seam 上。但**这份 HTTP
+// payload 是 CF-B6 vendor 自己拼的**（requestWithMessages：temperature/maxTokens
+// 就在那里译成 wire 字段），所以这一位归我们译，不必等上游。
+//
+// 判据是"钮开 → wire body 里有 response_format:{type:'json_object'}；钮关 → 这个
+// **键根本不出现**"——不是 null、不是空对象。理由：一个不被 adapter 认识的键等于
+// 没强制，而"以为强制了"比"知道没强制"危险。
+
+test('加派项⑥ 钮开：wire body 带 response_format:{type:"json_object"}（S-52 止血主力到位）', async (t) => {
+  process.env[KEY_ENV] = FAKE_KEY
+  t.after(() => delete process.env[KEY_ENV])
+  const { server, baseURL, requests } = await startMockDeepSeek([
+    JSON.stringify({ choices: [{ index: 0, delta: { content: '{"a":1}' } }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  ])
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+  const ctx = await setupAdapter(baseURL)
+  await consume(ctx, {
+    ...request('给我 JSON'),
+    responseFormat: { type: 'json_object' },
+  } as GenerateOptions)
+
+  const body = JSON.parse(requests[0]!.body) as Record<string, unknown>
+  assert.deepEqual(body.response_format, { type: 'json_object' })
+  // 同一份 payload 的既有两位不受影响（改动点 7/7 与 :265-266 同体例）。
+  assert.equal(body.model, 'deepseek-v4-flash')
+  assert.equal(body.stream, true)
+})
+
+test('加派项⑥ 钮关：wire body 里**根本没有** response_format 这个键（不是 null）', async (t) => {
+  process.env[KEY_ENV] = FAKE_KEY
+  t.after(() => delete process.env[KEY_ENV])
+  const { server, baseURL, requests } = await startMockDeepSeek([
+    JSON.stringify({ choices: [{ index: 0, delta: { content: '随便说点什么' } }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  ])
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+  const ctx = await setupAdapter(baseURL)
+  await consume(ctx, request('随便聊聊'))
+
+  const body = JSON.parse(requests[0]!.body) as Record<string, unknown>
+  assert.equal('response_format' in body, false, '钮关 = 键不存在')
+  assert.equal(requests[0]!.body.includes('response_format'), false)
+})

@@ -1,10 +1,13 @@
 /**
- * M3-W1 接线 e2e（出口判据）：自主拍 explore / initiate_chat / queue_notification
- * 三路经**真 kernel 门**落 audit —— wake 插件的 DispatchFn 已是 createDispatch
+ * M3-W1/W3 接线 e2e（出口判据）：自主拍 explore / initiate_chat / queue_notification
+ * 三路经**真 kernel 门**落 audit —— wake 插件的 DispatchFn 是 createDispatch
  * 真身（origin=autonomous 由接线方盖章、runId 贯穿），每次外部动作在 immutable
  * sink 上留 action_dispatch（decision=allow，能力面④放行）+ action_result 对。
- * 资源仍是 W1 显式替身（器官未接线 → 大声失败 → 她拿到失败经验），三道门与
- * 审计闭合先于器官成立。
+ *
+ * **W3 换装**：`autonomy.initiate_chat` / `autonomy.queue_notification` 已是真身
+ * （出站器官那一批），所以这两路现在**真的落到账本上**（proactive_chat 原子强制
+ * / 通知队列节流）；`research_browser.read_text` 仍是 W1 显式替身（感知器官归
+ * M5，大声失败 → 她拿到失败经验）。三道门与审计闭合先于器官成立这一条不变。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -16,6 +19,9 @@ import type { AuditEvent, AuditService } from 'lykoi-audit'
 import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import { DatabaseSync } from 'node:sqlite'
+import { isolateOutboundState } from 'lykoi-adapter-telegram/testing'
+import { readOutboxAfter } from 'lykoi-adapter-telegram'
+import { getNotifications } from 'lykoi-kernel'
 import * as wake from '../src/index.ts'
 import type { WakeService } from '../src/index.ts'
 import { makeStore, TEST_PERSONA } from './fixture.ts'
@@ -26,6 +32,8 @@ function isolateKernelFiles(): void {
   process.env.LYKOI_STANDING_GRANTS = join(dir, 'standing_grants.json')
   process.env.LYKOI_PENDING_ACTIONS = join(dir, 'pending_actions.json')
   process.env.LYKOI_NOTIFICATIONS = join(dir, 'notifications.json')
+  // W3：出站器官的持久面同样钉进 tmpdir（数据纪律：仓库树零 state 写）。
+  isolateOutboundState(dir)
 }
 
 function fakeAudit(): AuditService & { events: AuditEvent[] } {
@@ -76,11 +84,14 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     grounded({ kind: 'initiate_chat', content: '想跟你说件事' }),
     grounded({ kind: 'queue_notification', content: '留一条话' }),
   ]
-  let call = 0
+  // 一拍一份脚本：**本拍的第一次调用**是决策，后续调用（W3 起 completed 拍会串行
+  // 驱动整合/专注 —— SA-171）拿到空回，由那一侧吞成遥测。这样这个用例钉的仍然是
+  // "三路动作经真门"，不被认知层新增的调用次数绑架。
+  let scripted: string | null = null
   const llm: Pick<LykoiLlmService, 'call'> = {
     async call() {
-      const text = replies[call]!
-      call += 1
+      const text = scripted ?? ''
+      scripted = null
       return { text }
     },
   }
@@ -102,13 +113,15 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
   const service = ctx.get('wake') as WakeService
 
   const outcomes = []
-  for (let i = 0; i < replies.length; i++) {
+  for (const reply of replies) {
+    scripted = reply
     pendingBeats = 1
     outcomes.push(await service.beat())
   }
-  // 器官未接线：三拍都以 failed **决策结果**收场（不是拍级崩溃 —— 门与账在先）。
-  assert.deepEqual(outcomes.map((o) => o.status), ['failed', 'failed', 'failed'])
+  // W3：三拍的决定不变；第一拍的器官（research_browser）仍未接线 → failed
+  // **决策结果**（不是拍级崩溃 —— 门与账在先）；后两拍的器官已换真身 → completed。
   assert.deepEqual(outcomes.map((o) => o.decision), ['explore', 'initiate_chat', 'queue_notification'])
+  assert.deepEqual(outcomes.map((o) => o.status), ['failed', 'completed', 'completed'])
 
   // 三对 intent/result 落在 immutable sink（同一 lykoi-audit 服务）。
   const intents = audit.events.filter((e) => e.type === 'action_dispatch')
@@ -128,9 +141,19 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     const result = results[i]!
     assert.equal(result.correlation_id, intent.correlation_id)
     assert.equal(result.run_id, intent.run_id)
-    assert.equal(result.success, false) // 替身器官大声失败
-    assert.match(String(result.error), /器官未接线/)
   }
+  // 第一路：M5 才到的器官仍是显式替身 —— 大声失败，她拿到失败经验。
+  assert.equal(results[0]!.success, false)
+  assert.match(String(results[0]!.error), /器官未接线/)
+  // 后两路：W3 换装的真身 —— 落到真账本上。
+  assert.equal(results[1]!.success, true)
+  assert.equal(results[2]!.success, true)
+  const outbox = readOutboxAfter(0, 10)
+  assert.equal(outbox.count, 1)
+  assert.equal(outbox.messages[0]!.kind, 'proactive') // initiate_chat 交给投递线
+  const notifications = getNotifications(false)
+  assert.equal(notifications.length, 1)
+  assert.equal(notifications[0]!.origin, 'autonomous') // queue_notification 走节流那条政策
   assert.equal(runIds.size, 3) // 一拍一个 run_id 贯穿
 
   // params 是 redacted 副本形态（explore 的 url 原样可见 —— 无密钥即无遮蔽）。

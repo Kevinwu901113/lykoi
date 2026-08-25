@@ -2,12 +2,17 @@
   "name": "lykoi-adapter-telegram",
   "version": "0.1.0",
   "private": true,
-  "description": "哑适配器：S-01..S-11 语义，传输可替换（生产骨架不接真网；测试用内存 fake）",
+  "description": "她的社交躯体：入站哑适配器（S-01..S-11）+ M3-W3 出站器官（SK-77..82，游标机/messenger 契约/transport 纪律/E2·E3 盖章/S-08 路由）",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./production": "./src/production.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./device": "./src/device.ts",
+    "./messenger": "./src/messenger.ts",
+    "./outbox": "./src/outbox.ts",
+    "./resources": "./src/resources.ts",
+    "./transport": "./src/transport.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""
@@ -16,6 +21,7 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
     "lykoi-audit": "0.1.0",
-    "lykoi-memory": "0.1.0"
+    "lykoi-memory": "0.1.0",
+    "lykoi-kernel": "0.1.0"
   }
 }

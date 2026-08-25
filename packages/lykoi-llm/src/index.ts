@@ -26,6 +26,26 @@ export interface LlmCallMeta {
   runId: string
 }
 
+/**
+ * S-52 的 wire 位（M3-W3 加派项）。
+ *
+ * 上游 `GenerateOptions`（dsh-llm 0.1.1-rc.2）恰 12 字段，**没有** response_format。
+ * 但 CF-B6 vendor 的 DeepSeek adapter 是**我们自己拼 HTTP payload** 的
+ * （`requestWithMessages`：temperature/maxTokens 都在那里译成 wire 字段），所以
+ * 这一位归我们译 —— vendor 改动点 7/7。本层只做**透传**：多出来的键随 options
+ * 对象原样穿过 LlmRuntime（`adapterStream` 只对 messages 做投影，其余键整体 spread），
+ * 落到 adapter 的 payload 构建处。
+ *
+ * 缺席即键不出现在 wire body 上（钮关 = 没有这个键，不是 null）。
+ */
+export interface ResponseFormat {
+  type: 'json_object'
+}
+
+export type LykoiGenerateOptions = GenerateOptions & {
+  responseFormat?: ResponseFormat
+}
+
 export interface LlmCallResult {
   /** 全部 text-delta 拼接。 */
   text: string
@@ -41,7 +61,7 @@ export interface LykoiLlmService {
    * gate(route) → ctx.llm.stream(options) → charge(usage)。
    * gate 拒绝（BudgetExceeded）时调用不发生；调用发生后无论成败必记账。
    */
-  call(options: GenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult>
+  call(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -57,7 +77,7 @@ class LykoiLlm implements LykoiLlmService {
     this.#ctx = ctx
   }
 
-  async call(options: GenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {
+  async call(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {
     if (typeof meta?.runId !== 'string' || meta.runId.length === 0) {
       throw new TypeError('lykoi-llm: call requires meta.runId for run attribution')
     }

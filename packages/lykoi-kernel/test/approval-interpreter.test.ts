@@ -447,10 +447,16 @@ test('SK-36：闲聊（NONE_PENDING / NO_MATCH_CHITCHAT）→ ignored，零审�
 test('SK-40：handleAnswer 缺省 pendingQuestions 走 approval.pendingActions（真队列读点）', async () => {
   setup()
   fakeLlm('{"verdict":"deny","confidence":1,"reason":"他说不要"}')
+  // 全程真实时钟：本例考的正是"**缺省** pendingQuestions 走 pendingActions()"，
+  // 而那个缺省读点按活体语义不带 now（approval-interpreter.ts:891 → 真实时钟）。
+  // 拿夹具的固定 T0 播种就会变成定时炸弹——记录 ts=T0、TTL 900s，真实时钟一过
+  // T0+15min 就被 _expired 滤掉，队列读空 → ignored，整条测试在当天晚些时候翻红
+  // （W2 埋、M3-W3 复核期实测触发）。播种与读取共用同一口钟，考点一字不改。
+  const seededAt = new Date()
   const id = enqueuePending('messenger.send', { text: 'hi', context_id: 'chat-zhang' }, {
-    questionMessageId: 'mq', questionText: 'Q', now: T0,
+    questionMessageId: 'mq', questionText: 'Q', now: seededAt,
   })
-  const out = await handleAnswer('不用了', { replyTo: 'mq', now: T0 })
+  const out = await handleAnswer('不用了', { replyTo: 'mq', now: seededAt })
   assert.equal(out.outcome, 'denied')
   assert.equal(out.question!.id, id)
 })

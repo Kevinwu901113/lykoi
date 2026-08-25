@@ -1026,6 +1026,26 @@ export class ReadWriteMemory {
     return row?.user_id ?? null
   }
 
+  /**
+   * owner 在某个渠道上的 channel_key，没绑就是 null
+   * （mind/store.owner_channel_key:1674-1694 逐字对应；M3-W3 新增读点）。
+   *
+   * identityBindingUserId 的**反向**：那个是"这个人是谁"，这个是"他在哪儿" ——
+   * 一条她主动发起的问询需要知道往哪个对话里问，而"哪个对话"只能来自已登记
+   * 的绑定，**不能是硬编码或环境变量里的一个 chat id**（那等于绕开 P2-01 的
+   * 身份层）。SK-51 的 `_owner_context` 与 SK-79 出站投递的 chat_id 都只认这
+   * 一个口。绑定仍然只读、绝不在这里写。
+   */
+  ownerChannelKey(channel: string): string | null {
+    const owner = this.ownerPrimaryUserId()
+    if (!owner) return null
+    const row = this.#db.prepare(
+      'SELECT channel_key FROM identity_bindings WHERE channel = ? AND user_id = ? '
+      + 'ORDER BY channel_key LIMIT 1',
+    ).get(channel, owner) as { channel_key: string } | undefined
+    return row?.channel_key ?? null
+  }
+
   // ============================== thoughts ==============================
 
   /**

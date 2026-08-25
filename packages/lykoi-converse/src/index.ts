@@ -29,21 +29,31 @@ import {
 import type {} from 'lykoi-llm'
 import type { InboundMessage, TelegramAdapterService } from 'lykoi-adapter-telegram'
 import {
+  OutboundOrgan, markUndeliveredSurfaced, outboundOrganResources,
+  outboxNotificationSink, setMessengerLogEvent, setTransportLogEvent,
+  setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
+} from 'lykoi-adapter-telegram'
+import {
   loadPersona, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
+import { stagedInstructions } from 'lykoi-learn'
 import {
-  createApprovalConversation, createDispatch, kernelActionCatalog,
+  createApprovalConversation, createDispatch, createSuggestionConversation,
+  kernelActionCatalog, getNotifications, markReplied as kernelMarkReplied,
+  markActive as markInteractiveActive, pendingCount,
   INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
   setApprovalInterpretLlm, setIdentityBindingLookup, setKernelLogEvent,
-  unwiredResources, type ApprovalConversation,
+  setNotificationOutboxSink,
+  type ApprovalConversation, type SuggestionConversation,
 } from 'lykoi-kernel'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
-import { emptyNotifications } from 'lykoi-reflow'
+import { recordExperience } from 'lykoi-reflow'
 import { latestRestartEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
   ContextBudgetError, Conversation, composeSurfaceReply,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
+import { createDescribeImage } from './vision.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
 
 export * from './contract.ts'
@@ -51,6 +61,7 @@ export * from './conversation.ts'
 export * from './exemption.ts'
 export * from './hygiene.ts'
 export * from './prompts.ts'
+export * from './vision.ts'
 
 export const name = 'lykoi-converse'
 // audit/lykoiLlm 硬依赖；telegram 经 ctx.get 可选消费（telegram 默认 disabled
@@ -101,12 +112,14 @@ export const APPROVAL_INTERPRET_CALLS_MAX = 1
 export interface ConverseService {
   conversation: Conversation
   /**
-   * 审批器官（M3-W2 接线）：两条腿都已是真身。**设备侧承重归 W3** —— 那一层
-   * 才有当轮入站 message_id（E2 分层），由它拿 `takeDelegatedAsk()` 的四项载荷
-   * 调 `requestApproval(..., replyTo=入站 id)`，并把 owner 的来话按 S-08 三级
-   * 路由的第一级交给 `handleOwnerAnswer`。本波把器官装配好并暴露在这里。
+   * 审批器官（M3-W2 接线，W3 起**设备侧已承重**）：那一层有当轮入站 message_id
+   * （E2 分层），由它拿 `takeDelegatedAsk()` 的四项载荷调
+   * `requestApproval(..., replyTo=入站 id)`，并把 owner 的来话按 S-08 三级路由的
+   * 第一级交给 `handleOwnerAnswer`。
    */
   approval: ApprovalConversation
+  /** 建议问答机（M3-W3；S-08 三级路由的第二级 + wake 侧的 `maybeAskOwner`）。 */
+  suggestion: SuggestionConversation
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -152,8 +165,18 @@ export function apply(ctx: Context, config: Config) {
 
   // M3-W1 接线：真 kernel dispatch。origin 由接线方盖章（converse=interactive，
   // S-55：origin 永不由模型给）；immutable sink = lykoi-audit（审计门 fail
-  // closed 在 kernel 内）；资源注册表 = W1 显式替身（器官真身随 W3/M5 波）。
-  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: unwiredResources() })
+  // closed 在 kernel 内）。
+  // M3-W3 换装：资源注册表 = **出站器官真身**（messenger 2 + notify.owner +
+  // autonomy 2），其余 13 个动作仍是 W1 显式替身（感知/执行器官归 M5）。
+  setMessengerLogEvent(logEvent)
+  setTransportLogEvent(logEvent)
+  // U1 ①：未送达 → 她的经验，走 reflow 的**单写者入口**（不直接碰 store）。
+  setUndeliveredExperienceSink((source, content, opts) => recordExperience(
+    store, source as 'conversation', content, { salience: opts.salience, now: new Date() },
+  ))
+  // GK-8 的落笔面（开关**默认关** —— 未开启时这个 sink 一次都不会被调到）。
+  setNotificationOutboxSink(outboxNotificationSink(logEvent))
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: outboundOrganResources() })
   const dispatchFn: ConverseDispatchFn = async (action) => {
     const observation = await kernelDispatch(
       { type: action.type, params: action.params },
@@ -218,14 +241,14 @@ export function apply(ctx: Context, config: Config) {
       systemParts.push(messages[i]!.content ?? '')
       i += 1
     }
-    // S-52 wire 映射的实况（M3-W2 复核，如实留）：dsh-llm 0.1.1-rc.2 的
-    // `GenerateOptions`（node_modules/@deepseek-ai/dsh-llm/lib/types/types.d.ts
-    // :332-368）**没有** response_format 这一位 —— provider/model/messages/
-    // system/tools/temperature/maxTokens/stop/signal/sessionId/purpose 全表如此。
-    // 所以钮（envelopeJsonMode，默认开）停在 seam 上：调用形状契约已立、fake
-    // LLM 测试断言 seam 取值，wire 那一跳等 dsh 加字段或本体自带 adapter（TODO
-    // 已列入 W2 报告，指向 W3/M4）。刻意**不**伪造一个字段塞进去 —— 一个不被
-    // adapter 认识的键等于没强制，而"以为强制了"比"知道没强制"危险。
+    // S-52 **通到 wire**（M3-W3 加派项，治理复核 WO-M3-W2 §治理发现）。
+    // W2 的实况仍然成立：dsh-llm 0.1.1-rc.2 的 `GenerateOptions` 恰 12 字段、
+    // 没有 response_format。但 CF-B6 vendor 的 DeepSeek adapter **自己拼 HTTP
+    // payload**（`requestWithMessages`），所以这一位由我们自家译码
+    // （vendor 改动点 7/7）＋ lykoi-llm 注册层透传（`LykoiGenerateOptions`）。
+    // 钮 = `envelopeJsonMode()`（默认开，读在调用点），钮关时**这个键根本不
+    // 出现在 wire body 上** —— 不是 null，不是空对象。理由：活体把 json 模式
+    // 列为 U3 缺陷①的**止血主力**，新体现有防线只剩 D-01 有界重试 + 契约强化。
     const result = await ctx.lykoiLlm.call({
       provider: config.route,
       model: config.model,
@@ -233,6 +256,9 @@ export function apply(ctx: Context, config: Config) {
       messages: messages.slice(i).map(toDshMessage),
       ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
       ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
+      ...(opts.responseFormat === null || opts.responseFormat === undefined
+        ? {}
+        : { responseFormat: opts.responseFormat }),
     }, { runId: opts.runId })
     return {
       content: result.text,
@@ -243,6 +269,25 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
+  // ⑦ vision 的真调用形状（cognition/llm_router.describe_image）。本波**零真网**：
+  // 图片内容作为一条 image_url content part 送上去；生产路由（VISION）与真模型
+  // 那一跳随 M4 的 cordis.yml。这里保持与主路由同一个 lykoiLlm 入口 —— 闸与账
+  // 长在调用路径里（绕开本层即绕开预算）。
+  const visionCompletion = async (messages: import('./vision.ts').VisionMessage[]) => {
+    const result = await ctx.lykoiLlm.call({
+      provider: config.route,
+      model: config.model,
+      messages: messages.map((m) => createUserMessage({
+        content: m.content.map((part) => part.type === 'text'
+          ? { type: 'text' as const, text: part.text ?? '' }
+          // dsh 词汇里图片是一段带 url 的内容块；vendor 侧的 serialize 认它。
+          : { type: 'text' as const, text: part.image_url?.url ?? '' }),
+        source: { kind: 'user' },
+      })),
+    }, { runId: `vision-${Date.now()}` })
+    return { content: result.text }
+  }
+
   const conversation = new Conversation({
     store,
     persona,
@@ -250,7 +295,26 @@ export function apply(ctx: Context, config: Config) {
     logEvent,
     organs,
     restartEvent: () => latestRestartEvent(store),
-    notifications: emptyNotifications, // M3-W3 接 kernel 通知队列（markReplied 同批）
+    // M3-W3 ③ contact 链接通：真 kernel 通知队列（`get_notifications(unread_only=
+    // False)` 的结构化子集 —— `_pending_contact_ts` 的读面），markReplied 同批。
+    notifications: { getNotifications: () => getNotifications(false) as { ts?: string | null; origin?: string | null }[] },
+    // SK-58：首写获胜幂等；已滚出有界队列的 id 静默 no-op。**唯一写入点**在
+    // conversationTurnReflow 的 contact_answered 那一支（reflow 侧已就位）。
+    markReplied: (notificationId, historyId, now) => {
+      kernelMarkReplied(notificationId, historyId, now)
+    },
+    // U1 ②：未送达账本的读面接真（生产侧 = 出站器官的 recordUndelivered 单写者）。
+    undelivered: {
+      unsurfaced: (limit) => unsurfacedUndelivered(null, limit),
+      markSurfaced: (ids) => { markUndeliveredSurfaced(ids, { logEvent }) },
+    },
+    // chat_outbox.append 接真（进度出站队列 —— 消费者是设备层的投递线）。
+    postProgress: (content) => { appendOutbox(content, 'followup', { logEvent }) },
+    // ⑦ vision seam 接真形状（真模型那一跳仍是注入的 completion；本波零真网 →
+    // 生产路由随 M4 的 cordis.yml，测试注 fake）。
+    describeImage: createDescribeImage({ completion: visionCompletion }),
+    // ⑤ interactive_lock：S-17 的两次 markActive 接真锁（wake 侧读同一个）。
+    markActive: () => { markInteractiveActive() },
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
@@ -281,7 +345,10 @@ export function apply(ctx: Context, config: Config) {
       })),
       maxTokens: opts.maxTokens, // = INTERPRET_MAX_TOKENS
       temperature: opts.temperature, // = INTERPRET_TEMPERATURE
-      // opts.responseFormat 同 S-52：dsh wire 上今天没有这一位，见上面的实况注。
+      // 加派项⑥同批接通：判读输出是一份 schema，json 强制照样通到 wire。
+      ...(opts.responseFormat === null || opts.responseFormat === undefined
+        ? {}
+        : { responseFormat: { type: 'json_object' as const } }),
     }, { runId: opts.runId })
     return { content: result.text }
   })
@@ -289,7 +356,52 @@ export function apply(ctx: Context, config: Config) {
   //   messenger.send 出去（E1 章在 kernel 的 _send 漏斗里盖）。
   const approval = createApprovalConversation({ dispatch: kernelDispatch })
 
-  ctx.provide('converse', { conversation, approval })
+  // --- M3-W3 接线：建议问答机（SK-49..55；GK-3/GK-10） ---
+  // 铁律的第①层在**结构**上成立：kernel/suggestion-conversation.ts 一行
+  // approval 写面 import 都没有（import 面静态测试钉死）。这里只递它三样东西：
+  // 同一个 dispatch（问句/答复/撤回都以她自己的 messenger.send 出去，E1 章在
+  // `_send` 漏斗里盖）、队列面（rule_suggestions 单写者是 rw）、以及
+  // `stagedInstructions`（住在 lykoi-learn —— kernel 是 CF-B1 非插件库模块，
+  // 反向 import 一次都不许，所以注入）。
+  const suggestion = createSuggestionConversation({
+    dispatch: kernelDispatch,
+    store,
+    stagedInstructions: (row, opts) => stagedInstructions(row, { answerText: opts.answerText }),
+    completion: async (messages, opts) => {
+      const result = await ctx.lykoiLlm.call({
+        provider: config.route,
+        model: config.model,
+        system: messages[0]!.content, // 三消息切分：第一条恒为 system 规则
+        messages: messages.slice(1).map((m) => createUserMessage({
+          content: [{ type: 'text', text: m.content }],
+          source: { kind: 'plugin', plugin: 'lykoi-converse' },
+        })),
+        maxTokens: opts.maxTokens,
+        temperature: opts.temperature,
+        ...(opts.responseFormat === null ? {} : { responseFormat: { type: 'json_object' as const } }),
+        // 归因走 run 维度（与审批判读同法：账上看得见，route 会计不膨胀）。
+      }, { runId: 'rule-suggestion-answer' })
+      return { content: result.text }
+    },
+  })
+
+  ctx.provide('converse', { conversation, approval, suggestion })
+
+  // --- M3-W3 接线：出站器官装进设备层（SK-77/78/79/82；D-07） ---
+  // **晚绑定**：设备层与认知层互为对方的下游（活体用 `messenger._TRANSPORT =
+  // transport` 的同一手法在启动时打通）。telegram 默认 disabled 时这段整段不跑，
+  // 本插件照常挂载、安静待命。
+  const telegramAtBoot = ctx.get('telegram') as TelegramAdapterService | undefined
+  if (telegramAtBoot !== undefined) {
+    telegramAtBoot.wireOutbound(new OutboundOrgan({
+      dispatch: kernelDispatch,
+      // 出站投递的 chat id 只认 P2-01 登记的 owner 绑定（只读；绝不在这里写）。
+      ownerChannelKey: () => store.ownerChannelKey('telegram'),
+      approval,
+      suggestion,
+      logEvent,
+    }))
+  }
 
   ctx.on('lykoi/telegram/inbound', async (message) => {
     await handleTurn(ctx, conversation, message)
@@ -335,14 +447,18 @@ async function handleTurn(
     return
   }
 
-  // S-59/S-77 顺序位：本轮撞门的动作已被认知侧做成四项载荷挂在 conversation 上
-  // （`takeDelegatedAsk()`，一轮一份、取走即清；下一轮 send 开头会清场，所以它
-  // 绝不会跨轮悬着）。**取走并去问是设备层的活**（W3）—— 只有那一层有当轮入站
-  // message_id，而没有 reply_to 的问句按主动打扰计费、名额一耗尽当天余下的问句
-  // 全部 undelivered → deny_by_default（8-19 六连拒的病灶）。本波不在这里代问，
-  // 也不在这里把载荷取走（取走 = 丢掉）；只落一条**零正文**的账，让这个缺口在
-  // 事件流上看得见而不是静默。
-  const delegatedAsk = conversation.peekDelegatedAsk()
+  const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
+  const deviceSideWired = telegram !== undefined && telegram.outboundWired()
+
+  // S-59/SK-77 顺序位：本轮撞门的动作已被认知侧做成四项载荷挂在 conversation 上
+  // （一轮一份、取走即清；下一轮 send 开头会清场，所以它绝不会跨轮悬着）。
+  // **取走并去问是设备层的活**（W3 已接）—— 只有那一层有当轮入站 message_id，
+  // 而没有 reply_to 的问句按主动打扰计费、名额一耗尽当天余下的问句全部
+  // undelivered → deny_by_default（8-19 六连拒的病灶）。设备层没接线时**不取走**
+  // （取走 = 丢掉），只落一条零正文的账让缺口在事件流上看得见。
+  const delegatedAsk = deviceSideWired
+    ? conversation.takeDelegatedAsk()
+    : conversation.peekDelegatedAsk()
   if (delegatedAsk !== null) {
     await ctx.audit.record({
       type: 'converse/approval_request_pending',
@@ -351,29 +467,41 @@ async function handleTurn(
       action_type: delegatedAsk.action_type, // D-08：只记类型，params 一个字不进事件流
       action_id: delegatedAsk.action_id,
       correlation_id: delegatedAsk.correlation_id,
-      device_side_wired: false, // W3 接上之后这一栏翻成 true
+      device_side_wired: deviceSideWired, // W3 接上之后这一栏翻成 true
     })
   }
 
-  // D-04 装配点：pending 的权威源 = kernel `pendingCount()`；接线随 W3 的设备
-  // 侧（横幅要不要出现是"对话面"的决定，与队列真身在不在无关）。恒 0 前横幅
-  // 不可能出现；出现后 reply 为空也**不加横幅** —— 沉默一路走到底，红测钉死。
-  const surfaceReply = composeSurfaceReply(reply, 0, false)
+  // D-04 装配点（W3 接权威源）：pending 的权威源 = kernel `pendingCount()`。
+  // 横幅要不要出现是"对话面"的决定，与队列真身在不在无关；reply 为空时
+  // **不加横幅** —— 沉默一路走到底，红测钉死。
+  const surfaceReply = composeSurfaceReply(reply, pendingCount(), false)
   if (surfaceReply.trim().length === 0) {
     // 沉默是合法结局（有账没话）：u3_cycle_envelope/u3_cycle_failed 是它的账。
     await ctx.audit.record({ type: 'converse/silence', runId, updateId: message.updateId })
+    // 沉默也可能有下文：那个还没被批准的动作仍然要问出去（SK-77 的"先说话后
+    // 请示"里，"说话"是可以为空的 —— 空回复照旧是合法结局）。
+    if (delegatedAsk !== null && deviceSideWired) {
+      await telegram!.askAbout(delegatedAsk, message.contextId, message.messageId)
+    }
     return
   }
   await ctx.audit.record({
     type: 'converse/reply', runId, updateId: message.updateId, chars: surfaceReply.length,
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
   if (telegram === undefined) {
     await ctx.audit.record({ type: 'converse/no_transport', runId, updateId: message.updateId })
     return
   }
-  // S-10：先说话（reply_to=入站 message_id —— 应答路径不计打扰预算）……
-  await telegram.send(message.contextId, surfaceReply, message.messageId)
-  // ……后请示：审批问句顺序位。载荷已经在上面落过账（converse/approval_request_pending）；
-  // **取走并以入站 id 为 reply_to 去问是设备层的活**（W3）—— 见上面那段注。
+  // 顺序是自然的那个：**先说话，后请示**（SK-77）。
+  // S-10 / SK-78：回复经 dispatch 出去，E2 章在设备层盖（reply_to=入站 message_id
+  // —— 应答路径不计打扰预算）。设备层没接线时退回 M1 的裸传输面。
+  if (deviceSideWired) {
+    await telegram.sendReply(message.contextId, surfaceReply, message.messageId)
+  } else {
+    await telegram.send(message.contextId, surfaceReply, message.messageId)
+  }
+  // ……后请示：以**当轮入站 id** 为 reply_to 把撞门的那个动作问出去。
+  if (delegatedAsk !== null && deviceSideWired) {
+    await telegram.askAbout(delegatedAsk, message.contextId, message.messageId)
+  }
 }

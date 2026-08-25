@@ -25,7 +25,7 @@ import type { BindingResolution, LykoiMemoryService } from 'lykoi-memory'
 import { createStateFixture } from 'lykoi-memory/testing'
 import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
-import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
+import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
 import { MAX_TOOL_STEPS } from '../src/index.ts'
 import * as converse from '../src/index.ts'
 import { envelope, seedBinding } from './fixture.ts'
@@ -37,7 +37,8 @@ function isolateKernelFiles(): string {
   process.env.LYKOI_APPROVAL_RULES = join(dir, 'approval_rules.json')
   process.env.LYKOI_STANDING_GRANTS = join(dir, 'standing_grants.json')
   process.env.LYKOI_PENDING_ACTIONS = join(dir, 'pending_actions.json')
-  process.env.LYKOI_NOTIFICATIONS = join(dir, 'notifications.json')
+  // M3-W3：出站器官的持久面同样钉进 tmpdir（数据纪律：仓库树零 state 写）。
+  isolateOutboundState(dir)
   return dir
 }
 
@@ -131,8 +132,11 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   })
   assert.equal(await telegram.pollOnce(), 1)
 
-  // 撞门：不执行、回合本身不复述（S-58：问句就是那条消息）。
-  assert.deepEqual(transport.sends, [])
+  // 撞门：不执行、回合本身不复述（S-58：问句就是那条消息）——**出站的唯一一条
+  // 就是那句问句**（W3 起设备层自己问；W2 时这里恒为空，因为没人问）。
+  assert.equal(transport.sends.length, 1)
+  assert.equal(transport.sends[0]!.replyTo, '100') // reply_to = 当轮入站 id
+  assert.match(transport.sends[0]!.text, /^有件事得你点头我才做: /)
   const types = audit.events.map((e) => String(e.type))
   assert.ok(!types.includes('cycle_approval_gate_unwired')) // W2 已换真身
   assert.ok(types.includes('approval_ask_delegated'))
@@ -141,22 +145,23 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   // SK-77 认知侧协议：**恰四项**载荷，且入站 message_id 一个字节都不在里面。
   const pendingRow = audit.events.find((e) => e.type === 'converse/approval_request_pending')!
   assert.equal(pendingRow.action_type, 'browser.navigate')
-  assert.equal(pendingRow.device_side_wired, false) // W3 接上后翻 true
-  const ask = service.conversation.takeDelegatedAsk()!
-  assert.deepEqual(Object.keys(ask).sort(), ['action_id', 'action_type', 'correlation_id', 'params'])
-  assert.equal(ask.action_type, 'browser.navigate')
-  assert.deepEqual(ask.params, { url: 'https://example.com/page' })
-  assert.equal(typeof ask.action_id, 'string')
-  assert.ok(!JSON.stringify(ask).includes('100')) // 入站 id 不进认知侧载荷
-  // 取走即清（S-60）：同一载荷被两个调用方各问一遍 = 两条问句指向一件事
+  assert.equal(pendingRow.device_side_wired, true) // W3 接上 —— 设备侧承重
+  // 取走即清（S-60）：设备层已经消费掉了；同一载荷被两个调用方各问一遍 =
+  // 两条问句指向一件事，所以认知侧此刻必须是空的。
   assert.equal(service.conversation.takeDelegatedAsk(), null)
-  // 载荷里的 action_id / correlation_id 就是撞门那次 dispatch 铸的那一对
+  // 载荷里的 action_id / correlation_id 就是撞门那次 dispatch 铸的那一对；
+  // 而入站 id 只出现在**问句的 reply_to** 上，从不出现在载荷里（E2 分层）。
   const askIntent = audit.events.find((e) => e.type === 'action_dispatch')!
-  assert.equal(ask.action_id, askIntent.action_id)
-  assert.equal(ask.correlation_id, askIntent.correlation_id)
+  assert.equal(pendingRow.action_id, askIntent.action_id)
+  assert.equal(pendingRow.correlation_id, askIntent.correlation_id)
+  const asked = audit.events.find((e) => e.type === 'approval_question' && e.stage === 'asked')!
+  assert.equal(asked.pending_id, askIntent.action_id)
 
   // 真门的账：action_dispatch(decision=ask, origin=interactive) + action_result。
-  const intents = audit.events.filter((e) => e.type === 'action_dispatch')
+  // 问句自己那一行带 E1 章（免问不免账），单独滤开。
+  const intents = audit.events.filter(
+    (e) => e.type === 'action_dispatch' && e.action_type === 'browser.navigate',
+  )
   assert.equal(intents.length, 1)
   const intent = intents[0]!
   assert.equal(intent.action_type, 'browser.navigate')
@@ -164,11 +169,12 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   assert.equal(intent.decision, 'ask')
   assert.equal(intent.pre_approved, false)
   assert.deepEqual(intent.params, { url: 'https://example.com/page' })
-  const results = audit.events.filter((e) => e.type === 'action_result')
+  const results = audit.events.filter(
+    (e) => e.type === 'action_result' && e.correlation_id === intent.correlation_id,
+  )
   assert.equal(results.length, 1)
   assert.equal(results[0]!.success, false)
   assert.equal(results[0]!.error, 'needs_approval')
-  assert.equal(results[0]!.correlation_id, intent.correlation_id)
 })
 
 test('②live always_allow 放行：真门 allow → W1 替身器官大声失败 → error 回填周期继续（工具预算收场）', async () => {

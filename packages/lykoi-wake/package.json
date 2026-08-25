@@ -14,6 +14,7 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-adapter-telegram": "0.1.0",
     "lykoi-audit": "0.1.0",
     "lykoi-decide": "0.1.0",
     "lykoi-heart": "0.1.0",

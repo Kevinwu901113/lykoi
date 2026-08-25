@@ -18,7 +18,10 @@
  *  - exemption.ts    E1/E2/E3 豁免（SK-47/48；消费位 = check 第⑨步）
  *  - delegation.ts   委托台账七态 + 审计先行（SK-61..66）
  *  - delegation-resource.ts 资源薄壳（SK-67；传输面 M5）
- *  - notifications.ts 通知文件原语 + GK-1 持久 next_id（队列语义 W3）
+ *  - notifications.ts 通知队列真身 + GK-1 持久 next_id + GK-8 开关（SK-56..58）
+ *  - suggestion-conversation.ts 建议问答机（SK-49..55；GK-3/GK-10）
+ *  - interactive-lock.ts 对话优先标记（S-17；单进程形态，DK-11 语义入注释）
+ *  - proactive-chat.ts 主动开口预算账本（脑干层事实，红线 #5；快照读面）
  *  - redaction.ts    密文遮蔽（SK-05）
  */
 export * from './approval.ts'
@@ -28,9 +31,12 @@ export * from './delegation.ts'
 export * from './delegation-resource.ts'
 export * from './dispatch.ts'
 export * from './exemption.ts'
+export * from './interactive-lock.ts'
 export * from './jsonio.ts'
 export * from './notifications.ts'
 export * from './policy-core.ts'
+export * from './proactive-chat.ts'
 export * from './redaction.ts'
 export * from './scope.ts'
+export * from './suggestion-conversation.ts'
 export * from './telemetry.ts'
