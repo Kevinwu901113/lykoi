@@ -1,11 +1,14 @@
 /**
- * M3-W1 接线 e2e（出口判据）：converse 的 ConverseDispatchFn 已是真 kernel
+ * M3-W1/W2 接线 e2e（出口判据）：converse 的 ConverseDispatchFn 已是真 kernel
  * dispatch（origin=interactive 由接线方盖章）—— 信封点名的工具经**真三层门**：
- * ① 默认 ask → needs_approval → S-57 deferred + 落痕沉默收场（问句机随 W2 审批
- *   器官），audit 上 action_dispatch(decision=ask)+action_result 对；
+ * ① 默认 ask → needs_approval → S-57 deferred + **SK-77 四项载荷**（W2 换真身）
+ *   + 沉默收场，audit 上 action_dispatch(decision=ask)+action_result 对；
  * ② live always_allow 放行 → W1 替身器官大声失败 → error 结果回填、周期继续，
  *   audit 上 decision=allow 的 intent/result 对。
  * 全链：fake 入站 → 盖章 → 装配 → fake LLM 信封 → 真 kernel 门 → audit。
+ *
+ * **GK-14 e2e（DK-07 / 蓝图定案，W2 必立）**：信封自称 dispatched ⟺ audit 有
+ * action_dispatch 行 —— 正反两断言都在这里。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -103,7 +106,8 @@ async function assemble(replyText: string) {
     narrativeFlag: '',
   })
   const telegram = ctx.get('telegram') as TelegramAdapterService
-  return { audit, transport, telegram }
+  const service = ctx.get('converse') as converse.ConverseService
+  return { audit, transport, telegram, converse: service, dir }
 }
 
 function toolEnvelope(name: string, args: Record<string, unknown>): string {
@@ -116,9 +120,9 @@ function toolEnvelope(name: string, args: Record<string, unknown>): string {
   })
 }
 
-test('①interactive 默认 ask：撞审批门 → deferred 落痕 + 沉默收场；audit 上 ask 的 intent/result 对', async () => {
+test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷 + 沉默收场；audit 上 ask 的 intent/result 对', async () => {
   isolateKernelFiles()
-  const { audit, transport, telegram } = await assemble(
+  const { audit, transport, telegram, converse: service } = await assemble(
     toolEnvelope('browser_navigate', { url: 'https://example.com/page' }),
   )
   transport.queueUpdate({
@@ -127,11 +131,29 @@ test('①interactive 默认 ask：撞审批门 → deferred 落痕 + 沉默收�
   })
   assert.equal(await telegram.pollOnce(), 1)
 
-  // 撞门：不执行、不发话（S-57 安全侧：落痕 + 沉默；问句机随 W2）。
+  // 撞门：不执行、回合本身不复述（S-58：问句就是那条消息）。
   assert.deepEqual(transport.sends, [])
   const types = audit.events.map((e) => String(e.type))
-  assert.ok(types.includes('cycle_approval_gate_unwired'))
+  assert.ok(!types.includes('cycle_approval_gate_unwired')) // W2 已换真身
+  assert.ok(types.includes('approval_ask_delegated'))
   assert.ok(types.includes('converse/silence'))
+
+  // SK-77 认知侧协议：**恰四项**载荷，且入站 message_id 一个字节都不在里面。
+  const pendingRow = audit.events.find((e) => e.type === 'converse/approval_request_pending')!
+  assert.equal(pendingRow.action_type, 'browser.navigate')
+  assert.equal(pendingRow.device_side_wired, false) // W3 接上后翻 true
+  const ask = service.conversation.takeDelegatedAsk()!
+  assert.deepEqual(Object.keys(ask).sort(), ['action_id', 'action_type', 'correlation_id', 'params'])
+  assert.equal(ask.action_type, 'browser.navigate')
+  assert.deepEqual(ask.params, { url: 'https://example.com/page' })
+  assert.equal(typeof ask.action_id, 'string')
+  assert.ok(!JSON.stringify(ask).includes('100')) // 入站 id 不进认知侧载荷
+  // 取走即清（S-60）：同一载荷被两个调用方各问一遍 = 两条问句指向一件事
+  assert.equal(service.conversation.takeDelegatedAsk(), null)
+  // 载荷里的 action_id / correlation_id 就是撞门那次 dispatch 铸的那一对
+  const askIntent = audit.events.find((e) => e.type === 'action_dispatch')!
+  assert.equal(ask.action_id, askIntent.action_id)
+  assert.equal(ask.correlation_id, askIntent.correlation_id)
 
   // 真门的账：action_dispatch(decision=ask, origin=interactive) + action_result。
   const intents = audit.events.filter((e) => e.type === 'action_dispatch')

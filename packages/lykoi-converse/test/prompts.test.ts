@@ -12,6 +12,7 @@ import {
   PROMOTED_INSIGHTS_HEADER, SUMMARIZE_SYSTEM_PROMPT, SUMMARY_SKELETON, SYSTEM_PROMPT,
   THOUGHTS_HEADER, THOUGHTS_LINE_SKELETON, TIME_SKELETON, UNDELIVERED_HEADER,
   UNDELIVERED_LINE_SKELETON, envelopeSystemPrompt, envelopeToolNames,
+  ASK_FALLBACK, DELEGATED_ASK_FIELDS,
 } from '../src/index.ts'
 
 function sha(text: string): string {
@@ -113,4 +114,22 @@ test('渲染代入：{causes} = 15 名排序 join（sha ad676bb0…）；{tools}
   assert.equal(tools.length, 13)
   assert.deepEqual(tools.slice(-3), ['vision_describe', 'promise_followup', 'post_progress'])
   assert.ok(rendered.includes(tools.join(', ')))
+})
+
+test('§2 D 段（M3-W2 迁入）：ASK_FALLBACK 逐字 —— 15 字 / sha 66b17e24…', () => {
+  // WO-FIX-APPROVAL-UX ② 老横幅退役的那句话，随审批器官从 cognition/
+  // conversation.py:428 迁入本包。SPEC-KERNEL §2 D 段的复核值一位不差。
+  assert.equal(cps(ASK_FALLBACK), 15)
+  assert.equal(sha(ASK_FALLBACK), '66b17e244f974f0b8941b741a66d6990ec6a81cef9817b582a0cf63a8eaccd56')
+  // 它是"一条问句都问不出去"时才说的那句 —— 里面永不带端点（横幅退役的全部理由）。
+  assert.ok(!ASK_FALLBACK.includes('/approvals'))
+  assert.ok(!ASK_FALLBACK.toUpperCase().includes('POST'))
+})
+
+test('SK-77：DELEGATED_ASK_FIELDS 恰四项，入站 message_id 不在其中（E2 分层）', () => {
+  assert.deepEqual([...DELEGATED_ASK_FIELDS], ['action_type', 'params', 'action_id', 'correlation_id'])
+  assert.equal(DELEGATED_ASK_FIELDS.length, 4)
+  assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('message_id'))
+  assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('reply_to'))
+  assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('context_id'))
 })

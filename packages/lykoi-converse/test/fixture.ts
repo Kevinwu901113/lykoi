@@ -12,6 +12,7 @@ import { createStateFixture } from 'lykoi-memory/testing'
 import { ReadWriteMemory, formatPyIso } from 'lykoi-memory/rw'
 import {
   Conversation, type ConverseDeps, type ConverseLlmFn, type ConverseLlmResult,
+  type ConverseMessage,
   type UndeliveredView,
 } from '../src/index.ts'
 
@@ -118,7 +119,8 @@ export function seedArchivedExperience(path: string, content: string, ts: Date):
 // --- fake LLM（信封由测试注入；零真网） ---------------------------------------
 
 export interface LlmCallLog {
-  messages: { role: string; content: string | null }[]
+  /** 整条消息（M3-W2 起含 tool_calls / tool_call_id —— S-57 的成对性可断言）。 */
+  messages: ConverseMessage[]
   opts: Record<string, unknown>
 }
 
@@ -136,7 +138,7 @@ export class FakeLlm {
   fn(): ConverseLlmFn {
     return async (messages, opts) => {
       const call: LlmCallLog = {
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: messages.map((m) => ({ ...m })),
         opts: { ...opts },
       }
       this.calls.push(call)

@@ -23,7 +23,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { resolve } from 'node:path'
 import {
-  createAssistantMessage, createMessage, createUserMessage, type Message,
+  CallId, createAssistantMessage, createMessage, createToolResultMessage,
+  createUserMessage, type Message,
 } from '@deepseek-ai/dsh-llm'
 import type {} from 'lykoi-llm'
 import type { InboundMessage, TelegramAdapterService } from 'lykoi-adapter-telegram'
@@ -31,8 +32,10 @@ import {
   loadPersona, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
 import {
-  createDispatch, kernelActionCatalog, setIdentityBindingLookup, setKernelLogEvent,
-  unwiredResources,
+  createApprovalConversation, createDispatch, kernelActionCatalog,
+  INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
+  setApprovalInterpretLlm, setIdentityBindingLookup, setKernelLogEvent,
+  unwiredResources, type ApprovalConversation,
 } from 'lykoi-kernel'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { emptyNotifications } from 'lykoi-reflow'
@@ -41,7 +44,7 @@ import {
   ContextBudgetError, Conversation, composeSurfaceReply,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
-import type { ConverseMessage } from './contract.ts'
+import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
 
 export * from './contract.ts'
 export * from './conversation.ts'
@@ -77,9 +80,33 @@ export const Config: Schema<Config> = Schema.object({
   narrativeFlag: Schema.string().default(''),
 })
 
+/**
+ * D-01 有界重试的**超时预算容纳位**（M3-W2 立位；生产值 M4 定）。
+ *
+ * 一个对话回合最多发起 `ENVELOPE_RETRY_MAX + 1` 次信封调用（not_json 才重试，
+ * 一次为限）；owner 的一次审批答复再另计**至多一次**判读调用（快通道跳 LLM，
+ * 所以是上限不是常量）。设备/网关侧的单回合超时必须容得下这个乘数，否则一次
+ * 本来会成功的重试会在传输层被切成静默失败 —— 那恰好是 D-01 想消灭的那种
+ * "看不见的断点"。
+ *
+ * 刻意**不**在这里写秒数：单次调用上限与回合硬顶是生产配置（cordis.yml，
+ * M3-W4/M4），猜一个数比留空更坏。设备侧配置面（lykoi-adapter-telegram 的
+ * pollTimeoutS 等）在接线时对着这个乘数核。
+ */
+export const TURN_LLM_CALLS_MAX = ENVELOPE_RETRY_MAX + 1
+/** 一次审批答复回合的判读调用上限（快通道为 0）。 */
+export const APPROVAL_INTERPRET_CALLS_MAX = 1
+
 /** 服务面：console/测试可直达回合入口。 */
 export interface ConverseService {
   conversation: Conversation
+  /**
+   * 审批器官（M3-W2 接线）：两条腿都已是真身。**设备侧承重归 W3** —— 那一层
+   * 才有当轮入站 message_id（E2 分层），由它拿 `takeDelegatedAsk()` 的四项载荷
+   * 调 `requestApproval(..., replyTo=入站 id)`，并把 owner 的来话按 S-08 三级
+   * 路由的第一级交给 `handleOwnerAnswer`。本波把器官装配好并暴露在这里。
+   */
+  approval: ApprovalConversation
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -144,21 +171,34 @@ export function apply(ctx: Context, config: Config) {
       })
     }
     if (m.role === 'assistant') {
-      // 历史里的 assistant 帧。tool_calls 合成帧的 wire 原生形态（tool-call
-      // block）随 M3 真 adapter 路由接线 —— 此处折为文本帧（unwired dispatch
-      // 下生产不可达，测试经 Conversation 直连 seam 不走这里）。TODO(M3)。
-      const text = m.tool_calls
-        ? `[tool_calls] ${m.tool_calls.map((c) => c.function.name).join(', ')}`
-        : (m.content ?? '')
+      // M3-W2 收口（M2 遗留 #13）：tool_calls 合成帧走 dsh 词汇的**原生形态**
+      // （ToolCallBlock），不再折成 `[tool_calls] …` 文本。折文本把"她决定动手"
+      // 从结构降级成一句散文 —— 对面模型看到的不是一次调用，回填的 tool 结果
+      // 也就对不上号。原生映射后 assistant/tool 两帧由 CallId 成对，id 就是
+      // 信封周期里 `cycleCall` 造的那个。
+      if (m.tool_calls !== undefined && m.tool_calls.length > 0) {
+        return createAssistantMessage({
+          content: m.tool_calls.map((c) => ({
+            type: 'tool-call' as const,
+            id: CallId(c.id),
+            name: c.function.name,
+            arguments: c.function.arguments,
+          })),
+          source: { provider: config.route, model: config.model },
+        })
+      }
       return createAssistantMessage({
-        content: [{ type: 'text', text }],
+        content: [{ type: 'text', text: m.content ?? '' }],
         source: { provider: config.route, model: config.model },
       })
     }
     if (m.role === 'tool') {
-      return createUserMessage({
-        content: [{ type: 'text', text: `[工具结果] ${m.content ?? ''}` }],
-        source: { kind: 'plugin', plugin: 'lykoi-converse' },
+      // 同上：结果帧走 createToolResultMessage（callId 绑回上面那次调用），
+      // 不再折成 `[工具结果] …` 的 user 文本帧。
+      return createToolResultMessage({
+        callId: CallId(m.tool_call_id ?? ''),
+        content: [{ type: 'text', text: m.content ?? '' }],
+        isError: false,
       })
     }
     // 中/尾部 system（收尾提示、信封契约 —— 契约必须留在生成点前的最后位置，
@@ -178,9 +218,14 @@ export function apply(ctx: Context, config: Config) {
       systemParts.push(messages[i]!.content ?? '')
       i += 1
     }
-    // S-52 注：opts.responseFormat 的 wire 映射（response_format=json_object）
-    // 随 M3 真 adapter 路由 —— dsh-llm GenerateOptions 今天没有这一位；钮本身
-    // （envelopeJsonMode，默认开）与调用形状契约已立，fake LLM 测试断言 seam 值。
+    // S-52 wire 映射的实况（M3-W2 复核，如实留）：dsh-llm 0.1.1-rc.2 的
+    // `GenerateOptions`（node_modules/@deepseek-ai/dsh-llm/lib/types/types.d.ts
+    // :332-368）**没有** response_format 这一位 —— provider/model/messages/
+    // system/tools/temperature/maxTokens/stop/signal/sessionId/purpose 全表如此。
+    // 所以钮（envelopeJsonMode，默认开）停在 seam 上：调用形状契约已立、fake
+    // LLM 测试断言 seam 取值，wire 那一跳等 dsh 加字段或本体自带 adapter（TODO
+    // 已列入 W2 报告，指向 W3/M4）。刻意**不**伪造一个字段塞进去 —— 一个不被
+    // adapter 认识的键等于没强制，而"以为强制了"比"知道没强制"危险。
     const result = await ctx.lykoiLlm.call({
       provider: config.route,
       model: config.model,
@@ -210,7 +255,41 @@ export function apply(ctx: Context, config: Config) {
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
 
-  ctx.provide('converse', { conversation })
+  // --- M3-W2 接线：审批器官（SK-30..46） ---
+  // ①六元组与 approval_question/answer_routed/execution 走**同一个** immutable
+  //   sink（lykoi-audit）—— 不是第二个 sink，只是第二个调用方（SK-35）。
+  setApprovalAuditSink(ctx.audit)
+  // ②判读 transport：**不新增路由**（SK-36 逐字：chat_completion 是唯一 transport，
+  //   判读跑在既有 MAIN 路由的配置上）。归因新增的是 **run 维度**——
+  //   `approval-interpret-<action_type>`，于是 budget 账上"审批判读花了多少"可
+  //   单独看见，而 route 会计一个桶都没多。T=0/400 由 kernel 侧钉死，这里原样
+  //   转发（断言见 kernel test/approval-interpreter.test.ts）。
+  setApprovalInterpretLlm(async (messages, opts) => {
+    const systemParts: string[] = []
+    let i = 0
+    while (i < messages.length && messages[i]!.role === 'system') {
+      systemParts.push(messages[i]!.content)
+      i += 1
+    }
+    const result = await ctx.lykoiLlm.call({
+      provider: config.route,
+      model: config.model,
+      ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
+      messages: messages.slice(i).map((m) => createUserMessage({
+        content: [{ type: 'text', text: m.content }],
+        source: { kind: 'plugin', plugin: 'lykoi-converse' },
+      })),
+      maxTokens: opts.maxTokens, // = INTERPRET_MAX_TOKENS
+      temperature: opts.temperature, // = INTERPRET_TEMPERATURE
+      // opts.responseFormat 同 S-52：dsh wire 上今天没有这一位，见上面的实况注。
+    }, { runId: opts.runId })
+    return { content: result.text }
+  })
+  // ③两条腿共享**同一个** kernel dispatch —— 问句/追问/回执都以她自己的
+  //   messenger.send 出去（E1 章在 kernel 的 _send 漏斗里盖）。
+  const approval = createApprovalConversation({ dispatch: kernelDispatch })
+
+  ctx.provide('converse', { conversation, approval })
 
   ctx.on('lykoi/telegram/inbound', async (message) => {
     await handleTurn(ctx, conversation, message)
@@ -256,8 +335,29 @@ async function handleTurn(
     return
   }
 
-  // D-04 装配点：pending 的权威源随 M3 审批器官（恒 0 前横幅不可能出现；
-  // 出现后 reply 为空也**不加横幅** —— 沉默一路走到底，红测钉死）。
+  // S-59/S-77 顺序位：本轮撞门的动作已被认知侧做成四项载荷挂在 conversation 上
+  // （`takeDelegatedAsk()`，一轮一份、取走即清；下一轮 send 开头会清场，所以它
+  // 绝不会跨轮悬着）。**取走并去问是设备层的活**（W3）—— 只有那一层有当轮入站
+  // message_id，而没有 reply_to 的问句按主动打扰计费、名额一耗尽当天余下的问句
+  // 全部 undelivered → deny_by_default（8-19 六连拒的病灶）。本波不在这里代问，
+  // 也不在这里把载荷取走（取走 = 丢掉）；只落一条**零正文**的账，让这个缺口在
+  // 事件流上看得见而不是静默。
+  const delegatedAsk = conversation.peekDelegatedAsk()
+  if (delegatedAsk !== null) {
+    await ctx.audit.record({
+      type: 'converse/approval_request_pending',
+      runId,
+      updateId: message.updateId,
+      action_type: delegatedAsk.action_type, // D-08：只记类型，params 一个字不进事件流
+      action_id: delegatedAsk.action_id,
+      correlation_id: delegatedAsk.correlation_id,
+      device_side_wired: false, // W3 接上之后这一栏翻成 true
+    })
+  }
+
+  // D-04 装配点：pending 的权威源 = kernel `pendingCount()`；接线随 W3 的设备
+  // 侧（横幅要不要出现是"对话面"的决定，与队列真身在不在无关）。恒 0 前横幅
+  // 不可能出现；出现后 reply 为空也**不加横幅** —— 沉默一路走到底，红测钉死。
   const surfaceReply = composeSurfaceReply(reply, 0, false)
   if (surfaceReply.trim().length === 0) {
     // 沉默是合法结局（有账没话）：u3_cycle_envelope/u3_cycle_failed 是它的账。
@@ -274,5 +374,6 @@ async function handleTurn(
   }
   // S-10：先说话（reply_to=入站 message_id —— 应答路径不计打扰预算）……
   await telegram.send(message.contextId, surfaceReply, message.messageId)
-  // ……后请示：审批问句顺序位（委托问句路 S-59 随 M3 审批器官；不留 stub 调用）。
+  // ……后请示：审批问句顺序位。载荷已经在上面落过账（converse/approval_request_pending）；
+  // **取走并以入站 id 为 reply_to 去问是设备层的活**（W3）—— 见上面那段注。
 }

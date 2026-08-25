@@ -19,9 +19,10 @@
  * = 沉默（不变量 3）：契约失败经 D-01 的有界重试一次后仍败 → 降级沉默 +
  * u3_cycle_failed（带原始响应元数据，D-08 口径全部非内容）。
  *
- * M3 接口位（本波显式替身，绝不静默成功）：kernel dispatch（unwired 大声失败）
- * / 审批问句机（S-54..S-68 随 M3 审批器官）/ vision 模型 / 出站进度队列 /
- * interactive_lock / 未送达账本的生产侧。
+ * M3 接口位（显式替身，绝不静默成功）：kernel dispatch 已接真身（W1）、审批
+ * 问句机已接真身（W2：SK-77 四项载荷 → kernel approval-conversation）；仍为
+ * 替身的是 vision 模型 / 出站进度队列 / interactive_lock / 未送达账本的生产侧
+ * （随 W3 出站器官波）。
  */
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -193,6 +194,30 @@ export type ConverseDispatchFn = (
   context: { origin: 'interactive' },
 ) => Promise<ConverseObservation>
 
+// --- WO-FIX-APPROVAL-UX ②：老横幅退役（cognition/conversation.py:428 迁入） ----
+// 它取代的那个横幅会把一行裸的 `POST /approvals/{id}/approve` 打进聊天。它是为
+// Mac 客户端写的 —— 在那里那个端点是唯一的应答方式；在 Telegram 里它是一条
+// Kevin 无法执行的指令，而 2026-08-12 他在一次交流里收到了**四遍**，因为每一个
+// 撞到门的工具步骤都会再打一次。端点本身留着（所有者控制台仍经它了结待批动作），
+// 退役的是对话里的那个横幅。问是审批器官的活了：`requestApproval` 把问句说成
+// 一句话、发进他的聊天、连同问句那条消息的 id 一起记下来（于是他的回复可归属），
+// 并且拒绝就同一条悬置动作问第二遍。
+/** 15 字逐字，sha256 66b17e24…（SPEC-KERNEL §2 D 段）。 */
+export const ASK_FALLBACK = '这事需要你点头, 我稍后再问。'
+
+/**
+ * SK-77 认知侧协议：交给"拥有这场对话的调用方"去问的待批动作载荷，**恰四项**。
+ * 入站 message_id 一个字节都不进来（E2 分层：对端是谁只在设备层是结构事实）。
+ */
+export const DELEGATED_ASK_FIELDS = ['action_type', 'params', 'action_id', 'correlation_id'] as const
+
+export interface DelegatedAsk {
+  action_type: string
+  params: Record<string, unknown>
+  action_id: string
+  correlation_id: string | null
+}
+
 /** kernel dispatch 未接线（M3）时的显式替身：一切外部动作大声失败，绝不静默成功。 */
 export const unwiredConverseDispatch: ConverseDispatchFn = async (action) => ({
   success: false,
@@ -268,7 +293,8 @@ class AsyncLock {
 /**
  * D-04（G-10 修正版）：审批横幅的装配点。reply 为空（silence 回合）时**不加
  * 横幅** —— 沉默作为一个正当动作必须能一路走到底，不被基础设施推翻；本轮就是
- * 审批问句时也不加（双重警告）。pending 的权威源随 M3 审批器官。
+ * 审批问句时也不加（双重警告）。pending 的权威源 = kernel `pendingCount()`，
+ * 由拥有对话的调用方在装配点递进来（设备侧接线归 M3-W3）。
  */
 export function composeSurfaceReply(
   reply: string,
@@ -297,6 +323,8 @@ export class Conversation {
   #pendingUndeliveredIds: number[] = []
   #relevantMemories: ConverseMessage | null = null
   #followupRequest: string | null = null
+  /** SK-77 认知侧：交给调用方去问的待批动作载荷（一轮一份，取走即清）。 */
+  #delegatedAsk: DelegatedAsk | null = null
   #background = false
   #cycleInner: string | null = null
   #lastRunId = ''
@@ -890,8 +918,8 @@ export class Conversation {
    * 执行信封点名的那一个工具，回填结果；null = 周期继续。合成一条
    * assistant/tool_calls 消息：信封这一路没用 tools API，但对话历史是共用的 ——
    * 用它原生的词汇把"她决定动手"写进历史，既有结果回填/回执探针原样可用。
-   * 撞审批门（S-57）：补 deferred 结果；问句机是 M3 的审批器官 —— 本波落痕 +
-   * 空回复收场（安全侧，不静默执行）。
+   * 撞审批门（S-57）：补 deferred 结果，然后走 `#askForApproval`（M3-W2 换真身：
+   * SK-77 四项载荷交给拥有对话的调用方）—— 回合本身沉默收场，不静默执行。
    */
   async #executeCycleTool(
     step: number,
@@ -925,16 +953,61 @@ export class Conversation {
       && observation.data.needs_approval
     ) {
       // S-57：这一个未应答的 tool_call 补 deferred 结果，历史保持合法形状。
+      // （新体一周期恰点名一个工具，所以"这一个"就是"其后所有"。）
       this.#appendToolResult(call.id, {
         success: false, deferred: true, note: 'awaiting owner approval',
       })
-      // TODO(M3)：审批问句机（S-58..S-68 · _ask_for_approval/request_approval
-      // 四道闸/归属判定/E1 盖章）随审批器官落地；本波安全侧：落痕 + 沉默收场。
-      this.#log('cycle_approval_gate_unwired', { action_type: action!.type })
-      return ''
+      return this.#askForApproval(action!, observation.data)
     }
     this.#appendToolResult(call.id, this.#resultPayload(action!, observation))
     return null
+  }
+
+  /**
+   * 这一轮的动作撞了审批门。**问一次**，并且在回复本身里什么也不说
+   * （WO-FIX-APPROVAL-UX ② / S-58）。
+   *
+   * 返回值就是这一回合的回复，所以在问句已经在途的那条路上它刻意是**空串**：
+   * 问句就是那条消息，在回复里再复述一遍，正是它所替代的那堆四连横幅。只有
+   * 一条问句都问不出去时这一回合才开口 —— 而且永不带一个端点进去。
+   *
+   * **SK-77 认知侧协议（新体唯一形态）**：认知侧只交出四项载荷
+   * （action_type / params / action_id / correlation_id），由**拥有这场对话的
+   * 调用方**（今天 = 设备层）以当轮入站 message_id 为 reply_to 去问。
+   *
+   * 为什么不是"把入站 id 送进认知侧"：那是 WO-U3/P1 E2 分层的刻意设计 ——
+   * 「对端是谁」只在设备层是结构事实。所以反过来：**问句移到设备层去发**。
+   * 排队也跟着问句走，在那一侧由 `requestApproval` 一次做完（"先发后排"的原子
+   * 性口径原封不动），这一层**不预先排一条没人问过的队**（S-59）。
+   *
+   * 活体的路 B（`_delegate_approval_ask=False`，认知侧自己取 `_owner_context()`
+   * 调 request_approval）是 Mac app 的缺省路径 —— 具身重设计后 Mac 退化为纯感知
+   * 器官，那条路在新体**不出生**（本波刻意不迁；ASK_FALLBACK 的文案随本条款迁
+   * 入，用在下面那个真正"问不出去"的分支上）。
+   */
+  #askForApproval(
+    action: { type: string; params: Record<string, unknown> },
+    data: Record<string, unknown>,
+  ): string {
+    const actionId = data.action_id
+    const correlationId = data.correlation_id
+    if (typeof actionId !== 'string' || !actionId) {
+      // 没有 action_id 就没有可以让设备侧绑住的把手：那条问句问不出去，动作不
+      // 做。**不**编一个 id —— 编出来的把手会让 Kevin 的「可以」绑到空处。
+      this.#log('approval_ask_skipped', { reason: 'no_action_id', action_type: action.type })
+      return ASK_FALLBACK
+    }
+    // 一轮一份，取走即清（S-60）：同一个待批动作被两个调用方各问一遍，就是
+    // Kevin 面前两条问句指向一件事。
+    this.#delegatedAsk = {
+      action_type: action.type,
+      params: action.params,
+      action_id: actionId,
+      correlation_id: typeof correlationId === 'string' ? correlationId : null,
+    }
+    this.#log('approval_ask_delegated', { action_type: action.type })
+    // 与 "asked" 同一条口径：问句就是那条消息，回合本身不再复述一遍。
+    return ''
   }
 
   /**
@@ -1125,6 +1198,27 @@ export class Conversation {
     return task
   }
 
+  /**
+   * 取走并清空本轮交给调用方去问的待批动作（S-60；surface/设备层在回合结束后
+   * 调用）。与 takeFollowupRequest 同一形态：取一次就没了 —— 同一个待批动作被
+   * 两个调用方各问一遍，就是 Kevin 面前两条问句指向一件事（`requestApproval`
+   * 的 already-outstanding 检查会挡住第二条入队，但那是最后一道网，不是借口）。
+   */
+  takeDelegatedAsk(): DelegatedAsk | null {
+    const ask = this.#delegatedAsk
+    this.#delegatedAsk = null
+    return ask
+  }
+
+  /**
+   * 只看不取（本波的观测口）。`takeDelegatedAsk` 的语义是**消费** —— 在设备层
+   * 真接上去问之前调它，等于把载荷丢进垃圾桶；所以接线侧落账用这个，去问用
+   * 那个。跨轮不会悬着：下一轮 `send` 开头就清场（S-13）。
+   */
+  peekDelegatedAsk(): DelegatedAsk | null {
+    return this.#delegatedAsk
+  }
+
   async send(
     message: string,
     opts: {
@@ -1136,9 +1230,10 @@ export class Conversation {
     this.#deps.markActive?.() // S-17：开头一次（M3 接真锁）
     const visible = await this.#lock.run(async () => {
       this.#background = opts.background ?? false
-      // S-13 一轮一份的清场（新体适用子集：followup / cycle_inner；delegate ask
-      // 与 shadow 是审批器官/影子期构件，本体不存在）。
+      // S-13 一轮一份的清场（新体适用子集：followup / cycle_inner / delegate
+      // ask —— 后者随 M3-W2 审批器官出生；shadow 是影子期构件，本体不存在）。
       this.#followupRequest = null
+      this.#delegatedAsk = null
       this.#cycleInner = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
       const checkpoint = this.#messages.length
