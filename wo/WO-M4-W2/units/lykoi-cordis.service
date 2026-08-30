@@ -1,0 +1,31 @@
+# Lykoi Cordis 主 unit（M4 前置 #11；WO-M4-W2）
+# 安装：install -o root -g root -m 644 → /etc/systemd/system/lykoi-cordis.service
+#
+# env 面纪律（GK-6 / 前置 #11）：
+#   - 治理 state 路径与旋钮一律不设（未设 = 走已签名的源码/装配面缺省）；
+#   - 凭据走 EnvironmentFile（root:root 600，systemd 以 root 读后降权到 User=lykoi；
+#     活体同形态）。telegram-cordis.env 内是唯一该进 env 面的 LYKOI_*（BOT_TOKEN，
+#     门只看设没设/空不空，永不读值）；llm.env 内是 DEEPSEEK_API_KEY（非 LYKOI_*）。
+#   - LYKOI_TELEGRAM_PROXY 必须未设（GK-6 unset 类）—— 本文件不设即是。出站代理
+#     走 root 签名的 profile/cordis.prod.yml（M4 代理决策，undici ProxyAgent）。
+#
+# ExecStartPre = 完整性门（七检查项）。exit 1 → 服务不起。fail closed 的物理面。
+
+[Unit]
+Description=Lykoi Cordis (M4 new body)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lykoi
+Group=lykoi
+WorkingDirectory=/home/lykoi/projects/lykoi-cordis
+EnvironmentFile=/home/lykoi/secrets/telegram-cordis.env
+EnvironmentFile=/home/lykoi/secrets/llm.env
+ExecStartPre=/opt/node-v24.18.0/bin/node /home/lykoi/projects/lykoi-cordis/packages/lykoi-gate/src/cli.ts
+ExecStart=/opt/node-v24.18.0/bin/node /home/lykoi/projects/lykoi-cordis/profile/index.prod.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
