@@ -95,6 +95,7 @@ test('GK-13 两域：root 属主域与 hash-pin 域的成员划分（合成树�
       'packages/lykoi-kernel/src/policy-core.ts',
       'profile/cordis.prod.yml',
       'profile/cordis.yml',
+      'profile/index.prod.ts',
       'profile/index.ts',
       'profile/package.json',
     ].sort())

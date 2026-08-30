@@ -126,9 +126,13 @@ root 单元。M4 部署清单必含。
 
     [Service]
     User=lykoi
-    Environment=LYKOI_TELEGRAM_BOT_TOKEN=...          # 唯一该出现在 unit 里的 LYKOI_*
-    ExecStartPre=/usr/bin/node /home/lykoi/projects/lykoi-cordis/packages/lykoi-gate/src/cli.ts
-    ExecStart=/usr/bin/node /home/lykoi/projects/lykoi-cordis/profile/index.ts
+    # 凭据走 EnvironmentFile（root:root 600，systemd 以 root 读后降权；活体同形态）：
+    #   telegram-cordis.env 里是唯一该进 unit env 面的 LYKOI_*（BOT_TOKEN）；
+    #   llm.env 里是 DEEPSEEK_API_KEY（非 LYKOI_*，不触前置 #11 的钉面）。
+    EnvironmentFile=/home/lykoi/secrets/telegram-cordis.env
+    EnvironmentFile=/home/lykoi/secrets/llm.env
+    ExecStartPre=<node24>/bin/node /home/lykoi/projects/lykoi-cordis/packages/lykoi-gate/src/cli.ts
+    ExecStart=<node24>/bin/node /home/lykoi/projects/lykoi-cordis/profile/index.prod.ts
     Restart=always
 
 **治理 state 路径一条都不许写进 `Environment=`**：GK-6 钉面要求它们未设或等于

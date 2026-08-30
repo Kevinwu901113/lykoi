@@ -20,7 +20,8 @@
 #      但次序错了也不再是死锁。
 #   1. `node packages/lykoi-gate/src/cli.ts`   ← 完整性门（systemd ExecStartPre）
 #      任一检查项有问题 → exit 1 → 服务不起来。这是 fail closed 的物理面。
-#   2. `node profile/index.ts`（LYKOI_PROFILE=prod）
+#   2. `node profile/index.prod.ts`（生产专用入口，M4-W2；零 env 读取、写死本
+#      装配 —— 曾设想的 LYKOI_PROFILE=prod 被否决：env 选装配 = 钉面外开旋钮）
 #
 # 本文件在 GK-13 的 **root 属主域**（`packages/lykoi-gate/src/surface.ts` 的
 # `PROFILE_ROOT_OWNED_FILES`）：它说 audit sink 落在哪、GK-8 开关开没开、哪些

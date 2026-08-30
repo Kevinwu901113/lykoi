@@ -141,6 +141,8 @@ export function hashPinnedPackages(repoRoot: string): string[] {
 export const PROFILE_ROOT_OWNED_FILES: readonly string[] = Object.freeze([
   'profile/package.json',
   'profile/index.ts',
+  // 生产专用入口（M4-W2）：它决定生产箱装载哪一份装配，与装配面本身同级。
+  'profile/index.prod.ts',
   'profile/cordis.yml',
   'profile/cordis.prod.yml',
 ])

@@ -101,6 +101,7 @@ export function makeFixture(): Fixture {
   dir(join(repoRoot, 'profile'))
   write(join(repoRoot, 'profile', 'package.json'), '{ "name": "profile" }\n')
   write(join(repoRoot, 'profile', 'index.ts'), '// synthetic entrypoint\n')
+  write(join(repoRoot, 'profile', 'index.prod.ts'), '// synthetic prod entrypoint\n')
   write(join(repoRoot, 'profile', 'cordis.yml'), '- id: audit\n')
   write(join(repoRoot, 'profile', 'cordis.prod.yml'), '- id: audit\n')
 
