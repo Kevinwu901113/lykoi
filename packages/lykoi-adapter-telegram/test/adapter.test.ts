@@ -271,7 +271,7 @@ test('出站（SPEC §7.1）：reply_to 必带；成功/失败都落审计（正
   assert.equal(audit.events.filter((e) => e.type === 'telegram/send_failed').length, 1)
 })
 
-test('生产传输骨架：无 token 即拒起；有 token 也不接真网（M1 纪律 4）', async () => {
+test('生产传输：无 token 即拒起（凭据走 env 引用，配置里永不落明文）', async () => {
   assert.throws(() => new ProductionTelegramTransport(undefined), /refusing to start without a bot token/)
   assert.throws(() => new ProductionTelegramTransport(''), /refusing to start/)
 
@@ -279,11 +279,6 @@ test('生产传输骨架：无 token 即拒起；有 token 也不接真网（M1 
   delete process.env.LYKOI_TEST_TG_TOKEN
   const ctx = new Context()
   await assert.rejects(
-    () => Promise.resolve(ctx.plugin(productionPlugin, { tokenEnv: 'LYKOI_TEST_TG_TOKEN' })),
+    () => Promise.resolve(ctx.plugin(productionPlugin, { tokenEnv: 'LYKOI_TEST_TG_TOKEN', proxy: '' })),
   )
-
-  // 有 token：可构造，但 poll/send 是不可达真网的骨架（本波零网络）
-  const transport = new ProductionTelegramTransport('test-token-placeholder')
-  await assert.rejects(() => transport.poll(1, { timeoutS: 25 }), /not wired in M1 wave 2/)
-  await assert.rejects(() => transport.send('c', 't', 'r'), /not wired in M1 wave 2/)
 })

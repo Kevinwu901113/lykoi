@@ -19,6 +19,10 @@
  * = 沉默（不变量 3）：契约失败经 D-01 的有界重试一次后仍败 → 降级沉默 +
  * u3_cycle_failed（带原始响应元数据，D-08 口径全部非内容）。
  *
+ * D-01 的另一半（M4-W1）：**周期有一条时间上的边**（`cycleTimeoutS`，缺省
+ * `D01_CYCLE_TIMEOUT_S`）。撞线不降级成沉默 —— 一次挂死的调用与她选择不说话
+ * 在账上必须分得开：`u3_cycle_timeout` + S-14 整轮回滚 + 大声抛。
+ *
  * M3 接口位（显式替身，绝不静默成功）：kernel dispatch 已接真身（W1）、审批
  * 问句机已接真身（W2：SK-77 四项载荷 → kernel approval-conversation）；仍为
  * 替身的是 vision 模型 / 出站进度队列 / interactive_lock / 未送达账本的生产侧
@@ -47,6 +51,10 @@ import {
   TOOL_TO_ACTION, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
 } from './contract.ts'
+import {
+  CYCLE_TIMEOUT_EVENT, D01_CYCLE_TIMEOUT_S, DeadlineExceededError, deadlineMs,
+  monotonicNowMs, withDeadline,
+} from './deadline.ts'
 import {
   beijingClock, beijingStamp, collapseWs, cpSlice, estimateMessagesTokens,
   pyFloatStr, stripMarkup,
@@ -179,6 +187,12 @@ export type ConverseLlmFn = (
     maxTokens?: number
     temperature?: number
     runId: string
+    /**
+     * D-01（M4-W1）：周期超时的 AbortSignal 形态。信封调用带它 —— 周期撞线时
+     * 那一跳**真的被掐断**（dsh-llm `GenerateOptions.signal` 收它），而不只是
+     * 这边不等了。summary 在锁外、不属于周期，恒不带。
+     */
+    signal?: AbortSignal
   },
 ) => Promise<ConverseLlmResult>
 
@@ -255,6 +269,15 @@ export interface ConverseDeps {
   markActive?: () => void
   /** 演化叙事 flag 文件路径（存在才注入；owner 域动作）。 */
   narrativeFlagPath?: string
+  /**
+   * D-01 周期超时（秒；M4-W1 交付①）。一个对话周期 = 信封调用 + 工具派发全程；
+   * 撞线 = 整轮按 S-14 回滚 + `u3_cycle_timeout` 落账 + 大声抛（设备侧那一层
+   * 记 `converse/turn_failed`，对 Kevin 呈现为沉默）。**不降级成"假装沉默"**：
+   * 一次挂死的调用与一次她选择不说话，在账上必须分得开。
+   *
+   * 缺省 = `D01_CYCLE_TIMEOUT_S`（源码单一出处）；`0` = 不设限（旧行为）。
+   */
+  cycleTimeoutS?: number
   /** 对话情境念头出口熔断（测试面；缺省 = CONVERSATION_INNER_ENABLED）。 */
   innerEnabled?: boolean
   /** 测试面（Python 侧以 monkeypatch 模块常量实现同一件事）。 */
@@ -794,13 +817,15 @@ export class Conversation {
 
   // --- 一次 completion（S-52 的 json 钮只在信封那一次生效） --------------------
 
-  async #completion(): Promise<ConverseLlmResult> {
+  async #completion(signal?: AbortSignal): Promise<ConverseLlmResult> {
     this.#enforceBudget()
     const messages = buildEnvelopeMessages(this.#assemble())
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null,
       runId: this.#lastRunId,
+      // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
+      ...(signal === undefined ? {} : { signal }),
     })
   }
 
@@ -810,7 +835,7 @@ export class Conversation {
    * 一个 inbound 回合 = 一串信封周期。每周期四选一；失败方向 = 沉默（不变量 3）
    * + D-01 有界重试一次（只对 not_json）。这条路上没有一个新的对外副作用出口。
    */
-  async #runCycle(): Promise<string> {
+  async #runCycle(signal?: AbortSignal): Promise<string> {
     for (let step = 0; step <= MAX_TOOL_STEPS; step += 1) {
       const closing = step === MAX_TOOL_STEPS
       if (closing) {
@@ -819,9 +844,9 @@ export class Conversation {
       let decision: Decision | null = null
       let elapsedMs = 0
       for (let attempt = 0; ; attempt += 1) {
-        const started = performance.now() // realtime-allow: 周期时延量真实墙钟
-        const result = await this.#completion()
-        elapsedMs = Math.round(performance.now() - started)
+        const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
+        const result = await this.#completion(signal)
+        elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
         try {
           decision = parseEnvelope({ content: result.content }, {
@@ -1242,8 +1267,21 @@ export class Conversation {
       this.#relevantMemories = this.#buildRelevantMemories(message)
       let reply: string
       try {
-        reply = await this.#runCycle()
+        // D-01（M4-W1）：整个周期有一条边。撞线 = AbortSignal 掐断那一跳 +
+        // 下面的 S-14 回滚 + `u3_cycle_timeout` 落账（elapsed 与判定读同一只表）。
+        const timeoutMs = deadlineMs(this.#deps.cycleTimeoutS ?? D01_CYCLE_TIMEOUT_S)
+        reply = await withDeadline('conversation_cycle', timeoutMs, (signal) => this.#runCycle(signal))
       } catch (exc) {
+        if (exc instanceof DeadlineExceededError) {
+          // 风格对齐 G-10 的 u3_cycle_failed：类别/时延/原因/零正文。
+          this.#log(CYCLE_TIMEOUT_EVENT, {
+            error_type: exc.name,
+            elapsed_ms: exc.elapsedMs,
+            timeout_ms: exc.timeoutMs,
+            reason: 'cycle_timeout',
+            run_id: this.#lastRunId,
+          })
+        }
         // S-14：失败回合整轮回滚 —— 消息列表永不带半截轮（未应答的 tool_call
         // 会毒化之后每一次装配）。已 dispatch 的副作用留在 audit 里。
         const dropped = this.#messages.length - checkpoint

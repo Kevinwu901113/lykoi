@@ -107,6 +107,13 @@ async function assemble(replyText: string): Promise<Assembly> {
     restartRepoRoot: '', // M3-W4：dev/测试不采 git HEAD（开发机的 HEAD 不是她的代码事实）
     restartUnit: '',
     notificationOutboxDelivery: false, // GK-8 默认关
+    // D-01 三旋钮（M4-W1）：与 cordis.prod.yml 同数；缺省也是这三个。
+    interpretTimeoutS: 30,
+    interpretRetries: 1,
+    cycleTimeoutS: 180,
+    // vision 位：M4 定案显式 disabled（零真模型调用）。
+    visionRoute: "disabled",
+    visionModel: "disabled",
   })
   const telegram = ctx.get('telegram') as TelegramAdapterService
   const budget = ctx.get('budget') as BudgetService

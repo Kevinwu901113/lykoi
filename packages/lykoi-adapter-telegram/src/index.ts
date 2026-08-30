@@ -6,8 +6,10 @@
  * 回复内容归 lykoi-converse-min（M1）/ lykoi-decide（M2），不归这里。
  *
  * 传输层是接口（TelegramTransport，poll/send），可替换：
- * - 生产实现（./production）本波只写骨架不接真网（无 token 即拒起）；
- * - 测试全部用内存 fake（./testing）驱动。
+ * - 生产实现（./production）M4 前置 #8 起接真 HTTP：它桥到 `BotApiTransport`，
+ *   HTTP 那一跳是 `./http` 的真 fetch —— **整棵树里唯一**指向真网的实现，且
+ *   只在那一个装配面被选中（无 token 即拒起）；
+ * - 测试全部用内存 fake（./testing）或注入的 `HttpPost` 驱动。
  *
  * 本波不做（工单明示）：出站游标语义（无 outbox）→ 一切出站都是应答，
  * send 的 reply_to 必带（SPEC §7.1：reply_to 非 None 即不计打扰预算的应答路径）。

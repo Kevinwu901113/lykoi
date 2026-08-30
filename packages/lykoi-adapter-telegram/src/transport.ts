@@ -12,17 +12,24 @@
  * 异常会把完整请求 URL（含 token）嵌进它的字符串形态。`trustEnv=false`：环境里
  * 的 HTTP(S)_PROXY 绝不许悄悄改道一条 URL 里带着 token 的请求。
  *
- * **零真网**（本波纪律）：HTTP 那一跳是一个注入 seam（`HttpPost`），本包不提供
- * 任何指向真网的缺省实现 —— 生产接线经治理复核后另行落，测试注 fake。所以本
- * 文件里一条可达真网的代码路径都没有。
+ * **HTTP 那一跳仍是注入 seam**（`HttpPost`）：本文件没有缺省实现，一条可达真网
+ * 的代码路径都没有。M4 前置 #8 起真身住在 `./http`（`createFetchHttpPost`），
+ * 且**只在生产装配面被选中**（`./production` 的 apply）——测试永远注 fake。
+ *
+ * **零 env 读取**（M4 前置 #8 逐字）：本文件一个 `process.env` 都没有。代理这
+ * 一位只能由装配面显式递进来；`LYKOI_TELEGRAM_PROXY` 的 unset 检查在 GK-6 门里。
  */
 import { appendUndelivered, type UndeliveredRecord } from './outbox.ts'
 
 export const API_BASE = 'https://api.telegram.org'
 export const TOKEN_ENV_VAR = 'LYKOI_TELEGRAM_BOT_TOKEN'
+/**
+ * 出站代理的 env 名。**本包永不读它**（M4 前置 #8：transport 零 env 读取）——
+ * 名字留在源码里是有作用的：GK-6 的钉面是**扫出来的**（`scanEnvReads` 扫每个包
+ * 的 src 里的 `LYKOI_` 字面量），所以这一行正是让门把它钉成 `unset` 类的那条
+ * 依据。设了它就是一条外泄通道（URL 里带着 token），生产必须未设。
+ */
 export const PROXY_ENV_VAR = 'LYKOI_TELEGRAM_PROXY'
-/** 家庭代理 —— 服务器直连不到 Telegram（代理是强制的，本传输没有直连模式）。 */
-export const DEFAULT_PROXY = 'http://192.168.0.202:7890'
 
 /**
  * 一个 429 至多重试这么多次（每次 honour `retry_after`）才放弃 —— 有界，好让
@@ -241,7 +248,9 @@ export class BotApiTransport {
       throw new Error(`BotApiTransport requires a bot token (${TOKEN_ENV_VAR})`)
     }
     this.#token = options.token
-    this.#proxy = options.proxy ?? (process.env[PROXY_ENV_VAR] ?? DEFAULT_PROXY).trim()
+    // M4 前置 #8：**零 env 读取**。代理只能由装配面显式递进来（今天生产递空串
+    // = 直连；GK-6 把代理 env 钉成必须未设，所以这里读 env 等于给那道钉开后门）。
+    this.#proxy = (options.proxy ?? '').trim()
     this.#apiBase = options.apiBase ?? API_BASE
     this.#timeoutS = options.timeoutS ?? 30.0
     this.#post = options.post

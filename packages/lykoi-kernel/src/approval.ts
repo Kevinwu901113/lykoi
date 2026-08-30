@@ -608,6 +608,20 @@ export function bootstrapOwnerPreauthorization(
     const key = `user:${userId}`
     const entry = scopedEntry(actionType, key)
     const present = (_load().always_allow ?? []).includes(entry)
+    if (present) {
+      // M4-W1 / GK-9 幂等：**授权行已在册 = 一个字节都不写**。
+      //
+      // 从前这里照样走一遍 grantStanding：规则文件因为去重不会变，但 sidecar
+      // （standing_grants.json）会被刷成一个新的 granted_at。部署期这个入口可能
+      // 被跑第二次（切换窗的「确认」那一步就是），届时一次纯确认不该在账面上
+      // 留下一条像是新授权的记录 —— 也不该动任何一个受哈希钉的文件。
+      //
+      // 丢掉的只有 sidecar 那条元数据的刷新，而 sidecar 本来就**不是权威**
+      // （见本文件 §scoped standing authorizations 的注释：规则有行而 sidecar
+      // 无条目 = 仍是有效授权，只是没记条件）。授权本身分毫未动。
+      if (!isHardGated(actionType)) already.push(entry)
+      continue
+    }
     const record = grantStanding(actionType, null, {
       scopeKey: key,
       question: '(初始预授权 approval_model_v1 §2b)',
@@ -616,7 +630,7 @@ export function bootstrapOwnerPreauthorization(
       ...(opts.now === undefined ? {} : { now: opts.now }),
     })
     if (record === null) continue
-    ;(present ? already : granted).push(entry)
+    granted.push(entry)
   }
   logEvent('owner_preauth_installed', { owner: userId, granted: granted.length, already: already.length })
   return { owner_user_id: userId, granted, already }

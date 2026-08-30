@@ -117,6 +117,13 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
     restartMarker: join(dir, 'restart-marker.json'), narrativeFlag: '',
     restartRepoRoot: '', restartUnit: '', // M3-W4：dev/测试不采 git HEAD
     notificationOutboxDelivery: false, // GK-8 默认关
+    // D-01 三旋钮（M4-W1）：与 cordis.prod.yml 同数；缺省也是这三个。
+    interpretTimeoutS: 30,
+    interpretRetries: 1,
+    cycleTimeoutS: 180,
+    // vision 位：M4 定案显式 disabled（零真模型调用）。
+    visionRoute: "disabled",
+    visionModel: "disabled",
 
   })
   const telegram = ctx.get('telegram') as TelegramAdapterService
@@ -143,4 +150,16 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
   const allText = JSON.stringify(second.messages)
   assert.ok(!allText.includes('[tool_calls]'))
   assert.ok(!allText.includes('[工具结果]'))
+
+  // --- M4-W1 同批：装配面的两件事在**同一次真装配**里核 ---
+  // ① D-01 的 AbortSignal 形态通到 wire：周期那条边的 signal 递进
+  //    `GenerateOptions.signal`，撞线时这一跳真的断（不是只有上面不等了）。
+  const withSignal = adapter.seen.filter((o) => o.signal instanceof AbortSignal)
+  assert.equal(withSignal.length, adapter.seen.length, '每一次信封调用都要带周期 signal')
+  assert.equal(adapter.seen[0]!.signal!.aborted, false, '没撞线就不该是 aborted')
+  // ② vision 位读到的是**显式 disabled**（装配期落一条，运维看得见这是决定）。
+  const seam = audit.events.filter((e) => e.type === 'vision_seam_state')
+  assert.equal(seam.length, 1)
+  assert.equal(seam[0]!.state, 'disabled')
+  assert.equal(seam[0]!.route_set, true)
 })

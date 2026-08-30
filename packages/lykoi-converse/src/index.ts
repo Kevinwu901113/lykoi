@@ -41,6 +41,7 @@ import {
   createApprovalConversation, createDispatch, createSuggestionConversation,
   kernelActionCatalog, getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
+  APPROVAL_RUN_PREFIX,
   INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
   setApprovalInterpretLlm, setIdentityBindingLookup, setKernelLogEvent,
   setNotificationOutboxDelivery,
@@ -54,11 +55,15 @@ import {
   ContextBudgetError, Conversation, composeSurfaceReply,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
-import { createDescribeImage } from './vision.ts'
+import {
+  VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
+} from './vision.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
+import { D01_DEFAULTS, runInterpretWithDeadline } from './deadline.ts'
 
 export * from './contract.ts'
 export * from './conversation.ts'
+export * from './deadline.ts'
 export * from './exemption.ts'
 export * from './hygiene.ts'
 export * from './prompts.ts'
@@ -101,6 +106,26 @@ export interface Config {
    * 而不是藏在某个进程里的运行期状态。
    */
   notificationOutboxDelivery: boolean
+  /**
+   * **D-01 三旋钮**（M4 前置 #6；Kevin 2026-08-31 授权采用治理建议值）。
+   *
+   * 语义不是工程参数是治理决定：「一次审批问句等多久才算问不到」「一个对话
+   * 周期挂多久才算挂死」。缺省值 = `D01_DEFAULTS`（`deadline.ts`，源码单一
+   * 出处）—— 装配面把这三行删掉不会换一套语义，只是回到同样的三个数。
+   */
+  /** 判读调用（approval 解释器，T=0/400 tokens 那条）单次超时秒数。 */
+  interpretTimeoutS: number
+  /** 判读调用有界重试次数（1 = 至多两次尝试，最坏 timeout×2）。 */
+  interpretRetries: number
+  /** 一个对话周期（信封 + 工具派发全程）的整体超时秒数。 */
+  cycleTimeoutS: number
+  /**
+   * **vision 路由位**（M4 定案：显式 `disabled`）。deepseek-chat 无视觉面，
+   * M4 不接真模型。`'disabled'` = 决定不开；空串 = **没填**（两者必须分得开，
+   * 见 `visionSeamState`）—— 两种都零真模型调用，但事件流上是两回事。
+   */
+  visionRoute: string
+  visionModel: string
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -113,6 +138,13 @@ export const Config: Schema<Config> = Schema.object({
   restartRepoRoot: Schema.string().default(''),
   restartUnit: Schema.string().default(''),
   notificationOutboxDelivery: Schema.boolean().default(false), // GK-8：默认关
+  // D-01 三旋钮：缺省 = 源码单一出处（deadline.ts），与 prod profile 同数。
+  interpretTimeoutS: Schema.number().default(D01_DEFAULTS.interpretTimeoutS),
+  interpretRetries: Schema.number().default(D01_DEFAULTS.interpretRetries),
+  cycleTimeoutS: Schema.number().default(D01_DEFAULTS.cycleTimeoutS),
+  // vision 路由位：缺省**空串 = 没填**（不是 disabled —— 两者必须分得开）。
+  visionRoute: Schema.string().default(''),
+  visionModel: Schema.string().default(''),
 })
 
 /**
@@ -124,9 +156,10 @@ export const Config: Schema<Config> = Schema.object({
  * 本来会成功的重试会在传输层被切成静默失败 —— 那恰好是 D-01 想消灭的那种
  * "看不见的断点"。
  *
- * 刻意**不**在这里写秒数：单次调用上限与回合硬顶是生产配置（cordis.yml，
- * M3-W4/M4），猜一个数比留空更坏。设备侧配置面（lykoi-adapter-telegram 的
- * pollTimeoutS 等）在接线时对着这个乘数核。
+ * 秒数不在这里：它们是 D-01 的三旋钮（`deadline.ts` 的 `D01_DEFAULTS` = 源码
+ * 单一出处，装配面 `converse.config.*` 可覆盖）。M4-W1 起三个数都已填实并在
+ * 调用路径上被强制：判读 30s×(1+1 次重试)、周期 180s。设备侧配置面
+ * （lykoi-adapter-telegram 的 pollTimeoutS 等）在接线时对着这个乘数核。
  */
 export const TURN_LLM_CALLS_MAX = ENVELOPE_RETRY_MAX + 1
 /** 一次审批答复回合的判读调用上限（快通道为 0）。 */
@@ -305,6 +338,9 @@ export function apply(ctx: Context, config: Config) {
       ...(opts.responseFormat === null || opts.responseFormat === undefined
         ? {}
         : { responseFormat: opts.responseFormat }),
+      // D-01（M4-W1）：周期那条边的 signal 一路递到 wire —— 周期撞线时这一跳
+      // **真的断**，而不只是上面不等了（连接与 tokens 都不再挂着）。
+      ...(opts.signal === undefined ? {} : { signal: opts.signal }),
     }, { runId: opts.runId })
     return {
       content: result.text,
@@ -315,24 +351,42 @@ export function apply(ctx: Context, config: Config) {
     }
   }
 
-  // ⑦ vision 的真调用形状（cognition/llm_router.describe_image）。本波**零真网**：
-  // 图片内容作为一条 image_url content part 送上去；生产路由（VISION）与真模型
-  // 那一跳随 M4 的 cordis.yml。这里保持与主路由同一个 lykoiLlm 入口 —— 闸与账
-  // 长在调用路径里（绕开本层即绕开预算）。
-  const visionCompletion = async (messages: import('./vision.ts').VisionMessage[]) => {
-    const result = await ctx.lykoiLlm.call({
-      provider: config.route,
-      model: config.model,
-      messages: messages.map((m) => createUserMessage({
-        content: m.content.map((part) => part.type === 'text'
-          ? { type: 'text' as const, text: part.text ?? '' }
-          // dsh 词汇里图片是一段带 url 的内容块；vendor 侧的 serialize 认它。
-          : { type: 'text' as const, text: part.image_url?.url ?? '' }),
-        source: { kind: 'user' },
-      })),
-    }, { runId: `vision-${Date.now()}` })
-    return { content: result.text }
-  }
+  // ⑦ vision 的真调用形状（cognition/llm_router.describe_image）。
+  //
+  // **M4 定案：vision 位显式 disabled**（deepseek-chat 无视觉面，切换窗不开新
+  // 回路）。所以装配面这一位有三态，而这里按态分叉：
+  //   - `disabled`     → 决定不开：**零真模型调用**，describeImage 直接抛
+  //                      VisionDisabledError（Conversation 的 vision_error 分支
+  //                      接住 —— 她知道自己这次没看见，而不是收到凭空的描述）。
+  //   - `unconfigured` → 装配面漏填：同样零调用、同样抛，但事件与措辞分开，
+  //                      运维能区分「决定不开」与「忘了填」。
+  //   - `wired`        → 走 visionRoute/visionModel 那一对（仍是同一个 lykoiLlm
+  //                      入口 —— 闸与账长在调用路径里，绕开本层即绕开预算）。
+  const visionState = visionSeamState(config.visionRoute, config.visionModel)
+  logEvent(VISION_SEAM_EVENT, {
+    state: visionState,
+    // 零正文口径：只记这一位「是什么状态」，不把路由/模型名当内容记。
+    route_set: config.visionRoute.trim() !== '',
+    model_set: config.visionModel.trim() !== '',
+  })
+  // 守卫在**调用之前**（createVisionCompletion）：不是发出去再丢响应。
+  const visionCompletion = createVisionCompletion({
+    state: visionState,
+    call: async (messages) => {
+      const result = await ctx.lykoiLlm.call({
+        provider: config.visionRoute,
+        model: config.visionModel,
+        messages: messages.map((m) => createUserMessage({
+          content: m.content.map((part) => part.type === 'text'
+            ? { type: 'text' as const, text: part.text ?? '' }
+            // dsh 词汇里图片是一段带 url 的内容块；vendor 侧的 serialize 认它。
+            : { type: 'text' as const, text: part.image_url?.url ?? '' }),
+          source: { kind: 'user' },
+        })),
+      }, { runId: `vision-${Date.now()}` })
+      return { content: result.text }
+    },
+  })
 
   const conversation = new Conversation({
     store,
@@ -362,6 +416,9 @@ export function apply(ctx: Context, config: Config) {
     // ⑤ interactive_lock：S-17 的两次 markActive 接真锁（wake 侧读同一个）。
     markActive: () => { markInteractiveActive() },
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
+    // D-01 第三旋钮：一个周期（信封调用 + 工具派发全程）的整体上限。装配面不给
+    // 时 Schema 缺省 = D01_DEFAULTS.cycleTimeoutS（源码单一出处）。
+    cycleTimeoutS: config.cycleTimeoutS,
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
 
@@ -374,6 +431,11 @@ export function apply(ctx: Context, config: Config) {
   //   `approval-interpret-<action_type>`，于是 budget 账上"审批判读花了多少"可
   //   单独看见，而 route 会计一个桶都没多。T=0/400 由 kernel 侧钉死，这里原样
   //   转发（断言见 kernel test/approval-interpreter.test.ts）。
+  //   **D-01 第一、二旋钮就装在这个 wrapper 上**（M4-W1）：单次判读调用超时
+  //   （AbortSignal 形态 —— signal 递进 dsh-llm 的 `GenerateOptions.signal`，
+  //   于是超时不只是"这边不等了"，是真把那一跳掐掉）+ 有界重试。失败方向由
+  //   kernel 那侧钉死：`interpret` 的五失败路之一是「transport 抛 → unclear」，
+  //   所以从这里抛出去永不 approve、永不挡路，只是"这次问不到"。
   setApprovalInterpretLlm(async (messages, opts) => {
     const systemParts: string[] = []
     let i = 0
@@ -381,7 +443,16 @@ export function apply(ctx: Context, config: Config) {
       systemParts.push(messages[i]!.content)
       i += 1
     }
-    const result = await ctx.lykoiLlm.call({
+    // runId = `approval-interpret-<action_type>`（kernel 侧拼；SK-36 的 run 维度）。
+    // 事件里的 action_type 从它还原 —— 不新增 seam 参数。
+    const actionType = opts.runId.startsWith(`${APPROVAL_RUN_PREFIX}-`)
+      ? opts.runId.slice(APPROVAL_RUN_PREFIX.length + 1)
+      : opts.runId
+    const result = await runInterpretWithDeadline(actionType, {
+      timeoutS: config.interpretTimeoutS,
+      retries: config.interpretRetries,
+      logEvent,
+    }, (signal) => ctx.lykoiLlm.call({
       provider: config.route,
       model: config.model,
       ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
@@ -395,7 +466,8 @@ export function apply(ctx: Context, config: Config) {
       ...(opts.responseFormat === null || opts.responseFormat === undefined
         ? {}
         : { responseFormat: { type: 'json_object' as const } }),
-    }, { runId: opts.runId })
+      signal, // D-01：超时即 abort，那一跳真的断（连接与 tokens 都不再挂着）
+    }, { runId: opts.runId }))
     return { content: result.text }
   })
   // ③两条腿共享**同一个** kernel dispatch —— 问句/追问/回执都以她自己的

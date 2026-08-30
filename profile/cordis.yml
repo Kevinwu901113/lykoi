@@ -56,7 +56,8 @@
     route: mock
     model: mock-model
     restartMarker: var/restart-marker.json
-# telegram 生产传输默认 disabled（工单④）：本波骨架不接真网；启用是治理侧动作
+# telegram 生产传输默认 disabled（工单④）：M4-W1 起它接的是真 fetch，所以在 dev
+# 装配面上「启用」这一位比从前更重的一步；启用是治理侧动作
 # （需 lykoiMemory 的 state 副本路径与 tokenEnv 环境引用一并配好——凭据永不落明文）。
 # dev 用 fake transport 的装配只存在于测试（lykoi-adapter-telegram/testing），不进 profile。
 - id: memory
@@ -69,6 +70,8 @@
   disabled: true
   config:
     tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
+    # 空串 = 直连（传输层零 env 读取，代理只能从装配面来；M4 前置 #8）。
+    proxy: ''
 - id: telegram
   name: lykoi-adapter-telegram
   disabled: true

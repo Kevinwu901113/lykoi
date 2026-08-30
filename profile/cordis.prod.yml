@@ -8,6 +8,14 @@
 #     哪一样 root 供给才能翻开**；供给没到位就别翻，翻了会在启动闸上红。
 #
 # 启动次序（生产）：
+#   0. **切换窗一次性**（GK-9 / m4_handoff 前置 #1，在首次签 manifest **之前**跑）：
+#      node packages/lykoi-kernel/src/bootstrap-preauth.ts \
+#        --state-db /home/lykoi/state/memory.db \
+#        --rules    /home/lykoi/state/approval_rules.json \
+#        --standing /home/lykoi/state/standing_grants.json
+#      装 owner 初始预授权 = 解 S1B 死锁（没有它，她的第一句审批问句自己撞在门上）。
+#      幂等：授权行已在册就一个字节都不写，所以「原样搬活体那份」之后照样能跑一遍
+#      当确认（先 --dry-run 体检格式兼容性）。规则文件是哈希钉面 —— 写完再签。
 #   1. `node packages/lykoi-gate/src/cli.ts`   ← 完整性门（systemd ExecStartPre）
 #      任一检查项有问题 → exit 1 → 服务不起来。这是 fail closed 的物理面。
 #   2. `node profile/index.ts`（LYKOI_PROFILE=prod）
@@ -100,6 +108,17 @@
     # 开 = kind=notification 并入 chat_outbox 投递线 = 通知从 pull 变 push。
     # 这**改变到达行为**，蓝图明定开启是 Kevin 的决断，构建侧不自作主张。
     notificationOutboxDelivery: false
+    # ===== D-01 三旋钮（M4 决断项，Kevin 2026-08-31「按现有建议默认值」批） =====
+    # 语义不是工程参数是治理决定；数与说明见文末 D-01 段与
+    # lykoi-converse/src/deadline.ts（源码单一出处，这三行删了也是同样三个数）。
+    interpretTimeoutS: 30
+    interpretRetries: 1
+    cycleTimeoutS: 180
+    # ===== vision 路由位：M4 定案「显式 disabled」 =====
+    # deepseek-chat 无视觉面，切换窗不开新回路。写显式值而非留空 ——
+    # 「忘了填」（空串）与「决定不开」（disabled）在事件流上必须分得开。
+    visionRoute: disabled
+    visionModel: disabled
 
 # ---- 自主侧（wake / learn）---------------------------------------------------
 # 同样受 R-01 约束（写同一个 state 库）。
@@ -119,12 +138,19 @@
 # 需 root 供给：unit 文件里的 `Environment=LYKOI_TELEGRAM_BOT_TOKEN=…`
 # （凭据永不落进本文件、永不落进仓库；门只看设没设/空不空，**永不读值**）。
 # `LYKOI_TELEGRAM_PROXY` 是 GK-6 的 **unset 类**：设了就是一条外泄通道，
-# 生产必须未设。BotApiTransport 的真 HTTP 接线是 M4 前置 #8。
+# 生产必须未设。BotApiTransport 的真 HTTP 接线（M4 前置 #8）已在 M4-W1 落地：
+# 真 fetch 住在 lykoi-adapter-telegram/src/http.ts，**只在本条目的装配面被选中**。
 - id: telegram-transport
   name: lykoi-adapter-telegram/production
   disabled: true
   config:
     tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
+    # M4 前置 #8：出站代理这一位**只能从这里来**（传输层零 env 读取；
+    # LYKOI_TELEGRAM_PROXY 是 GK-6 的 unset 类，生产必须未设）。
+    # 空串 = 直连。非空 = 起不来（Node 内建 fetch 走代理只有 env 一条路，而那
+    # 条路正是钉死的那条）—— 宁可拒起，绝不「以为走了代理其实在裸奔」。
+    # 生产主机能否直连 api.telegram.org 属部署面事实，W2 定（见 W1 报告）。
+    proxy: ''
 - id: telegram
   name: lykoi-adapter-telegram
   disabled: true
@@ -154,18 +180,32 @@
 #   /home/lykoi/runtime/persona/lykoi_base.toml  LYKOI_PERSONA_TOML     (活体逐字)
 #
 # ============================================================================
-# D-01 超时预算 · 生产值位（**M4 决断项，此处只留位不填数**）
+# D-01 超时预算 · 生产值（**已填；M4-W1**）
 # ============================================================================
-# 解释器判读 T=0/400 tokens 的调用超时、重试次数与退避，属于「一次审批问句等
-# 多久才算问不到」这一类语义决定 —— 填一个数进去就是替 Kevin 拍了板。
-# M4 交接清单前置 #6 要的就是这几个秒数。位在这里：
-#   converse.config.interpretTimeoutS:   <M4 填>
-#   converse.config.interpretRetries:    <M4 填>
-#   converse.config.cycleTimeoutS:       <M4 填>
+# 解释器判读 T=0/400 tokens 的调用超时、重试次数，属于「一次审批问句等多久才算
+# 问不到」这一类语义决定 —— 填一个数进去就是替 Kevin 拍了板。所以这三个数是
+# 治理侧建议值经 **Kevin 2026-08-31「这三个按照现有建议默认值」授权** 采用
+# （docs/m4_blueprint.md §决断项定案；否决窗口 = 切换窗前）。
+#   converse.config.interpretTimeoutS: 30   判读是小调用（经代理），30s 有界；
+#                                           语义=「30s 问不到就算问不到」。
+#   converse.config.interpretRetries:  1    与 G-10 信封 not_json 有界重试同形；
+#                                           配超时 = 最坏 60s，算得出来。
+#   converse.config.cycleTimeoutS:     180  周期含信封调用 + 工具派发；活体实证
+#                                           有 89s 的合法长答，180s = 两倍余量。
+#                                           D1 中位 <15s 仍是健康指标不是杀线。
+# 强制点在 lykoi-converse：判读 = setApprovalInterpretLlm wrapper 上的
+# runInterpretWithDeadline（AbortSignal 递进 dsh-llm，超时真掐那一跳）；周期 =
+# Conversation.send 的 withDeadline。超时事件带 elapsed 入 audit（零正文）。
+# **删掉上面三行不会换语义**：Schema 缺省读同一份 D01_DEFAULTS。
 #
 # ============================================================================
-# vision 路由位（M4；W3 TODO#6）
+# vision 路由位（M4 定案：**显式 disabled**）
 # ============================================================================
-# `lykoi-converse/src/vision.ts` 的 describeImage seam 已在位，真模型路由待 M4：
-#   converse.config.visionRoute: <M4 填>
-#   converse.config.visionModel: <M4 填>
+# `lykoi-converse/src/vision.ts` 的 describeImage seam 在位，但 deepseek-chat 无
+# 视觉面，切换窗不为它开新回路 ——
+#   converse.config.visionRoute: disabled
+#   converse.config.visionModel: disabled
+# 装配面读到 disabled 时 **零真模型调用**：describeImage 抛 VisionDisabledError，
+# 由 Conversation 的 vision_error 分支接住（她知道自己没看见，而不是收到一句
+# 凭空的描述）。空串是另一回事 = **漏填**，同样零调用但措辞与事件分开 ——
+# 「忘了填」和「决定不开」必须一眼分得出。装配期落 `vision_seam_state` 一条。
