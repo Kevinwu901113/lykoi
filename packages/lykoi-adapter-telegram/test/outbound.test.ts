@@ -69,11 +69,13 @@ test('SK-80 **只有 reply_to is None 才过原子 check-and-reserve**：应答�
     const result = await messengerSend({ text: 'hi', context_id: '1001', reply_to: '500' })
     assert.equal(result.sent, true)
   }
-  assert.equal(messengerProactiveRemainingToday(T0), 1, '回答 Kevin 不是打扰他')
+  // 无参查询（真钟）：本测经 messengerSend 走生产路径，账本写的是真钟时间戳 ——
+  // 拿 T0 查会数不到今天的账（夹具日 ≠ 运行日，早绿晚红）。写读同钟。
+  assert.equal(messengerProactiveRemainingToday(), 1, '回答 Kevin 不是打扰他')
   // 主动路径：第一条通过，第二条被 daily_cap 挡
   const first = await messengerSend({ text: '我想说件事', context_id: '1001', reply_to: null })
   assert.equal(first.sent, true)
-  assert.equal(messengerProactiveRemainingToday(T0), 0)
+  assert.equal(messengerProactiveRemainingToday(), 0)
   const blocked = await messengerSend({ text: '再说一件', context_id: '1001' })
   assert.deepEqual(blocked, { sent: false, throttled: true, reason: 'daily_cap' })
 })

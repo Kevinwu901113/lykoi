@@ -145,6 +145,7 @@ export interface ApprovalConversation {
       runId?: string | null
       actionId?: string | null
       correlationId?: string | null
+      now?: Date
     },
   ): Promise<RequestApprovalResult>
   handleOwnerAnswer(
@@ -321,6 +322,10 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
       runId?: string | null
       actionId?: string | null
       correlationId?: string | null
+      // 静默期判定的时钟（缺省真钟；与 handleOwnerAnswer.now 同形）。recentDenial
+      // 本就收 now，只是这里此前没透传 —— 固定夹具日期的测试因此在夹具+24h 后
+      // 由绿转红（denial 记在 T0、判定却用真钟）。
+      now?: Date
     },
   ): Promise<RequestApprovalResult> {
     const contextId = opts.contextId
@@ -342,7 +347,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
     }
 
     // ② 静默期
-    if (scopeKey && recentDenial(actionType, scopeKey) !== null) {
+    if (scopeKey && recentDenial(actionType, scopeKey, { now: opts.now }) !== null) {
       // 同范围短期内不再问 —— advisory，而且是往**安全**方向的 advisory：动作
       // 照样不发生，她只是不再唠叨。
       await interpreter.auditEvent(AUDIT_QUESTION, {

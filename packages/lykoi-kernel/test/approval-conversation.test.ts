@@ -119,7 +119,8 @@ test('SK-30 闸②静默期：24h 内拒过同 scope → quiet_period（suppress
   const ac = createApprovalConversation({ dispatch })
   recordDenial('messenger.send', 'channel:telegram:chat-zhang', { answer: '不用', now: T0 })
 
-  const out = await ac.requestApproval('messenger.send', { text: 'hi', context_id: 'chat-zhang' }, { contextId: CTX })
+  // now: T0 —— denial 与判定必须用同一只钟，否则夹具+24h 后此测由绿转红
+  const out = await ac.requestApproval('messenger.send', { text: 'hi', context_id: 'chat-zhang' }, { contextId: CTX, now: T0 })
   assert.equal(out.status, 'quiet_period')
   assert.equal(out.pending_id, null)
   assert.equal(sends().length, 0) // 不再追着问
@@ -488,7 +489,7 @@ test('SK-35：审计事件全集 —— approval_question 四态 / answer_routed
   await askOne(ac)
   // suppressed（另一个 scope）
   recordDenial('messenger.send', 'channel:telegram:chat-li', { answer: 'no', now: T0 })
-  await ac.requestApproval('messenger.send', { text: 'x', context_id: 'chat-li' }, { contextId: CTX })
+  await ac.requestApproval('messenger.send', { text: 'x', context_id: 'chat-li' }, { contextId: CTX, now: T0 })
   // undelivered
   {
     const failing = fakeDispatch({ sendResult: () => ({ success: false, data: {}, error: 'down' }) })
@@ -524,7 +525,7 @@ test('SK-30：每个非 asked 态都意味着动作不跑 —— 此路无执行
     const { dispatch, calls } = fakeDispatch()
     const ac = createApprovalConversation({ dispatch })
     recordDenial('browser.navigate', 'domain:example.com', { now: T0 })
-    outcomes.push((await ac.requestApproval('browser.navigate', { url: 'https://example.com/p' }, { contextId: CTX })).status)
+    outcomes.push((await ac.requestApproval('browser.navigate', { url: 'https://example.com/p' }, { contextId: CTX, now: T0 })).status)
     assert.equal(calls.length, 0)
   }
   // send_failed
