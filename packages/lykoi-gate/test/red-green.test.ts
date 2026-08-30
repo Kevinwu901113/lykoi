@@ -79,14 +79,18 @@ test('红绿双验 · 仓库外：人格 TOML 改一字节（DA-11 那份文件�
   }
 })
 
-test('红绿双验 · 仓库外：活规则文件改一字节', (t) => {
+test('红绿双验 · 仓库外：活规则文件 —— GK-15 后哈希面退役，检查项⑥仍红', (t) => {
   const fx = makeFixture()
   try {
     assert.deepEqual(verify(fx.env), [])
     const before = tamperOneByte(fx.rulesPath)
     const red = verify(fx.env)
-    // 规则文件被动过会同时触发两件事：哈希不符 + JSON 已经解析不动了。
-    assert.ok(red.some((p) => /hash mismatch/.test(p)), red.join(' | '))
+    // GK-15（见 manifest.ts 顶注）：规则文件不再在钉面上，所以**不许**红在
+    // hash mismatch 上 —— 红必须来自检查项⑥（这里 tamper 把 JSON 弄坏了 →
+    // unreadable/schema 路）。合法改写（schema 仍合）不红的那一半在
+    // manifest.test.ts 的 GK-15 回归测试里。
+    assert.ok(!red.some((p) => /hash mismatch/.test(p)), red.join(' | '))
+    assert.ok(red.some((p) => p.includes(fx.rulesPath)), red.join(' | '))
     t.diagnostic(`RED    approval_rules -> ${red.join(' ; ')}`)
     restore(fx.rulesPath, before)
     assert.deepEqual(verify(fx.env), [])

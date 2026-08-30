@@ -52,12 +52,6 @@ export interface GateEnv {
    * 文件。
    */
   rulesPath: string
-  /**
-   * 活规则的**规范**路径（检查项⑤钉它）。活体 `_protected_files` 用的是
-   * `RULES_CANONICAL` 而不是 `RULES_PATH`：manifest 钉的永远是规范那一份。
-   * 两个字段刻意分开，正是为了保住这条不对称。
-   */
-  rulesFile: string
   /** 审计 sink 路径（检查项⑦读它）。 */
   auditPath: string
   /** append-only 属性探针：true/false/**null = 读不出来**（活体 None 同义，fail closed）。 */
@@ -80,7 +74,6 @@ export function productionEnv(repoRoot: string): GateEnv {
     environ,
     personaToml: PERSONA_TOML_CANONICAL, // 刻意用规范路径而非 env 解析（活体注释逐字理由）
     rulesPath: environ.LYKOI_APPROVAL_RULES ?? RULES_CANONICAL,
-    rulesFile: RULES_CANONICAL,
     auditPath: environ.LYKOI_AUDIT_PATH ?? AUDIT_CANONICAL,
     appendOnlyProbe: defaultAppendOnlyProbe,
     isProtectedPath,
@@ -389,7 +382,7 @@ export function checkManifest(env: GateEnv, problems: string[]): void {
   }
 
   const protectedList: ProtectedEntry[] = protectedEntries(env.repoRoot, {
-    personaToml: env.personaToml, rulesFile: env.rulesFile,
+    personaToml: env.personaToml,
   })
   const protectedByName = new Map(protectedList.map((e) => [e.name, e]))
 

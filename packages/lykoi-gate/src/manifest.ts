@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   PERSONA_TOML_CANONICAL, PINNED_DOCS, PINNED_ROOT_FILES, PROFILE_ROOT_OWNED_FILES,
-  ROOT_OWNED_PACKAGES, RULES_CANONICAL, collectTs, hashPinnedPackages, manifestKey,
+  ROOT_OWNED_PACKAGES, collectTs, hashPinnedPackages, manifestKey,
 } from './surface.ts'
 
 /** GK-13 两域：`root` = 属主+权限+哈希三重；`hash` = 只核哈希（GOV-01）。 */
@@ -79,26 +79,35 @@ export function sha256File(path: string): string {
  *
  * | 域 | 成员 |
  * |---|---|
- * | root 属主域 | `packages/lykoi-kernel/**`（含 package.json）、`packages/lykoi-gate/**`、`profile/*`、人格 TOML、活规则文件 |
+ * | root 属主域 | `packages/lykoi-kernel/**`（含 package.json）、`packages/lykoi-gate/**`、`profile/*`、人格 TOML |
  * | hash-pin 域 | 其余全部 `packages/<pkg>/src/**.ts` + 各包 package.json、仓库根 package.json/tsconfig.json、治理常数文档 |
  *
- * 人格 TOML 与活规则用**绝对规范路径**做键（活体同法）：它们不在仓库里，且
- * 检查项③保证 env 改不动它们，所以这里核的规范路径与进程真正加载的那一个
- * 永远不可能分叉。
+ * 人格 TOML 用**绝对规范路径**做键（活体同法）：它不在仓库里，且检查项③保证
+ * env 改不动它，所以这里核的规范路径与进程真正加载的那一个永远不可能分叉。
+ *
+ * **GK-15（M4 复核决断，对活体语义的一处显式偏离）：活规则文件不入钉面。**
+ * 活体 `_protected_files` 确实钉着 `RULES_CANONICAL`（startup_verify.py:135，
+ * 无特判逐字节比哈希）——它没炸过只因规则文件自 2026-08-11 签名后一个字节
+ * 没动过（mtime 取证 2026-08-31）。而规则文件是**运行期会被合法改写的**：
+ * 所有者答「以后都可以」→ `grantStanding` → `_persist` 改写。钉面 + 合法改写
+ * = 每一次所有者授权都是下一次重启的延迟砖机（`Restart=always` 下 = 停摆）。
+ * 退钉后的完整性承担者是**检查项⑥**（schema 孪生 + 两处 `always_allow` 均不得
+ * 含硬门动作 —— 正是活体 `_check_rules` 的全部语义），加上 kernel 侧三重既有
+ * 防线（硬门永不可常设、通配 scope 键拒写、L5 铁律=认知面无写规则路径）。
+ * 决策与否决窗口见治理仓 M4 决策档。
  */
 export function protectedEntries(
   repoRoot: string,
   /**
-   * 仓库外两条的落址。缺省 = 活体逐字的生产规范路径。
+   * 仓库外一条（人格 TOML）的落址。缺省 = 活体逐字的生产规范路径。
    *
    * **刻意用规范路径而不是 env 解析值**（活体 startup_verify.py:67-74 的理由
-   * 逐字）：检查项③保证 env 改不动它们，所以这里核的规范路径与进程真正加载的
+   * 逐字）：检查项③保证 env 改不动它，所以这里核的规范路径与进程真正加载的
    * 那一个永远不可能分叉。做成入参只为了红绿双验能在 tmpdir 的合成树上跑真逻辑。
    */
-  outside: { personaToml?: string; rulesFile?: string } = {},
+  outside: { personaToml?: string } = {},
 ): ProtectedEntry[] {
   const personaToml = outside.personaToml ?? PERSONA_TOML_CANONICAL
-  const rulesFile = outside.rulesFile ?? RULES_CANONICAL
   const entries: ProtectedEntry[] = []
   const push = (path: string, domain: ProtectedDomain): void => {
     entries.push({ name: manifestKey(repoRoot, path), path, domain })
@@ -117,9 +126,8 @@ export function protectedEntries(
     if (existsSync(path)) push(path, 'root')
   }
 
-  // --- root 属主域：人格 TOML 与活规则（仓库外绝对规范路径） ---
+  // --- root 属主域：人格 TOML（仓库外绝对规范路径；活规则不入钉面 = GK-15，见顶注） ---
   push(personaToml, 'root')
-  push(rulesFile, 'root')
 
   // --- hash-pin 域：其余全部 packages 的 src ---
   for (const pkg of hashPinnedPackages(repoRoot)) {

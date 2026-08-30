@@ -126,7 +126,6 @@ export function makeFixture(): Fixture {
     environ: {}, // 生产钉面：路径未设 = 走已签名的缺省；旋钮未设 = 合格
     personaToml,
     rulesPath,
-    rulesFile: rulesPath, // 合成树里读面与规范面同址（生产两者刻意可分，见 GateEnv 注释）
     auditPath,
     appendOnlyProbe: () => true, // 合成 sink 没有真的 chattr +a；探针替身答"有"
     isProtectedPath: productionSemanticsGuard,
@@ -161,7 +160,7 @@ export function productionSemanticsGuard(path: string): boolean {
 /** 用当前树内容重签 manifest（`--write-manifest` 的等价调用）。 */
 export function signManifest(env: GateEnv): void {
   const entries = protectedEntries(env.repoRoot, {
-    personaToml: env.personaToml, rulesFile: env.rulesFile,
+    personaToml: env.personaToml,
   })
   writeFileSync(manifestPath(env.repoRoot), renderManifest(computeManifest(entries, sha256File)), 'utf8')
 }

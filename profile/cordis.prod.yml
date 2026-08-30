@@ -15,7 +15,9 @@
 #        --standing /home/lykoi/state/standing_grants.json
 #      装 owner 初始预授权 = 解 S1B 死锁（没有它，她的第一句审批问句自己撞在门上）。
 #      幂等：授权行已在册就一个字节都不写，所以「原样搬活体那份」之后照样能跑一遍
-#      当确认（先 --dry-run 体检格式兼容性）。规则文件是哈希钉面 —— 写完再签。
+#      当确认（先 --dry-run 体检格式兼容性）。规则文件不在哈希钉面上（GK-15，
+#      运行期合法可写，完整性归检查项⑥）——先跑它再签 manifest 仍是好次序，
+#      但次序错了也不再是死锁。
 #   1. `node packages/lykoi-gate/src/cli.ts`   ← 完整性门（systemd ExecStartPre）
 #      任一检查项有问题 → exit 1 → 服务不起来。这是 fail closed 的物理面。
 #   2. `node profile/index.ts`（LYKOI_PROFILE=prod）

@@ -24,7 +24,7 @@ export function main(argv: readonly string[], repoRoot: string): number {
   if (argv.includes('--write-manifest')) {
     const env = productionEnv(repoRoot)
     const entries = protectedEntries(repoRoot, {
-      personaToml: env.personaToml, rulesFile: env.rulesFile,
+      personaToml: env.personaToml,
     })
     const missing = entries.filter((e) => {
       try { sha256File(e.path); return false } catch { return true }

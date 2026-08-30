@@ -2,7 +2,7 @@
  * manifest 生成器的**纯函数性**与「签的=验的」（GK-13：清单生成器纯函数）。
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
@@ -61,7 +61,7 @@ test('签的=验的：protectedEntries 是唯一出处 —— 签完立刻验必
   const fx = makeFixture()
   try {
     const entries = protectedEntries(fx.repoRoot, {
-      personaToml: fx.env.personaToml, rulesFile: fx.env.rulesFile,
+      personaToml: fx.env.personaToml,
     })
     const signed = parseManifest(readFileSync(manifestPath(fx.repoRoot), 'utf8'))
     // manifest 的键集 = 受保护面的键集，一条不多一条不少。
@@ -79,15 +79,15 @@ test('GK-13 两域：root 属主域与 hash-pin 域的成员划分（合成树�
   const fx = makeFixture()
   try {
     const entries = protectedEntries(fx.repoRoot, {
-      personaToml: fx.env.personaToml, rulesFile: fx.env.rulesFile,
+      personaToml: fx.env.personaToml,
     })
     const rootNames = entries.filter((e) => e.domain === 'root').map((e) => e.name).sort()
     const hashNames = entries.filter((e) => e.domain === 'hash').map((e) => e.name).sort()
 
-    // root 属主域：kernel 包 + gate 包 + 装配面 + 仓库外两条。
+    // root 属主域：kernel 包 + gate 包 + 装配面 + 仓库外一条（人格 TOML）。
+    // 活规则文件刻意不在此表 —— GK-15，见 protectedEntries 顶注与下方回归测试。
     assert.deepEqual(rootNames, [
       fx.env.personaToml,
-      fx.env.rulesFile,
       'packages/lykoi-gate/package.json',
       'packages/lykoi-gate/src/verify.ts',
       'packages/lykoi-kernel/package.json',
@@ -158,4 +158,33 @@ test('W3 TODO#4：proactive-chat.ts 与 interactive-lock.ts 归 root 属主域',
 
   // 同一条补集纪律的另一头：出站器官的账本住业务包，落 hash-pin 域。
   assert.equal(domainOf('packages/lykoi-adapter-telegram/src/messenger.ts'), 'hash')
+})
+
+test('GK-15：活规则不入钉面 —— 签名后 grantStanding 式改写，门仍绿；检查项⑥仍在岗', () => {
+  const fx = makeFixture()
+  try {
+    // 前提①：受保护面里根本没有规则文件这一条（按 path 与 name 双查）。
+    const entries = protectedEntries(fx.repoRoot, { personaToml: fx.env.personaToml })
+    assert.equal(entries.some((e) => e.path === fx.rulesPath || e.name === fx.rulesPath), false)
+
+    // 前提②：签完立刻验，绿（基线）。
+    assert.deepEqual(verify(fx.env), [])
+
+    // 正题：模拟一次所有者「以后都可以」—— grantStanding 往 always_allow 写一条
+    // scoped 行。签名在前、改写在后 = 活体砖机的精确复现场景（startup_verify.py:135
+    // 钉着 RULES_CANONICAL，这一步之后活体的门必报 hash mismatch → Restart=always
+    // 下服务再也起不来）。GK-15 之后：门必须仍绿。
+    const granted = { always_allow: ['messenger.send@user:user_001'], always_deny: [], ask: [] }
+    writeFileSync(fx.rulesPath, JSON.stringify(granted) + '\n')
+    assert.deepEqual(verify(fx.env), [])
+
+    // 退钉 ≠ 放手：检查项⑥还在岗 —— 硬门动作塞进 always_allow 照样红。
+    const poisoned = { always_allow: ['terminal.exec'], always_deny: [], ask: [] }
+    writeFileSync(fx.rulesPath, JSON.stringify(poisoned) + '\n')
+    const problems = verify(fx.env)
+    assert.equal(problems.length > 0, true)
+    assert.equal(problems.some((p) => p.includes('terminal.exec')), true)
+  } finally {
+    fx.cleanup()
+  }
 })
