@@ -21,7 +21,8 @@
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
     "lykoi-audit": "0.1.0",
+    "lykoi-kernel": "0.1.0",
     "lykoi-memory": "0.1.0",
-    "lykoi-kernel": "0.1.0"
+    "undici": "8.10.0"
   }
 }

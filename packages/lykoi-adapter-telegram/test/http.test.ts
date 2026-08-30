@@ -17,6 +17,7 @@ import test from 'node:test'
 import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ProxyAgent } from 'undici'
 import {
   DEFINITE_CONNECT_CODES, DEFAULT_HTTP_TIMEOUT_S, createFetchHttpPost, sanitizeTransportError,
   type FetchLike,
@@ -181,26 +182,51 @@ test('前置#8 token 零外泄（端到端）：事件流 / 未送达账本 / �
   }
 })
 
-// --- ④ 代理：大声不支持（绝不静默退化成直连） -----------------------------------
+// --- ④ 代理：显式配置驱动（结构上不存在「配了代理却静默直连」） -------------------
 
-test('前置#8 代理：配了就构造期抛；措辞不回显代理地址本身', () => {
+test('前置#8 代理：非空 = 每次请求必带 ProxyAgent dispatcher；直连连这个键都不出现', async () => {
+  // 代理路径：注入的 fake fetch 也必须收到 dispatcher —— 生产与测试走同一段
+  // 装配代码，钉住这一位就钉住了「静默直连」不存在。
+  const proxied = fakeFetch(200, JSON.stringify({ ok: true, result: {} }))
+  const proxiedPost = createFetchHttpPost({ fetch: proxied.fetchImpl, proxy: 'http://10.0.0.1:7890' })
+  await proxiedPost('https://api.telegram.org/botX/getMe', {}, {})
+  assert.ok(proxied.seen[0]!.init.dispatcher instanceof ProxyAgent, 'dispatcher 缺席或不是 ProxyAgent')
+
+  // 直连路径：不是 dispatcher === undefined，是**没有这个键**（形状洁癖：
+  // 直连的 init 与 W1 的形状逐字节相同，接内建 fetch 不携带任何 undici 概念）。
+  const direct = fakeFetch(200, JSON.stringify({ ok: true, result: {} }))
+  const directPost = createFetchHttpPost({ fetch: direct.fetchImpl })
+  await directPost('https://api.telegram.org/botX/getMe', {}, {})
+  assert.equal('dispatcher' in direct.seen[0]!.init, false)
+
+  // 空串/空白/缺席 = 直连，正常构造。
+  assert.equal(typeof createFetchHttpPost({ proxy: '' }), 'function')
+  assert.equal(typeof createFetchHttpPost({ proxy: '   ' }), 'function')
+  // 生产装配面：proxy 合法非空 = 正常起（不再拒起）。
+  const bridge = new ProductionTelegramTransport(SECRET, { proxy: 'http://10.0.0.1:7890' })
+  assert.ok(bridge instanceof ProductionTelegramTransport)
+})
+
+test('前置#8 代理：URL 不合法/scheme 不支持 = 构造期抛；措辞不回显代理值（可能带凭据）', () => {
   assert.throws(
-    () => createFetchHttpPost({ proxy: 'http://10.0.0.1:7890' }),
+    () => createFetchHttpPost({ proxy: 'not a url' }),
     (exc: unknown) => {
       assert.ok(exc instanceof Error)
-      assert.match(exc.message, /proxied egress is not implemented/)
-      assert.equal(exc.message.includes('10.0.0.1'), false)
+      assert.match(exc.message, /not a valid URL/)
       return true
     },
   )
-  // 空串/缺席 = 直连，正常构造（今天生产走这条）。
-  assert.equal(typeof createFetchHttpPost({ proxy: '' }), 'function')
-  assert.equal(typeof createFetchHttpPost({ proxy: '   ' }), 'function')
-  assert.equal(typeof createFetchHttpPost({}), 'function')
-  // 生产装配面同理：proxy 非空 = 起不来，而不是悄悄裸奔。
+  // scheme 白名单：socks 等 ProxyAgent 不支持，配了必须大声抛而不是静默直连。
+  // 凭据零回显：user:pass 与主机地址一个字节都不许出现在错误里。
   assert.throws(
-    () => new ProductionTelegramTransport(SECRET, { proxy: 'http://10.0.0.1:7890' }),
-    /proxied egress is not implemented/,
+    () => createFetchHttpPost({ proxy: 'socks5://user:hunter2@10.0.0.1:1080' }),
+    (exc: unknown) => {
+      assert.ok(exc instanceof Error)
+      assert.match(exc.message, /not supported/)
+      assert.equal(exc.message.includes('hunter2'), false, '错误回显了代理凭据')
+      assert.equal(exc.message.includes('10.0.0.1'), false, '错误回显了代理地址')
+      return true
+    },
   )
 })
 
@@ -299,9 +325,16 @@ test('前置#8 `trust_env=false` 等价：本包永不给 Node 打开 env 代理
     // 这两样是 Node 内建 fetch 唯一的「改道」开关；本包一样都不碰。
     assert.equal(code.includes('setGlobalProxyFromEnv'), false, file)
     assert.equal(code.includes('NODE_USE_ENV_PROXY'), false, file)
+    // undici 侧的 env 改道只有这一个类；本包只用显式 ProxyAgent，永不引它。
+    assert.equal(code.includes('EnvHttpProxyAgent'), false, file)
     // 代理 env 名只作为**常量声明**存在（给 GK-6 扫描当钉面依据），不许被读。
     assert.equal(code.includes('env[PROXY_ENV_VAR]'), false, file)
   }
+})
+
+test('前置#8 undici 只在 http.ts 被引（代理真身单一信任点，与真 fetch 同一纪律）', () => {
+  const importers = srcFiles().filter((f) => codeOf(join(SRC, f)).includes("'undici'"))
+  assert.deepEqual(importers, ['http.ts'])
 })
 
 test('前置#8 真 fetch **只在生产装配面被选中**（测试零真网靠的是没有别的入口）', () => {

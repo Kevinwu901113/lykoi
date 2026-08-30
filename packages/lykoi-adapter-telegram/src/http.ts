@@ -7,8 +7,10 @@
  *
  * 四件事逐条钉死（前置 #8 的四样）：
  *
- * ①**真 fetch**：Node 24 内建 `fetch`（undici）。不引第三方 HTTP 客户端 ——
- *   冻结期不动 lock，也不给传输层加一个新的信任面。
+ * ①**真 fetch**：直连时是 Node 24 内建 `fetch`；代理时是钉版 `undici` 包自己的
+ *   `fetch` —— 同一个引擎（Node 的 fetch 本来就是捆的 undici），显式版本精确钉死
+ *   （8.10.0，零传递依赖）。这是「给传输层加依赖」里能加的最小者，只为
+ *   `ProxyAgent`（Node 不把它公开导出）而加；取舍与否决窗口见治理仓 M4 决策档。
  *
  * ②**超时**：每一次请求一条 `AbortSignal` 边（`timeoutS`）。撞线 = 那一跳真的
  *   断，抛 `TimeoutError`（歧义类 → 上层按"可能已投递"处理并重试，见 transport.ts
@@ -16,15 +18,19 @@
  *
  * ③**`trust_env=false` 等价**：Node 内建 fetch **默认就不读** `HTTP(S)_PROXY`
  *   —— 只有显式 `NODE_USE_ENV_PROXY=1` 或调用 `http.setGlobalProxyFromEnv()`
- *   才会改道。本包两样都不做（红测扫源码钉死），于是「环境里的代理变量不许
- *   悄悄改道一条 URL 里带着 token 的请求」这件事在新体是**默认成立**的。
+ *   才会改道；undici 的 fetch 同理，env 改道只有 `EnvHttpProxyAgent` 一条路，
+ *   本包不引它。三样都有红测扫源码钉死，于是「环境里的代理变量不许悄悄改道
+ *   一条 URL 里带着 token 的请求」这件事在新体是**默认成立**的。
  *   本文件**零 env 读取**：一个 `process.env` 都没有（红测钉死）。
  *
- * ④**代理**：不支持，而且是**大声不支持**。Node 内建 fetch 要走代理只有 env
- *   一条路（`ProxyAgent` 不在任何公开模块里导出），而 env 那条路正是 GK-6 判定
- *   为"外泄通道"、生产必须未设的东西。所以配了代理 = 构造期就抛，绝不退化成
- *   一次静默的直连 —— 「以为走了代理，其实是裸奔」是最坏的失败模式。
- *   生产是否真的需要出网代理，属于部署面（W2）的事，见 W1 报告。
+ * ④**代理**：**显式配置驱动**（profile → 装配面 → 本构造入参），零 env。这不是
+ *   花活，是生产网络事实（2026-08-31 取证）：生产主机直连 api.telegram.org
+ *   超时不通，经内网代理箱 1.2s 通 —— 直连版在生产 = 死器官。真身是 undici
+ *   `ProxyAgent`：`proxy` 非空 → **每一次请求都带 `dispatcher`**，「配了代理
+ *   却静默直连」在结构上没有代码路径（红测钉 dispatcher 必在）；URL 不合法或
+ *   scheme 不是 http/https → 构造期抛，错误措辞**不回显代理值**（它可能带
+ *   `user:pass@` 凭据）。token 视角：https 目标经代理走 CONNECT 隧道，含 token
+ *   的 URL 始终在 TLS 里，代理箱只看得见 `api.telegram.org:443`。
  *
  * **token 纪律**（本文件最硬的一条）：请求 URL 里含 bot token。所以这里
  * **绝不让任何原始异常逃出去** —— fetch 的失败对象（及其 `cause`）可能把
@@ -32,14 +38,17 @@
  * 磁盘。出口只有一种形状：一个 `name` = 类别、`message` = 固定文案的干净
  * Error（`sanitizeTransportError`），红测逐字节核它不含 token。
  */
+import { ProxyAgent, fetch as undiciFetch } from 'undici'
 import type { HttpPost, HttpResponse } from './transport.ts'
 
-/** `fetch` 的最小面（生产用内建 fetch；测试注 fake，签名不必更宽）。 */
+/** `fetch` 的最小面（生产按 proxy 有无选内建或 undici 的 fetch；测试注 fake）。 */
 export type FetchLike = (url: string, init: {
   method: string
   headers: Record<string, string>
   body: string
   signal: AbortSignal
+  /** 代理路径的钉面：`proxy` 非空时每次请求必带（undici `ProxyAgent`）。 */
+  dispatcher?: unknown
 }) => Promise<{ status: number; text(): Promise<string> }>
 
 /** 缺省请求超时（秒）——调用方基本都显式传，这只是兜底。 */
@@ -104,11 +113,36 @@ export function sanitizeTransportError(exc: unknown): Error {
 }
 
 /**
+ * `proxy` 字符串 → `ProxyAgent`。构造期校验：不是合法 URL、或 scheme 不是
+ * http/https（socks 等 `ProxyAgent` 不支持）→ 抛。**错误措辞永不含代理值**：
+ * 代理 URL 可能带 `user:pass@`，回显它与回显 token 同罪。
+ */
+function buildProxyDispatcher(proxy: string): ProxyAgent {
+  let parsed: URL
+  try {
+    parsed = new URL(proxy)
+  } catch {
+    throw new Error(
+      'lykoi-adapter-telegram: proxy is not a valid URL (value withheld — it may carry credentials)',
+    )
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    // scheme 是安全可回显的（不含地址与凭据）。
+    throw new Error(
+      `lykoi-adapter-telegram: proxy scheme "${parsed.protocol}" is not supported `
+      + '(http/https only; value withheld — it may carry credentials)',
+    )
+  }
+  return new ProxyAgent(proxy)
+}
+
+/**
  * 造一个真网 `HttpPost`。
  *
- * `proxy` 非空 = 构造期抛（见文件头④：不静默退化成直连）。
- * `fetch` 可注入 —— 红测拿它验证「超时形态 / token 不外泄 / 零 env」，生产
- * 缺省是 Node 内建 fetch。
+ * `proxy` 空串 = 直连（内建 fetch）；非空 = undici `ProxyAgent`，每请求带
+ * `dispatcher`（见文件头④）；URL 不合法 = 构造期抛，不拖到第一次请求。
+ * `fetch` 可注入 —— 红测拿它验证「超时形态 / token 不外泄 / 零 env / 代理
+ * dispatcher 必在」，生产缺省按 proxy 有无选内建或 undici 的 fetch。
  */
 export function createFetchHttpPost(options: {
   fetch?: FetchLike
@@ -116,15 +150,10 @@ export function createFetchHttpPost(options: {
   defaultTimeoutS?: number
 } = {}): HttpPost {
   const proxy = (options.proxy ?? '').trim()
-  if (proxy !== '') {
-    // 措辞不含代理地址本身（它可能带凭据）。
-    throw new Error(
-      'lykoi-adapter-telegram: proxied egress is not implemented — Node built-in fetch '
-      + 'can only be proxied through environment variables, and those are exactly what '
-      + 'GK-6 pins as unset. Settle egress at the deployment layer (M4-W2).',
-    )
-  }
-  const doFetch = options.fetch ?? (globalThis.fetch as unknown as FetchLike)
+  const dispatcher = proxy === '' ? undefined : buildProxyDispatcher(proxy)
+  const doFetch = options.fetch ?? (dispatcher === undefined
+    ? (globalThis.fetch as unknown as FetchLike)
+    : (undiciFetch as unknown as FetchLike))
   const fallbackTimeoutS = options.defaultTimeoutS ?? DEFAULT_HTTP_TIMEOUT_S
 
   return async function post(url, payload, opts): Promise<HttpResponse> {
@@ -139,6 +168,9 @@ export function createFetchHttpPost(options: {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
         signal,
+        // proxy 非空 = 每次请求必带 dispatcher（注入的测试 fetch 同样收到 ——
+        // 红测拿这一位钉「配了代理就不存在静默直连」）。
+        ...(dispatcher === undefined ? {} : { dispatcher }),
       })
       status = response.status
       // `HttpResponse.json()` 是**同步**的（httpx 的形态），所以正文在这里读完。

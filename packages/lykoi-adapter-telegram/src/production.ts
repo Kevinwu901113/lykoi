@@ -39,7 +39,8 @@ export class ProductionTelegramTransport implements TelegramTransport {
   constructor(token: string | undefined, options: {
     api?: BotApiTransport
     apiBase?: string
-    /** 出站代理：今天生产是空串（直连）。非空 = `./http` 构造期抛，绝不静默直连。 */
+    /** 出站代理（显式配置驱动）。空串 = 直连；非空 = undici `ProxyAgent`
+     * （`./http` 文件头④，每请求带 dispatcher）；URL 不合法 = 构造期抛。 */
     proxy?: string
   } = {}) {
     if (options.api !== undefined) {
@@ -117,8 +118,9 @@ export interface Config {
   /**
    * 出站代理。**缺省空串 = 直连**，且这一位只能从装配面来 —— 传输层自身零 env
    * 读取（M4 前置 #8），`LYKOI_TELEGRAM_PROXY` 的 unset 检查在 GK-6 门里。
-   * 非空 = 构造期抛（`./http` 文件头④：Node 内建 fetch 走代理只有 env 一条路，
-   * 而那条路正是钉死的那条；绝不静默退化成直连）。
+   * 非空 = undici `ProxyAgent`（`./http` 文件头④：每一次请求都带 dispatcher，
+   * 结构上不存在「配了代理却静默直连」；URL 不合法 = 构造期抛）。生产网络事实
+   * （2026-08-31 取证）：主机直连 api.telegram.org 不通，必须经内网代理箱。
    */
   proxy: string
 }
