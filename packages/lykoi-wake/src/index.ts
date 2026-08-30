@@ -82,10 +82,21 @@ export const ORIGIN_AUTONOMOUS_FOCUS = 'autonomous_focus'
 /**
  * 事件注入位的统一适配：log_event(name, fields) → audit.record({type: name, …})。
  * 事件流是遥测不是控制流——写失败不打断拍（错误交 onError 呈现）。
+ *
+ * **M3-W4（W2 TODO#6 定案）：显式分流盖章。** 遥测行与特权层 immutable 治理行
+ * 落在同一个 audit.jsonl，且至少 `delegation_context_invalid` 一个名字两边都发、
+ * 字段集不同。判别规则定案为：**带 `channel:'telemetry'` ⟺ 遥测行；不带 ⟺
+ * 特权层治理行。** 定案理由（字段集会漂、失败方向、只动新体自造的那一半）写在
+ * `lykoi-gate/src/vocabulary.ts` 顶注；完整性门检查项⑥b 的 V3 核这一枚盖章还在
+ * 不在 —— 顺手删掉它，门当场红。
+ *
+ * 盖章位置在 `...fields` **之前**：`channel` 是保留字段，但发射点若真的传了同名
+ * 字段，以发射点为准比在这里悄悄覆盖它更诚实（覆盖=门看得见的那一枚章还在，
+ * 行里的却是另一个值）。词汇表纪律：发射点不许用 `channel` 这个字段名。
  */
 export function auditLogEvent(audit: AuditService, onError?: (err: unknown) => void): LogEvent {
   return (name, fields) => {
-    audit.record({ type: name, ...fields }).catch((err) => {
+    audit.record({ type: name, channel: 'telemetry', ...fields }).catch((err) => {
       onError?.(err)
     })
   }

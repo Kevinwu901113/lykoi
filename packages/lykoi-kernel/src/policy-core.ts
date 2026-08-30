@@ -18,9 +18,16 @@
  *   返回 null（无意见）。kernel 在 hard "ask" **之前**评估能力 "deny"，所以
  *   autonomous 请求硬门动作（terminal.exec）是拒绝，不是排队给一个不存在的
  *   审批人（GT-4）。
- * - is_protected_path：文件系统禁区判定 —— 依赖 guardian/path_guard（realpath
- *   fail closed），归 M3-W4 完整性门；本波逐字钉 PROTECTED_PATHS 常量。
+ * - isProtectedPath：文件系统禁区判定 —— 依赖 path-guard（realpath fail
+ *   closed）。W1 只钉 PROTECTED_PATHS 常量，W4 补齐判定函数本体 + GK-13 的
+ *   第三条禁区（新体完整性门源目录）。
+ *
+ * import 纪律（活体「imports nothing from the lykoi package」的对应物）：本模块
+ * 只 import 同属 root 属主域的 `./path-guard.ts`，**再无别的**。完整性门直接
+ * import 本模块（活体 startup_verify import 兄弟 policy_core 的同一拓扑），所以
+ * 这条纪律断了，门就得把治理核抄一份 —— 那才是真的分叉。
  */
+import { isWithin } from './path-guard.ts'
 
 // 必须永远走所有者审批的动作类型，无论 live approval_rules.json 怎么写。
 // 无限制 shell 是典型；delegation.dispatch 随 WO-GW-01 加入（owner-adopted
@@ -54,12 +61,37 @@ export const AUTONOMOUS_ALLOWED: ReadonlySet<string> = new Set([
 ])
 
 // 任何资源都永不可达的文件系统禁区（realpath 经 path_guard 应用，symlink/".."
-// 逃不出前缀）。逐字钉活体取证值；is_protected_path 判定函数随 M3-W4 的
-// path_guard 对应物落地。
+// 逃不出前缀）。
+//
+// 前两条 = 活体取证值**逐字保全**，一个字节都没动：`/home/lykoi/secrets` 是
+// 同一台机器上的同一个密钥目录；`/home/lykoi/projects/lykoi/guardian` 是**旧体**
+// 的 guardian —— M4 切换窗里新旧体同机共存（R-01：绝不同时写 state），旧体的
+// guardian 在那段时间必须照旧不可达，所以这条不但不删，还必须留到旧体退役之后
+// （CORE-RETIRE 正本）。
+//
+// 第三条 = GK-13 受保护面重划（DK-05；蓝图明写「W4 细化」）的新体一半：CF-B2
+// 退役后「guardian 自身」这个禁区在新体的住址是完整性门的源目录。值是**生产
+// 规范路径**（不是运行期推导）—— 与前两条同形态，物理上没有 env/cwd
+// 重定向面。生产仓库根路径是 M4 供给项（docs/m4_handoff.md 前置 #7）：若治理侧
+// 最终把新体装在别的路径上，这一行随之重签 manifest，属于部署期一次性动作。
+export const GATE_SOURCE_CANONICAL = '/home/lykoi/projects/lykoi-cordis/packages/lykoi-gate'
+
 export const PROTECTED_PATHS: readonly string[] = [
   '/home/lykoi/secrets',
   '/home/lykoi/projects/lykoi/guardian',
+  GATE_SOURCE_CANONICAL,
 ]
+
+/**
+ * 第三旋钮（SK-73）：`path` 落进任一禁区 → true。realpath 经 path-guard 应用，
+ * 解析失败当「在内」（fail closed，SK-74）。
+ *
+ * 活体 `is_protected_path` 逐字：`any(path_guard.is_within(path, base) for base
+ * in PROTECTED_PATHS)`。
+ */
+export function isProtectedPath(path: string): boolean {
+  return PROTECTED_PATHS.some((base) => isWithin(path, base))
+}
 
 export type HardDecision = 'deny' | 'ask' | null
 export type CapabilityDecision = 'allow' | 'deny' | null

@@ -1,0 +1,171 @@
+# ============================================================================
+# Lykoi Cordis · **生产** profile（M3-W4；M2 遗留归位表 #10）
+# ============================================================================
+#
+# 与 `cordis.yml`（dev）的关系：**两套分明，互不覆盖**。
+#   - `cordis.yml`      = dev：保持现状、开箱能跑、零真网、零 root 供给。
+#   - `cordis.prod.yml` = prod：本文件。每一条 `disabled: true` 都标了**需要
+#     哪一样 root 供给才能翻开**；供给没到位就别翻，翻了会在启动闸上红。
+#
+# 启动次序（生产）：
+#   1. `node packages/lykoi-gate/src/cli.ts`   ← 完整性门（systemd ExecStartPre）
+#      任一检查项有问题 → exit 1 → 服务不起来。这是 fail closed 的物理面。
+#   2. `node profile/index.ts`（LYKOI_PROFILE=prod）
+#
+# 本文件在 GK-13 的 **root 属主域**（`packages/lykoi-gate/src/surface.ts` 的
+# `PROFILE_ROOT_OWNED_FILES`）：它说 audit sink 落在哪、GK-8 开关开没开、哪些
+# 器官启用 —— 全是治理决定。改一个字节 → manifest 哈希不符 → 启动闸红。
+# 合法修改路径：改完 `sudo node packages/lykoi-gate/src/cli.ts --write-manifest`。
+#
+# env 钉面（GK-6）：治理 state 路径**一律不在 unit 文件里设**（钉面要求它们
+# 未设或等于规范值，未设 = 走本文件与源码里已签名的缺省）。unit 里只该有
+# `LYKOI_TELEGRAM_BOT_TOKEN`（密钥，门永不读值）。
+# 规范路径全表见 `packages/lykoi-gate/src/surface.ts` 的 `ENV_PINS`。
+# ============================================================================
+
+- id: timer
+  name: '@deepseek-ai/cordis-plugin-timer'
+
+# ---- 治理地基①：immutable 审计 sink ----------------------------------------
+# 规范路径 = /var/log/lykoi-audit/audit.jsonl（活体逐字 AUDIT_CANONICAL）。
+# root 供给（完整性门检查项⑦逐条核）：
+#   sudo install -d -o root -g root -m 755 /var/log/lykoi-audit
+#   sudo install -o root -g lykoi -m 620 /dev/null /var/log/lykoi-audit/audit.jsonl
+#   sudo chattr +a /var/log/lykoi-audit/audit.jsonl
+# 六断言：非符号链 / 存在 / root 属主 / 服务用户可 append / append-only 属性在 /
+# 父目录 root 且组他人不可写。
+- id: audit
+  name: lykoi-audit
+  config:
+    path: /var/log/lykoi-audit/audit.jsonl
+
+# ---- 预算 -------------------------------------------------------------------
+# 生产硬顶。dev 的 50 tokens/日是为了让红测三次调用就撞墙，生产值另定。
+- id: budget
+  name: lykoi-budget
+  config:
+    ledgerPath: /home/lykoi/state/budget.json
+    dailyTotalTokens: 2000000
+    dailyRouteTokens:
+      deepseek: 2000000
+
+# ---- 心脏 -------------------------------------------------------------------
+# 基线节律走源码缺省（30 分钟）：`LYKOI_HEARTBEAT_BASELINE_MIN` 是 GK-6 的
+# **旋钮类**钉面，生产必须未设 —— 要改就改源码再 root 重签。
+- id: heart
+  name: lykoi-heart
+  config:
+    checkIntervalMs: 1000
+    stateFile: /home/lykoi/state/heart-state.json
+    # G-3 显著性影子库（sidecar 供给后填规范路径；空 = 纯基线）。
+    salienceDb: ''
+
+# ---- LLM --------------------------------------------------------------------
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+- id: lykoi-llm
+  name: lykoi-llm
+- id: llm-deepseek
+  name: lykoi-llm-deepseek
+  disabled: true # 需 root 供给：/home/lykoi/secrets/llm.env（禁区①，她永不可达）
+
+# ---- 记忆（她的 state 库）---------------------------------------------------
+# **R-01 硬规则**：M4 切换窗里新旧体绝不同时写 state。旧体停稳之前这一条
+# 不许翻开（docs/m4_handoff.md 前置 #4）。
+- id: memory
+  name: lykoi-memory
+  disabled: true
+  config:
+    dbPath: /home/lykoi/state/memory.db
+
+# ---- 对话心智 ---------------------------------------------------------------
+# 需 root 供给：①memory 库（见上，R-01 约束）②人格 TOML
+# （/home/lykoi/runtime/persona/lykoi_base.toml，root 属主 444，父目录 root）——
+# 完整性门检查项②③⑤三处核它（属主 / env 不许重定向 / 哈希；DA-11 取证对象）。
+- id: converse
+  name: lykoi-converse
+  disabled: true
+  config:
+    dbPath: /home/lykoi/state/memory.db
+    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
+    route: deepseek
+    model: deepseek-chat
+    restartMarker: /home/lykoi/state/restart-marker.json
+    narrativeFlag: ''
+    # M3-W4 restart 生产采集器（M2 遗留 #8）。两者都给才采得到 HEAD 与 downtime；
+    # 采不到 = 省略，**绝不编造**（SA-164）。
+    restartRepoRoot: /home/lykoi/projects/lykoi-cordis
+    restartUnit: lykoi-cordis
+    # ===== GK-8 决断项：默认关 =====
+    # 开 = kind=notification 并入 chat_outbox 投递线 = 通知从 pull 变 push。
+    # 这**改变到达行为**，蓝图明定开启是 Kevin 的决断，构建侧不自作主张。
+    notificationOutboxDelivery: false
+
+# ---- 自主侧（wake / learn）---------------------------------------------------
+# 同样受 R-01 约束（写同一个 state 库）。
+- id: wake
+  name: lykoi-wake
+  disabled: true
+  config:
+    dbPath: /home/lykoi/state/memory.db
+    route: deepseek
+    model: deepseek-chat
+    checkIntervalMs: 5000
+- id: learn
+  name: lykoi-learn
+  disabled: true
+
+# ---- 出站器官（Telegram）----------------------------------------------------
+# 需 root 供给：unit 文件里的 `Environment=LYKOI_TELEGRAM_BOT_TOKEN=…`
+# （凭据永不落进本文件、永不落进仓库；门只看设没设/空不空，**永不读值**）。
+# `LYKOI_TELEGRAM_PROXY` 是 GK-6 的 **unset 类**：设了就是一条外泄通道，
+# 生产必须未设。BotApiTransport 的真 HTTP 接线是 M4 前置 #8。
+- id: telegram-transport
+  name: lykoi-adapter-telegram/production
+  disabled: true
+  config:
+    tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
+- id: telegram
+  name: lykoi-adapter-telegram
+  disabled: true
+  config:
+    cursorPath: /home/lykoi/state/telegram-cursor.json
+    archivePath: /home/lykoi/state/telegram-inbound.json
+    pollTimeoutS: 25
+    autoStart: true
+
+# ============================================================================
+# 生产 state 路径全表（= 完整性门 GK-6 钉面的 canonical 值；本文件与源码缺省
+# 必须与它逐条一致）
+# ============================================================================
+#   /home/lykoi/state/approval_rules.json        LYKOI_APPROVAL_RULES   (活体逐字)
+#   /home/lykoi/state/standing_grants.json       LYKOI_STANDING_GRANTS  (GK-6 补钉)
+#   /home/lykoi/state/pending_actions.json       LYKOI_PENDING_ACTIONS  (GK-6 补钉)
+#   /home/lykoi/state/notifications.json         LYKOI_NOTIFICATIONS
+#   /home/lykoi/state/proactive_chat.json        LYKOI_PROACTIVE_CHAT_LEDGER
+#   /home/lykoi/state/chat_outbox.json           LYKOI_CHAT_OUTBOX          (W3#5 ①)
+#   /home/lykoi/state/telegram_undelivered.json  LYKOI_TELEGRAM_UNDELIVERED (W3#5 ②)
+#   /home/lykoi/state/telegram_outbox.cursor     LYKOI_TELEGRAM_OUTBOX_CURSOR(W3#5 ③)
+#   /home/lykoi/state/messenger_outbound.json    LYKOI_MESSENGER_LEDGER     (W3#5 ④)
+#   /home/lykoi/state/messenger_transport.jsonl  LYKOI_MESSENGER_TRANSPORT_LOG(W3#5 ⑤)
+#   （LYKOI_TELEGRAM_PROXY = W3#5 ⑥，unset 类，必须未设）
+#   /home/lykoi/state/salience_shadow.db         LYKOI_SALIENCE_DB
+#   /var/log/lykoi-audit/audit.jsonl             LYKOI_AUDIT_PATH       (活体逐字)
+#   /home/lykoi/runtime/persona/lykoi_base.toml  LYKOI_PERSONA_TOML     (活体逐字)
+#
+# ============================================================================
+# D-01 超时预算 · 生产值位（**M4 决断项，此处只留位不填数**）
+# ============================================================================
+# 解释器判读 T=0/400 tokens 的调用超时、重试次数与退避，属于「一次审批问句等
+# 多久才算问不到」这一类语义决定 —— 填一个数进去就是替 Kevin 拍了板。
+# M4 交接清单前置 #6 要的就是这几个秒数。位在这里：
+#   converse.config.interpretTimeoutS:   <M4 填>
+#   converse.config.interpretRetries:    <M4 填>
+#   converse.config.cycleTimeoutS:       <M4 填>
+#
+# ============================================================================
+# vision 路由位（M4；W3 TODO#6）
+# ============================================================================
+# `lykoi-converse/src/vision.ts` 的 describeImage seam 已在位，真模型路由待 M4：
+#   converse.config.visionRoute: <M4 填>
+#   converse.config.visionModel: <M4 填>

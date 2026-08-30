@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  OrganInventoryCache, unwiredActionCatalog, type OrganBindingRow,
+  OrganInventoryCache, testDoubleActionCatalog, type OrganBindingRow,
 } from '../src/index.ts'
 
 const BINDING: OrganBindingRow = {
@@ -16,7 +16,7 @@ function mk(bindings: () => readonly OrganBindingRow[]) {
   const events: [string, Record<string, unknown>][] = []
   const cache = new OrganInventoryCache({
     bindings,
-    catalog: unwiredActionCatalog,
+    catalog: testDoubleActionCatalog,
     logEvent: (n, f) => events.push([n, f]),
   })
   return { cache, events }

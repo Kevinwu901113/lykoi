@@ -1,0 +1,23 @@
+{
+  "name": "lykoi-gate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "插件树完整性门（M3-W4；SK-70..76 等价重建，CF-B1：非插件、启动前跑一次）：七检查项 + 纯函数 manifest 生成器 + rules schema 孪生 + GK-6 env 钉面 + GK-13 受保护面重划",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./verify": "./src/verify.ts",
+    "./manifest": "./src/manifest.ts"
+  },
+  "bin": {
+    "lykoi-gate": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "gate": "node src/cli.ts",
+    "write-manifest": "node src/cli.ts --write-manifest"
+  },
+  "devDependencies": {
+    "lykoi-kernel": "0.1.0"
+  }
+}

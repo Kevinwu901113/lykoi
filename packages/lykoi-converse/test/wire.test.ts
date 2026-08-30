@@ -115,6 +115,9 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
   await ctx.plugin(converse, {
     dbPath, personaToml: PERSONA_TOML, route: 'mock', model: 'mock-model',
     restartMarker: join(dir, 'restart-marker.json'), narrativeFlag: '',
+    restartRepoRoot: '', restartUnit: '', // M3-W4：dev/测试不采 git HEAD
+    notificationOutboxDelivery: false, // GK-8 默认关
+
   })
   const telegram = ctx.get('telegram') as TelegramAdapterService
   transport.queueUpdate({

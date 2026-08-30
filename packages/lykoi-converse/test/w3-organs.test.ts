@@ -93,6 +93,9 @@ async function assemble(replyText: string) {
   await ctx.plugin(converse, {
     dbPath, personaToml: PERSONA_TOML, route: 'mock', model: 'mock-model',
     restartMarker: join(dir, 'restart-marker.json'), narrativeFlag: '',
+    restartRepoRoot: '', restartUnit: '', // M3-W4：dev/测试不采 git HEAD
+    notificationOutboxDelivery: false, // GK-8 默认关
+
   })
   return {
     audit, transport, dbPath,

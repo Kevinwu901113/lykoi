@@ -132,6 +132,9 @@ async function assemble(replyText: string) {
     model: 'mock-model',
     restartMarker: join(dir, 'restart-marker.json'),
     narrativeFlag: '',
+    restartRepoRoot: '', // M3-W4：dev/测试不采 git HEAD（开发机的 HEAD 不是她的代码事实）
+    restartUnit: '',
+    notificationOutboxDelivery: false, // GK-8 默认关
   })
   return {
     audit,

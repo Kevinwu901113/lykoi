@@ -39,11 +39,22 @@ test('GK-12：messenger.send ∈ AUTONOMOUS_ALLOWED —— 建议问答机的承
   assert.equal(capabilityProfile('autonomous', 'messenger.send'), 'allow')
 })
 
-test('PROTECTED_PATHS 逐字（判定函数随 W4 path_guard 对应物）', () => {
+test('PROTECTED_PATHS：活体两条**逐字保全**（一个字节没动）', () => {
+  // W1 立的这条断言在 W4 之后仍旧成立 —— GK-13 重划只**追加**，不改不删。
+  // 第二条（旧体 guardian）尤其不许删：M4 切换窗新旧体同机共存（R-01），
+  // 旧体的 guardian 在那段时间必须照旧不可达，直到 CORE-RETIRE 落定。
+  assert.equal(PROTECTED_PATHS[0], '/home/lykoi/secrets')
+  assert.equal(PROTECTED_PATHS[1], '/home/lykoi/projects/lykoi/guardian')
+})
+
+test('PROTECTED_PATHS：W4 GK-13 重划追加第三条 = 新体完整性门源目录', () => {
   assert.deepEqual([...PROTECTED_PATHS], [
     '/home/lykoi/secrets',
     '/home/lykoi/projects/lykoi/guardian',
+    '/home/lykoi/projects/lykoi-cordis/packages/lykoi-gate',
   ])
+  // 「guardian 自身不可达」这条禁区在 CF-B2 退役后的新住址（DK-05）。
+  // 判定函数本体与 realpath 语义见 test/path-guard.test.ts。
 })
 
 test('hardDecision：deny 表 > ask 表 > null（defer to live rules）', () => {

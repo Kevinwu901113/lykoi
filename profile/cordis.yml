@@ -1,5 +1,16 @@
-# Lykoi Cordis M1 骨架 · 插件树（直排 entries；M1 不用 bundle 分层，patch 层 M3 引入）
+# Lykoi Cordis · **dev** profile（插件树；直排 entries；M1 不用 bundle 分层）
 # 顶层必须是数组（WO-M0-DSH-STUDY §2.1）。路径类配置相对进程 cwd（从仓库根 npm start）。
+#
+# **dev 与 prod 两套分明**（M3-W4 / M2 遗留 #10）：
+#   - 本文件 = dev：开箱能跑、零真网、零 root 供给、写 `var/` 下的本地副本。
+#     M3-W4 一个字节都没动它的行为 —— 生产条目全部落在另一份里。
+#   - `profile/cordis.prod.yml` = prod：规范 state 路径、audit sink 落
+#     /var/log、GK-8 开关（默认关）、D-01 超时与 vision 路由的 M4 值位。
+#     每一条 `disabled` 都标了需要哪一样 root 供给才能翻开。
+#
+# 两份都在 GK-13 的 **root 属主域**（完整性门 hash 钉住）：装配面说 audit sink
+# 落在哪、哪些器官启用，那是治理决定，不是随手改的配置。改完要 root 重签：
+#   sudo node packages/lykoi-gate/src/cli.ts --write-manifest
 - id: timer
   name: '@deepseek-ai/cordis-plugin-timer'
 - id: audit

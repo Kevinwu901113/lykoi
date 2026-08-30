@@ -4,3 +4,9 @@ dist/
 .env
 .DS_Store
 var/
+
+# 完整性门的清单（M3-W4）：**部署期产物，不入库**。
+# 它由 root 在生产机上签（`sudo node packages/lykoi-gate/src/cli.ts --write-manifest`），
+# 因为它必须覆盖两个仓库外的规范路径（人格 TOML / 活规则）—— 开发机上根本
+# 签不全，签出来的也只会是一份立刻过期的假证明。
+packages/lykoi-gate/manifest.sha256

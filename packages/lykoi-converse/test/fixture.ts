@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { PersonaConfig } from 'lykoi-decide'
-import { OrganInventoryCache, unwiredActionCatalog, type OrganBindingRow } from 'lykoi-decide'
+import { OrganInventoryCache, testDoubleActionCatalog, type OrganBindingRow } from 'lykoi-decide'
 import { createStateFixture } from 'lykoi-memory/testing'
 import { ReadWriteMemory, formatPyIso } from 'lykoi-memory/rw'
 import {
@@ -202,7 +202,7 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
   const events: [string, Record<string, unknown>][] = []
   const organs = new OrganInventoryCache({
     bindings: () => overrides.bindings ?? store.identityBindingInventory(),
-    catalog: unwiredActionCatalog,
+    catalog: testDoubleActionCatalog,
     logEvent: (n, f) => events.push([n, f]),
   })
   const deps: ConverseDeps = {

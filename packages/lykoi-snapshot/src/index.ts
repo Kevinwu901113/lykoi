@@ -48,6 +48,7 @@ import { floorMaintain } from './floor.ts'
 export * from './num.ts'
 export * from './floor.ts'
 export * from './restart.ts'
+export * from './restart-collect.ts'
 
 // ============== 注意力预算（snapshot.py:44-48 逐字；SA-38） ==============
 export const SNAPSHOT_CONCERN_TOP_N = 6

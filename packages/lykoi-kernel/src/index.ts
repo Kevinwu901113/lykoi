@@ -13,7 +13,10 @@
  *  - approval.ts     三层门 check 10 步 + scoped grants + pending（SK-15..29）
  *  - approval-conversation.ts 审批对话机：四道闸+先发后排+回执（SK-30..35）
  *  - approval-interpreter.ts  答复解释器：判读/归属/明确度门/六元组（SK-36..46）
- *  - policy-core.ts  不可变治理核 TS 对应物（guardian 逐字；GK-12）
+ *  - policy-core.ts  不可变治理核 TS 对应物（guardian 逐字；GK-12/SK-73）
+ *  - path-guard.ts   realpath 包含判定原语（guardian/path_guard 逐字；SK-74）
+ *  - schema-registry.ts 身体图式注册表（GK-11/DK-15 新建面；设计小节
+ *                    docs/m3_schema_registry.md）
  *  - scope.ts        授权范围键全表（SK-69）
  *  - exemption.ts    E1/E2/E3 豁免（SK-47/48；消费位 = check 第⑨步）
  *  - delegation.ts   委托台账七态 + 审计先行（SK-61..66）
@@ -34,9 +37,11 @@ export * from './exemption.ts'
 export * from './interactive-lock.ts'
 export * from './jsonio.ts'
 export * from './notifications.ts'
+export * from './path-guard.ts'
 export * from './policy-core.ts'
 export * from './proactive-chat.ts'
 export * from './redaction.ts'
+export * from './schema-registry.ts'
 export * from './scope.ts'
 export * from './suggestion-conversation.ts'
 export * from './telemetry.ts'

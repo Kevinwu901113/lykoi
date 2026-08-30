@@ -9,8 +9,14 @@
  *
  * 住在 lykoi-kernel（CF-B1 非插件库模块）的理由：这条上限是治理事实而不是器官
  * 的实现细节 —— 快照侧（wake）与执行侧（M5 的 autonomy 器官）都够得着，且谁都
- * 改不动。**GK-13 受保护面重划（W4）时须把本文件与 interactive-lock.ts 一起
- * 判归属**：前者是 root 属主域的正当住户，后者只是单进程协调件。
+ * 改不动。
+ *
+ * **GK-13 归属判定（M3-W4 落定，W3 TODO#4）：root 属主域。**
+ * 判据是「改这个文件能不能改变治理结论」。能，而且直接：`DAILY_LIMIT` 与冷却
+ * 小时数就写在本文件里，把 1 改成 100 就等于她一天能主动开口 100 次 —— 那是
+ * 一次**没有经过任何审批的权限扩张**，且从审计里看不出异常（每一条都合法
+ * 通过了 dispatch）。这类"上限即策略"的文件必须和 policy core 同域：
+ * 不可改，改了要 root 重签。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { writeJsonAtomic } from './jsonio.ts'

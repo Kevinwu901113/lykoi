@@ -26,9 +26,16 @@
  * organ_inventory_bindings_failed 而不毁一轮对话）；身份/设备轴接真源 =
  * lykoi-memory/rw 的 identityBindingInventory（identity_binding_inventory
  * 对应物，channel_key 在返回形状上物理不存在）；动作轴的权威源是 kernel
- * dispatch 的 KNOWN_ACTIONS + 不可变治理核的 is_hard_gated —— M3 才有真
- * kernel，本波 unwiredActionCatalog = 空动作面 + isHardGated 恒真
- * （fail closed 成 "ask" 的同向：往少了说）。
+ * dispatch 的 KNOWN_ACTIONS + 不可变治理核的 is_hard_gated —— M2 本波用空动作面
+ * 替身占位。**M3-W1 起生产两处（wake/converse）已换真 catalog**
+ * （`kernelActionCatalog`）；那个替身 M3-W4 改名为 `testDoubleActionCatalog`，
+ * 只剩测试夹具一个身份（W1 TODO#5 清理）。
+ *
+ * **M3-W4 补记（GK-11/DK-15）**：动作轴的权威源自此还有第三层 —— 图式注册表
+ * （`lykoi-kernel/schema-registry.ts`）说「哪个器官此刻真的在位」，
+ * `KNOWN_ACTIONS` 只说「这个动作类型合法」。本渲染器不变，接线方 M5 把
+ * `catalog:` 换成 `registryActionCatalog(...)` 即可（设计小节
+ * docs/m3_schema_registry.md §6/§7）。
  */
 
 export const BLOCK_HEADER = '[器官清单(只读)]'
@@ -156,11 +163,20 @@ export interface OrganActionCatalog {
 }
 
 /**
- * kernel dispatch 未接线（M3）时的显式替身：零可派发动作（动作段整段不出现 ——
- * 器官清单如实说"接得通的没有"），isHardGated 恒真 = 治理核 fail closed 成
- * "ask" 的同向（方向永远是往少了说）。
+ * **测试替身**（M3-W4 / W1 TODO#5 清理）。原名 `unwiredActionCatalog`：M2 那会儿
+ * 它是生产接线位的占位物，"unwired" 说的是当时的**生产事实**。M3-W1 起
+ * `lykoi-wake` 与 `lykoi-converse` 两处生产消费者都换成了真 catalog
+ * （kernel `KNOWN_ACTIONS` + 治理核 `isHardGated`），这个名字于是开始说谎 ——
+ * 它不再描述任何生产状态，只是测试里那个"空动作面"的夹具。
+ *
+ * 改名而不是删除：它承载一条仍然要被测的语义 —— 零可派发动作时动作段整段不
+ * 出现（器官清单如实说"接得通的没有"），且 `isHardGated` 恒真 = 治理核 fail
+ * closed 成 "ask" 的同向（方向永远是往少了说）。名字里带 `testDouble` 是为了
+ * 下一个读到它的人不会再把它当成一个待接线的生产位。
+ *
+ * 生产接线位现在只有一个：`kernelActionCatalog`（真身）。
  */
-export const unwiredActionCatalog: OrganActionCatalog = {
+export const testDoubleActionCatalog: OrganActionCatalog = {
   knownActions: [],
   isHardGated: () => true,
 }

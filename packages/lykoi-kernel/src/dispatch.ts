@@ -491,14 +491,20 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
   }
 }
 
-// --- 器官清单的动作轴（接线：unwiredActionCatalog → 真 catalog） ---------------
+// --- 器官清单的动作轴（接线：M2 空动作面替身 → 真 catalog） -------------------
 
 /**
  * lykoi-decide OrganActionCatalog 的真身（结构同形：kernel 不 import 插件包）：
  * 她能派发哪些动作 = KNOWN_ACTIONS；哪些永远绕不过 Kevin = 不可变治理核的
  * isHardGated（core 缺失 fail closed 成全表硬门 —— 方向永远是往少了说）。
- * 接线（M3-W1）：wake / converse 的 apply 用它替换 lykoi-decide 的
- * unwiredActionCatalog。
+ * 接线（M3-W1）：wake / converse 的 apply 用它替换 lykoi-decide 的空动作面替身
+ * （那个替身 M3-W4 改名 `testDoubleActionCatalog`，只剩测试夹具身份）。
+ *
+ * **M3-W4 补记（GK-11/DK-15）**：`KNOWN_ACTION_LIST` 是**词汇表**（这个动作类型
+ * 合法），不是**图式**（这个器官此刻真的在位）。W3 之后 18 项词汇里只有 5 项接了
+ * 真传输面，所以拿本 catalog 直接喂器官清单，等于告诉她她有 13 个伸手就摔在
+ * `throw` 上的器官。图式那一层是 `schema-registry.ts`；两者接合与切换时点见
+ * docs/m3_schema_registry.md §6/§7（切换属 M5 器官上线编排）。
  */
 export const kernelActionCatalog: {
   knownActions: readonly string[]

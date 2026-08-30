@@ -43,12 +43,13 @@ import {
   markActive as markInteractiveActive, pendingCount,
   INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
   setApprovalInterpretLlm, setIdentityBindingLookup, setKernelLogEvent,
+  setNotificationOutboxDelivery,
   setNotificationOutboxSink,
   type ApprovalConversation, type SuggestionConversation,
 } from 'lykoi-kernel'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { recordExperience } from 'lykoi-reflow'
-import { latestRestartEvent, recordRestartEvent } from 'lykoi-snapshot'
+import { collectRestartClues, latestRestartEvent, recordDeployEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
   ContextBudgetError, Conversation, composeSurfaceReply,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
@@ -80,6 +81,26 @@ export interface Config {
   restartMarker: string
   /** 演化叙事 flag 文件（存在才注入；空串 = 回路关闭）。 */
   narrativeFlag: string
+  /**
+   * restart 线索采集的仓库根（`git rev-parse HEAD` 的 cwd）。M3-W4 生产采集器
+   * （M2 遗留 #8）。空串 = 不采 HEAD（dev 缺省：采集失败与不采同一后果 = 省略）。
+   */
+  restartRepoRoot: string
+  /**
+   * restart 线索采集的 systemd 单元名（downtime 问它上次什么时候停的）。
+   * 空串 = 不采 downtime（dev 缺省）。
+   */
+  restartUnit: string
+  /**
+   * **GK-8 决断项旋钮**（DK-12）：把 `kind=notification` 并进 chat_outbox 的
+   * 投递线，让通知真的到达 Kevin 手上。
+   *
+   * 蓝图 GK-8 明定：做成开关、**默认关**、开启 = Kevin 决断项。开着会**改变
+   * 到达行为**（从 pull 变 push），构建侧不自作主张。旋钮在这里露出来，是为了
+   * 「开没开」成为一条**装配面上看得见、被完整性门 hash 钉住**的部署事实，
+   * 而不是藏在某个进程里的运行期状态。
+   */
+  notificationOutboxDelivery: boolean
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -89,6 +110,9 @@ export const Config: Schema<Config> = Schema.object({
   model: Schema.string().default('mock-model'),
   restartMarker: Schema.string().default('var/restart-marker.json'),
   narrativeFlag: Schema.string().default(''),
+  restartRepoRoot: Schema.string().default(''),
+  restartUnit: Schema.string().default(''),
+  notificationOutboxDelivery: Schema.boolean().default(false), // GK-8：默认关
 })
 
 /**
@@ -147,12 +171,31 @@ export function apply(ctx: Context, config: Config) {
 
   // --- 出生序（文件头注释） ---
   seedPersona(store, { now: new Date() })
+  // M3-W4 接线（M2 遗留 #8）：restart 线索的**生产采集器**。
+  // SA-164 纪律不变 —— 采集器每一样各自 try/catch，读不到就是 null，
+  // `recordRestartEvent` 那边缺席即省略，**绝不编造**。dev profile 两个采集配置
+  // 都留空 → 只带得到 INVOCATION_ID，与 W5 的行为完全一致（零行为变更）。
+  const restartNow = new Date()
+  const clues = collectRestartClues({
+    repoRoot: config.restartRepoRoot || process.cwd(),
+    unit: config.restartUnit || undefined,
+    now: restartNow,
+    // 仓库根没配就别去跑 git：dev 里跑出来的是**开发机的** HEAD，那不是她的代码事实。
+    run: config.restartRepoRoot ? undefined : () => { throw new Error('restart clue collection disabled') },
+    logEvent,
+  })
   recordRestartEvent(store, {
     markerPath: resolve(config.restartMarker),
-    now: new Date(),
-    // SA-164：读不到的线索省略绝不编造 —— git HEAD/downtime 采集器归 M3 生产
-    // 接线；systemd invocation id 环境可读就带上。
-    clues: { invocationId: process.env.INVOCATION_ID ?? null },
+    now: restartNow,
+    clues,
+    logEvent,
+  })
+  // `record_deploy_event(unit=…)` 的新体对应物：运维事实进审计，不进她的 history。
+  recordDeployEvent({
+    repoRoot: config.restartRepoRoot || process.cwd(),
+    unit: config.restartUnit || undefined,
+    now: restartNow,
+    clues,
     logEvent,
   })
 
@@ -176,6 +219,9 @@ export function apply(ctx: Context, config: Config) {
   ))
   // GK-8 的落笔面（开关**默认关** —— 未开启时这个 sink 一次都不会被调到）。
   setNotificationOutboxSink(outboxNotificationSink(logEvent))
+  // GK-8 开关本身走装配面（cordis.yml），不走 env —— env 钉面要求旋钮一律未设，
+  // 而这一条必须**看得见且被 manifest 钉住**：它改的是通知怎么到达 Kevin。
+  setNotificationOutboxDelivery(config.notificationOutboxDelivery)
   const kernelDispatch = createDispatch({ sink: ctx.audit, resources: outboundOrganResources() })
   const dispatchFn: ConverseDispatchFn = async (action) => {
     const observation = await kernelDispatch(
