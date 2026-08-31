@@ -90,7 +90,13 @@ grep -cE '^LYKOI_TELEGRAM_BOT_TOKEN=.+' /home/lykoi/secrets/telegram-cordis.env
 ls -l /home/lykoi/secrets/telegram-cordis.env
 # 应 -rw------- 1 root root
 grep -cE '^DEEPSEEK_API_KEY=' /home/lykoi/secrets/llm.env
-# 应输出 1;若 0,vi 补一行 DEEPSEEK_API_KEY=<真值>
+# 应输出 1;若 0(2026-08-31 实测即为 0):同文件里已有旧体在用的
+# LYKOI_DEEPSEEK_API_KEY=<值> 一行(llm_router.py:68)——那行别动别删(旧体
+# 与回滚锚在用),在文件末尾新增一行,值照抄旧行等号后内容:
+#   DEEPSEEK_API_KEY=<同一个值>
+# (新体读 vendor 缺省名,出处 packages/lykoi-llm-deepseek/vendor/index.js:1626;
+#  行首无空格、值不加引号。)补完复验:本条 grep 应 1,且
+#  grep -cE '^LYKOI_DEEPSEEK_API_KEY=' 仍应 1。
 ```
 
 ---
