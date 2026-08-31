@@ -25,7 +25,7 @@
 
 在缺口补上之前，你能在全新服务器上完整走完的是：**治理地基起立**
 （审计 sink / 预算硬顶 / 心跳 / LLM 注册层 + 完整性门 + systemd 接管）。
-七个器官位（deepseek / memory / converse / wake / learn / telegram×2）
+六个器官位（deepseek / memory / converse / wake / telegram×2）
 按 `§11` 逐条翻开，每一位翻开的条件都写在装配面的注释里。
 
 ---
@@ -346,16 +346,16 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 
 ## 11 · 按序翻开器官位（🔒 每一次都要重签）
 
-`profile/cordis.prod.yml` 里七个位默认 `disabled: true`。翻开的做法是**删掉那一行
+`profile/cordis.prod.yml` 里六个位默认 `disabled: true`。翻开的做法是**删掉那一行
 `disabled: true`**（可以留一条说明为什么翻开的注释），然后重签 manifest。
-出处：装配面逐条注释 + `m4-switch` 分支上七个位翻开的真实形态。
+出处：装配面逐条注释 + `m4-switch` 分支上六个位翻开的真实形态。
 
 | 位 | 翻开的条件 |
 |---|---|
 | `llm-deepseek` | `/home/lykoi/secrets/llm.env` 里有 `DEEPSEEK_API_KEY=`（`§7`） |
 | `memory` | `/home/lykoi/state/memory.db` 在位，且**没有第二个进程在写它**（R-01） |
 | `converse` | memory 位的条件 + 人格 TOML 在规范路径（`§6`） |
-| `wake` / `learn` | 同 memory（写同一个 state 库，同受 R-01 约束） |
+| `wake` | 同 memory（写同一个 state 库，同受 R-01 约束）+ 人格 TOML 在规范路径（`§6`，与 converse 同一份；learn 是库不是条目，由 wake 驱动） |
 | `telegram-transport` | unit env 里 `LYKOI_TELEGRAM_BOT_TOKEN` 非空；`proxy` 值按你的网络填 |
 | `telegram` | transport 位在位（它从 `telegramTransport` 服务取传输） |
 
@@ -382,7 +382,7 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 | `converse.interpretTimeoutS` / `interpretRetries` / `cycleTimeoutS` | `30` / `1` / `180` | 「一次审批问句等多久才算问不到」。删掉这三行不换语义 —— Schema 缺省读同一份 `D01_DEFAULTS`（`lykoi-converse/src/deadline.ts`） |
 | `converse.visionRoute` / `visionModel` | `disabled` / `disabled` | 显式「决定不开」。空串是另一回事 = **漏填**，两者在事件流上必须分得开 |
 | `heart.checkIntervalMs` / 基线节律 | `1000` / 源码缺省 30 分钟 | 基线走源码；`LYKOI_HEARTBEAT_BASELINE_MIN` 是旋钮类钉面，生产必须未设 |
-| 七个器官位的 `disabled` | 见上表 | 哪些器官在她身上 |
+| 六个器官位的 `disabled` | 见上表 | 哪些器官在她身上 |
 
 重签的唯一合法路径：
 

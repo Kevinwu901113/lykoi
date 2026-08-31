@@ -2,8 +2,8 @@
 # ============================================================================
 # WO-M4-W2 · 粘贴稿 1/2 —— 切换窗**前**准备（root 执行；不触旧体、不写她的 state）
 # ============================================================================
-# 树钉点：lykoi-cordis @ m4-switch = ebaeda839dc17d5db919f9a5e6ce4ec49240fcb2
-#         （= main 27f4682a94dd04f0fd6ae29c9e859931e031eba3 + 器官位翻开）
+# 树钉点：lykoi-cordis @ m4-switch = 7fed677434f99d61ddf48e818111099eebde0a95
+#         （= main cb2e27e722387582d569bafef037999ec30d6e31 + 六器官位翻开；WO-M4-FIX-WAKE 重钉）
 # 若 main 已前进：m4-switch 先 rebase 重推，本稿两处 sha 同步换（见 runbook §2）。
 #
 # 前置（Kevin 在 Mac 上先做，仓库私有、服务器零凭据 —— git bundle 传树）：
@@ -20,7 +20,7 @@ NODE_DIR=/opt/node-$NODE_V
 NODE=$NODE_DIR/bin/node
 NPM=$NODE_DIR/bin/npm
 REPO=/home/lykoi/projects/lykoi-cordis
-SWITCH_SHA=ebaeda839dc17d5db919f9a5e6ce4ec49240fcb2
+SWITCH_SHA=7fed677434f99d61ddf48e818111099eebde0a95
 BUNDLE=/tmp/lykoi-cordis.bundle
 BUNDLE_SHA='<Kevin 填：Mac 上 shasum -a 256 的输出>'
 PERSONA=/home/lykoi/runtime/persona/lykoi_base.toml

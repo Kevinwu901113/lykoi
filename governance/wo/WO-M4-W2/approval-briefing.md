@@ -27,7 +27,7 @@
 | B5 | 生产专用入口 `profile/index.prod.ts` | 原树无任何入口装载 prod 装配（切换日必炸的缺口）；两个写死入口，否决 env 选装配 | lykoi-cordis@27f4682 |
 | B6 | unit 凭据走 EnvironmentFile（root:root 600） | 比 #11 草图的 `Environment=` 内联强：token 不进世界可读的 unit 文件；活体同形态 | 本呈批稿 |
 | B7 | watchdog 探针形态：unit 活性 + audit mtime 4500s | 不为看门狗新造 HTTP 面；挂起态检出延迟上限 75min（活体 30s）是显式接受的取舍 | 本呈批稿 |
-| B8 | m4-switch 切换分支（七器官位翻开） | main 保持安全态；生产 checkout 钉分支尖 sha | lykoi-cordis@ebaeda8 |
+| B8 | m4-switch 切换分支（六器官位翻开；learn 位随 WO-M4-FIX-WAKE 退役） | main 保持安全态；生产 checkout 钉分支尖 sha | lykoi-cordis@7fed677 |
 | B9 | R-01 序修正：停旧→备份→起新 | 蓝图初稿「备份→停旧」会抓不一致 sqlite 快照；正序从 m4_handoff #4 原文 | lykoi-cordis@27f4682 |
 
 ## C · 本稿之外仍待 Kevin 的

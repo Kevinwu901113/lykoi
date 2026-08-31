@@ -1,8 +1,8 @@
 # WO-M4-W2 · 停机切换部署 runbook（治理侧主笔）
 
 状态：材料齐备，待 Kevin 定切换窗时间。
-树钉点：lykoi-cordis **m4-switch = `ebaeda839dc17d5db919f9a5e6ce4ec49240fcb2`**
-（= main `27f4682a94dd04f0fd6ae29c9e859931e031eba3` + 七个器官位翻开）。
+树钉点：lykoi-cordis **m4-switch = `7fed677434f99d61ddf48e818111099eebde0a95`**
+（= main `cb2e27e722387582d569bafef037999ec30d6e31` + 六个器官位翻开；WO-M4-FIX-WAKE 重钉，learn 位已退役）。
 一切标识符按 2026-08-31 对真树与真服务器取证写成（教训 42：不凭记忆写粘贴稿）。
 
 ## 1 · 全景
@@ -30,7 +30,7 @@ paste-1-prepare.sh             paste-2-switch.sh                   48h 观察期
 | `approval-briefing.md` | 追认呈批稿（M3 攒批 7 条 + M4 复核决断批）——**窗前 Kevin 过目** |
 
 main 前进后的重钉法：`git checkout m4-switch && git rebase main && git push -f`，
-然后把本 runbook 与 paste-1 里的两处 sha 换成新值（只此两处，`grep -rn ebaeda8` 可核）。
+然后把本 runbook、paste-1 与 approval-briefing 里的 sha 换成新值（`grep -rn 7fed677` 可核）。
 
 ## 3 · 关键取证事实（2026-08-31，`ssh lykoi-gov` 只读）
 
