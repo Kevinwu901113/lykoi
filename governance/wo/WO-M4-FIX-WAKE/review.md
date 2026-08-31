@@ -58,6 +58,23 @@
 sed 的脏被覆盖，树回到签名对象）→ `--write-manifest` 重签 → restart →
 状态/日志读数 → wake 首拍观察（`autonomy_wake`，最长等基线 30 分钟）。
 
+## 落地实录（2026-09-01 01:46，Kevin root 执行 paste-landing.sh）
+
+- 树钉 `7fed677` checkout 干净，止损 sed 痕迹如期覆盖；manifest 重签仍
+  103 文件（新增测试文件在签名域外，域=src 面，符合预期）。
+- 服务 `active (running)`，gate OK，**十二插件起立 = 基线六件 + 翻位六器官**
+  （llm-deepseek / memory / telegram-transport / **wake** / telegram /
+  converse 逐名对上 apply 日志）——wake 以 personaToml 配置面首次真启用，
+  未炸。production assembly up。
+- 粘贴稿自身两处作者错误（执行后发现，树无恙）：六位断言 grep 模式取严格
+  子串漏了 heart 位注释的「；R-01」变体（命中 5≠6）；且 `[ … ] && echo`
+  在 set -e 下失败**不中止**（AND-OR 豁免），断言静默滑过。已出修正稿
+  （模式放宽 + 全部软断言改 if/exit 硬断言）。教训并入 HANDOFF 候选：
+  **粘贴稿断言一律显式 if/exit，禁 `[ … ] && echo` 形态**。
+- 尾项：wake 首拍（audit 流 `autonomy_wake`，心跳基线最长 30 分钟）观察中；
+  治理账号可读 journal、不可读 audit.jsonl（620 root:lykoi，sudo 白名单外），
+  首拍读数由 root 侧一条 grep 收尾。
+
 ## 事故账（关账）
 
 - 根因①②均出生规格消灭（personaToml 配置面 + learn 条目退役），各有测试钉。
