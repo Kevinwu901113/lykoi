@@ -63,6 +63,8 @@ main 前进后的重钉法：`git checkout m4-switch && git rebase main && git p
    `BUNDLE_SHA`。
 2. `sudoedit /home/lykoi/secrets/telegram-cordis.env` 填
    `LYKOI_TELEGRAM_BOT_TOKEN=<值>`（若 llm.env 缺 `DEEPSEEK_API_KEY=` 行则一并补）。
+   （2026-08-31 owner 决断在案：token 曾贴入治理会话，治理侧建议轮换，
+   Kevin 明示「无视泄露」接受风险、不轮换。值仍由 Kevin 手填，治理侧永不经手。）
 3. 定窗、跑两份粘贴稿、E 步实弹（手机上：普通消息 / terminal.exec 批准 / 拒绝 /
    unclear 四条链）。
 
