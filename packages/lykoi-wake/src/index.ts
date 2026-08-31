@@ -32,6 +32,16 @@
  * W2 TODO#4（logEvent 统一接 audit）：snapshot / decide / reflow 的事件注入位
  * 全部经 `auditLogEvent` 适配器收到 lykoi-audit（audit.record 的 JSONL 行，
  * type=事件名）。
+ *
+ * **D-FIX-1（WO-M4-FIX-WAKE 定案）：persona 配置面 = `personaToml` 路径。**
+ * 曾经的 raw `persona` 数据面（把整份 persona 表内联进 profile）**已取消** ——
+ * 装配面里的内联 persona 是 owner 域 TOML 的第二事实源，违单一出处；且它必填，
+ * 于是「从未填过这一项的 profile 条目」一被翻开就 `$.persona missing required
+ * value` 炸在 loader 阶段（2026-09-01 00:54 切换窗事故的两条根因之一）。
+ * 本插件的装载面自此**镜像 lykoi-converse**：`loadPersona(resolve(
+ * config.personaToml))` —— 同一个装载器、同一个返回类型 PersonaConfig、同一个
+ * SA-156 fail-fast 姿态（文件缺失/坏 TOML → PersonaConfigError 启动即炸，
+ * 不包不吞）。醒着的她和聊天的她读同一份先天内核，从此连读法都是同一句。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -41,7 +51,7 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  OrganInventoryCache, parsePersonaData, serializeDecision,
+  loadPersona, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
@@ -360,12 +370,11 @@ export interface Config {
   /** state 副本路径（golden devstate 永远只读——生产接的是治理侧发的可写副本）。 */
   dbPath: string
   /**
-   * persona 数据（parsePersonaData 的输入面）。TOML 装载器已在 lykoi-decide
-   * （loadPersona/getPersona，W5）；wake 入 cordis.yml 时（M3，W3 TODO⑤）由
-   * 治理配置面决定改配 personaToml 路径 —— 本插件当前不进 profile，不擅自改
-   * 配置形状。
+   * persona TOML 路径（owner 域；装载失败 = 启动即炸，SA-156 fail-fast）。
+   * 与 lykoi-converse 的同名配置项**同形同源** —— D-FIX-1（WO-M4-FIX-WAKE）：
+   * 装配面只给路径，persona 数据本身永远只有 owner 域 TOML 一个事实源。
    */
-  persona: Record<string, unknown>
+  personaToml: string
   /** LLM 路由与模型（真实 adapter/model 归 M3 治理配置；route 缺省即归因科目）。 */
   route: string
   model: string
@@ -375,7 +384,7 @@ export interface Config {
 
 export const Config: Schema<Config> = Schema.object({
   dbPath: Schema.string().required(),
-  persona: Schema.any().required(),
+  personaToml: Schema.string().required(),
   route: Schema.string().default(AUTONOMOUS_COGNITION),
   model: Schema.string().default('mock-model'),
   checkIntervalMs: Schema.number().default(5_000),
@@ -400,7 +409,9 @@ export function apply(ctx: Context, config: Config) {
   setTransportLogEvent(logEvent)
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
 
-  const persona = parsePersonaData(config.persona)
+  // D-FIX-1：先天内核从 owner 域 TOML 装载（converse 镜像；SA-156 fail-fast ——
+  // 文件缺失/坏 TOML 抛 PersonaConfigError，不包不吞，病内核在启动时炸）。
+  const persona = loadPersona(resolve(config.personaToml))
   const notifications: NotificationsView = emptyNotifications // M3-W3 接 kernel 通知队列
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),
