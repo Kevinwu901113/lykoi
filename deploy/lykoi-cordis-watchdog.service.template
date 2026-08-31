@@ -1,0 +1,20 @@
+# Lykoi Cordis watchdog · 模板（root oneshot；由 .timer 拉起）
+#
+# 用法：
+#   install -o root -g root -m 644 deploy/lykoi-cordis-watchdog.service.template \
+#           /etc/systemd/system/lykoi-cordis-watchdog.service
+#
+# 出处：m4_handoff.md 前置 #10（watchdog 的新体对应物 = 部署面的事，
+# 刻意不进插件树 —— 一个被自己看守的对象加载进来的看守不是看守）。
+# 正本见 governance/wo/WO-M4-W2/units/lykoi-cordis-watchdog.service。
+#
+# 本文件无占位符：探针脚本的落址是固定的（/usr/local/sbin，不在任何
+# lykoi 可写树里 —— 看守者与被看守者物理分离）。
+
+[Unit]
+Description=Lykoi Cordis watchdog probe (root supervisor)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/lykoi-cordis-watchdog.sh

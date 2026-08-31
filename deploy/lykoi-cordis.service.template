@@ -1,0 +1,46 @@
+# Lykoi Cordis 主 unit · 模板（占位符形式，不含任何真值）
+#
+# 用法：
+#   install -o root -g root -m 644 deploy/lykoi-cordis.service.template \
+#           /etc/systemd/system/lykoi-cordis.service
+#   然后把 <NODE_BIN> 换成你的 Node 24 绝对路径（例：/opt/node-v24.18.0/bin/node）
+#   systemctl daemon-reload
+#
+# 部署步骤全文见 docs/deploy.md §10。切换窗用过的正本（真值已填）见
+# governance/wo/WO-M4-W2/units/lykoi-cordis.service。
+#
+# 路径为什么写死：/home/lykoi/projects/lykoi-cordis 是签过名的规范值
+# （packages/lykoi-gate/src/surface.ts 的 PROD_REPO_ROOT +
+#  packages/lykoi-kernel/src/policy-core.ts 的 GATE_SOURCE_CANONICAL）。
+# 装在别的路径要改这两处源码并 root 重签 manifest（docs/deploy.md §2）。
+#
+# env 面纪律（GK-6 / m4_handoff 前置 #11）：
+#   - 治理 state 路径与旋钮**一条都不许**写进 Environment=。未设 = 走已签名的
+#     源码/装配面缺省；设了 = 一次没有签名的治理变更 = 启动闸红。
+#   - 凭据走 EnvironmentFile（root:root 600；systemd 以 root 读后降权到 User=lykoi）。
+#     telegram-cordis.env 里是唯一该进 env 面的 LYKOI_*（BOT_TOKEN，门只看设没设 /
+#     空不空，永不读值）；llm.env 里是 DEEPSEEK_API_KEY（非 LYKOI_*）。
+#   - LYKOI_TELEGRAM_PROXY 必须未设（unset 类）—— 本文件不设即是。出站代理走
+#     root 签名的 profile/cordis.prod.yml。
+#
+# ExecStartPre = 完整性门（七检查项）。exit 1 → 服务不起。fail closed 的物理面。
+# ExecStart    = 生产专用入口，零 env 读取（profile/index.prod.ts 文件头）。
+
+[Unit]
+Description=Lykoi Cordis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lykoi
+Group=lykoi
+WorkingDirectory=/home/lykoi/projects/lykoi-cordis
+EnvironmentFile=/home/lykoi/secrets/telegram-cordis.env
+EnvironmentFile=/home/lykoi/secrets/llm.env
+ExecStartPre=<NODE_BIN> /home/lykoi/projects/lykoi-cordis/packages/lykoi-gate/src/cli.ts
+ExecStart=<NODE_BIN> /home/lykoi/projects/lykoi-cordis/profile/index.prod.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

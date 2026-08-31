@@ -1,0 +1,20 @@
+# Lykoi Cordis watchdog 节律 · 模板（每 5 分钟）
+#
+# 用法：
+#   install -o root -g root -m 644 deploy/lykoi-cordis-watchdog.timer.template \
+#           /etc/systemd/system/lykoi-cordis-watchdog.timer
+#   systemctl daemon-reload && systemctl enable --now lykoi-cordis-watchdog.timer
+#
+# 出处：m4_handoff.md 前置 #10；正本见
+# governance/wo/WO-M4-W2/units/lykoi-cordis-watchdog.timer。
+# 本文件无占位符。
+
+[Unit]
+Description=Run lykoi-cordis watchdog probe every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
