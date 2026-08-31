@@ -13,7 +13,10 @@ import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import { DatabaseSync } from 'node:sqlite'
 import * as wake from '../src/index.ts'
-import { TEST_PERSONA, makeStore } from './fixture.ts'
+import { makeStore } from './fixture.ts'
+
+/** D-FIX-1：装配面只给路径（owner 域 TOML）；内容 = TEST_PERSONA 的文件形态。 */
+const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
 function fakeAudit(): AuditService & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
@@ -73,13 +76,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
 
   const fiber = await ctx.plugin(wake, {
     dbPath: path,
-    persona: {
-      identity: { ...TEST_PERSONA.identity },
-      voice: { ...TEST_PERSONA.voice },
-      relationship: { ...TEST_PERSONA.relationship },
-      personality: { traits: [...TEST_PERSONA.personality.traits], evolves: true },
-      interests: { seeds: [...TEST_PERSONA.interests.seeds] },
-    },
+    personaToml: PERSONA_TOML,
     route: 'mock',
     model: 'mock-model',
     checkIntervalMs: 3_600_000, // cheap tick 驱动不进本测试
@@ -180,13 +177,7 @@ test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化�
 
   const fiber = await ctx.plugin(wake, {
     dbPath: path,
-    persona: {
-      identity: { ...TEST_PERSONA.identity },
-      voice: { ...TEST_PERSONA.voice },
-      relationship: { ...TEST_PERSONA.relationship },
-      personality: { traits: [...TEST_PERSONA.personality.traits], evolves: true },
-      interests: { seeds: [...TEST_PERSONA.interests.seeds] },
-    },
+    personaToml: PERSONA_TOML,
     route: 'mock',
     model: 'mock-model',
     checkIntervalMs: 3_600_000,

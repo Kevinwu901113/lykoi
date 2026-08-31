@@ -24,7 +24,10 @@ import { readOutboxAfter } from 'lykoi-adapter-telegram'
 import { getNotifications } from 'lykoi-kernel'
 import * as wake from '../src/index.ts'
 import type { WakeService } from '../src/index.ts'
-import { makeStore, TEST_PERSONA } from './fixture.ts'
+import { makeStore } from './fixture.ts'
+
+/** D-FIX-1：装配面只给路径（owner 域 TOML）；内容 = TEST_PERSONA 的文件形态。 */
+const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
 function isolateKernelFiles(): void {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-wake-kernel-'))
@@ -99,13 +102,7 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
 
   const fiber = await ctx.plugin(wake, {
     dbPath: path,
-    persona: {
-      identity: { ...TEST_PERSONA.identity },
-      voice: { ...TEST_PERSONA.voice },
-      relationship: { ...TEST_PERSONA.relationship },
-      personality: { traits: [...TEST_PERSONA.personality.traits], evolves: true },
-      interests: { seeds: [...TEST_PERSONA.interests.seeds] },
-    },
+    personaToml: PERSONA_TOML,
     route: 'mock',
     model: 'mock-model',
     checkIntervalMs: 3_600_000,

@@ -58,7 +58,14 @@ export function logicalDigest(path: string): string {
   }
 }
 
-/** wake 测试用 persona（本地形状件——内核字节对拍的 fixture persona 在 lykoi-decide）。 */
+/**
+ * wake 测试用 persona（本地形状件——内核字节对拍的 fixture persona 在 lykoi-decide）。
+ *
+ * D-FIX-1（WO-M4-FIX-WAKE）后有**两个入口、一份数据**：直接喂对象的纯函数测试
+ * （learn-e2e 等）用这个常量；经 Config/apply 走插件全链的测试喂
+ * `test/fixtures/persona.toml`（同一份数据的文件形态）。两者的等价由
+ * `persona-toml.test.ts` 的等价钉守住 —— 改了一边必须改另一边。
+ */
 export const TEST_PERSONA: PersonaConfig = {
   identity: {
     name: 'Lykoi',
