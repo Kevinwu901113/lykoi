@@ -3,7 +3,7 @@
 - **写于**：2026-08-08 凌晨
 - **写作人**：主治理 Agent（Mac Claude Code，Fable 5），因额度将尽而交接
 - **读者**：接手 Lykoi 治理平面工作的 Agent
-- **先读这三份**：本文件 → `docs/lykoi_whitepaper_v1.1_2026-08-07.md`（最高层规范）→ `docs/lykoi_collaboration_plan_v1_2026-08-07.md`（工作制度）
+- **先读这三份**：本文件 → `docs/lykoi_whitepaper_v1.2_2026-08-18.md`（最高层规范，现行版）→ `docs/lykoi_collaboration_plan_v1_2026-08-07.md`（工作制度）；仓库总入口另见仓库根 `CLAUDE.md`
 - **阶段 2 与重设计的现行文档**（2026-08-09 起）：
   `docs/phase2_joint_design_v1_2026-08-09.md`（冻结，数据模型×Gateway×S4）、
   `docs/lykoi_embodiment_redesign_v1_2026-08-09.md`（定案，社交器官×Mac 瘦身×对话审批）、
@@ -38,7 +38,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 ### Mac 侧（你的主场，全权限）
 
 - 项目根：`~/Documents/lykoi/`
-- **本治理仓库**：`~/Documents/lykoi/lykoi-governance/`（GitHub 私有仓 `Kevinwu901113/lykoi-governance`，`gh` 已以 Kevinwu901113 登录）
+- **治理平面正本**：本仓库 `governance/` 子目录（GitHub 私有仓 `Kevinwu901113/lykoi`；2026-08-31 单仓库化，原独立仓 `lykoi-governance` 已删除、全史并入）。Mac 工作副本 `~/Documents/lykoi/lykoi-cordis/`，`gh` 已以 Kevinwu901113 登录
 - 备份落地：`~/lykoi/backups/server-state/`（launchd `com.lykoi.backup-pull` 每 6 小时拉一次）
 
 ### 服务器（Lykoi core 所在）
@@ -245,7 +245,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     尾注(U0 因此红过四套)。② **白皮书随工单一起投放**——WO-BASE-04 复核提出
     "执行 Agent 手上没有白皮书,只能依工单转述判断对齐",此后一直没落实;
     动到人格/记忆/自主性语义的单,把相关章节摘录进工单,或明确写"以
-    `docs/lykoi_whitepaper_v1.1_2026-08-07.md` §X 为准"。
+    `docs/lykoi_whitepaper_v1.2_2026-08-18.md` §X 为准"。
 
 35. **"派发长连接中断"这条老账已由棘轮方案关闭**(2026-08-13 记)。
     WO-BASE-04 复核当时建议"再遇到就拆小工单";实际采用的是
@@ -351,7 +351,41 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-08-21 深夜二次校准；比下方历史条目新，先读这里）
+### 📍 状态快照（2026-08-31 刷新；比下方一切条目新，先读这里）
+
+- **本仓库已是唯一仓库**（2026-08-31 单仓库化）：原独立治理仓 `lykoi-governance`
+  与旧 Python 仓 `lykoi` 已从 GitHub 删除（完整 bundle 存 Mac
+  `~/Documents/lykoi/archive/repo-bundles-2026-08-31/`），治理平面全史以 subtree
+  并入现仓 `Kevinwu901113/lykoi` 的 `governance/` 子目录。本文件里所有指向独立
+  治理仓的旧路径，一律按 `governance/` 前缀换算；工单目录 = `governance/wo/`。
+- **路线已换轨（2026-08-24 Kevin 拍板 CF-1 = 完全移植）**：Lykoi 整体迁
+  Cordis(TS/Node) 运行时（= 本仓库 `packages/` 插件树），旧体渐进改造队列
+  （U3S-FIX、追认/决断清单等）全部让位。三样不解除：数据即身份（memory.db
+  原样接管零迁移）、治理特权层等价重建、费用硬顶首单落地。总案
+  `docs/cordis_full_migration_plan_v1_2026-08-24.md`。
+- **移植进度：M0–M3 全落库复核 PASS**（M0 规格封存四单 → M1 骨架两波 →
+  M2 心智五波 433/433 → M3 治理四波 754/754），报告全在 `wo/WO-M*/`。
+  **M4 W1 构建波 + W2 部署材料已落**：W1 = undici 钉版代理、
+  `profile/index.prod.ts` 双写死入口、GK-15 活规则退钉面，测试 797/0，
+  切换分支 `m4-switch`；W2 = `wo/WO-M4-W2/`（runbook + paste-1/paste-2 +
+  units + approval-briefing）。三决断项 Kevin 已按默认值批（GK-8 通知推送
+  维持关 / E3 计税维持现状 / D-01 = 30s/1次/180s）。
+- **当前卡点 = M4 W3 切换窗，只等 Kevin 三样**：①Mac 打 bundle+scp、
+  BUNDLE_SHA 填进 paste-1；②sudoedit 填 telegram token；③定窗跑两稿 +
+  E 步实弹四链。窗后 48h 观察 → CORE-RETIRE 收尾窗另呈批。
+- **旧体现状**：服务器 Python 五服务仍 active，活体 HEAD `4463ae8` =
+  tag `cordis-night-20260822`。U3 切换态 08-24 首夜 36 分钟止损回影子态
+  （DeepSeek json 空回复 + 对话轮 tool_call 零审计两缺陷）——两缺陷已在
+  新体出生规格里消灭（G-10 / D-01 / D-02）。
+- **M5 已立项**：首器官 browser（`wo/WO-M5-ORGAN-BROWSER/charter.md`；
+  旧 browser-profile 4.3GB 封存不迁移，她自己账号重新登录）。
+- **云端对接（2026-08-31 起）**：仓库根 `CLAUDE.md` = 一切 Claude Code 会话
+  入口；云端（claude.ai/code）会话必读本目录 `CLOUD_HANDOFF.md`——云端无
+  SSH、无 Mac 记忆，定位 = 执行 Agent，一切交接走 git。
+- **进度正本指引**：逐日流水仍在服务器 `~/reports/governance-ops.jsonl`
+  （云端不可读）；仓库内最接地的状态源 = `wo/` 下日期最新的工单目录。
+
+### 旧快照存档（2026-08-21 深夜二次校准；已被上方 2026-08-31 快照取代）
 
 - **进度正本已迁移**：逐日进度看服务器 `~/reports/governance-ops.jsonl` 与主治理
   Agent 记忆，本节以下的历史条目停在 2026-08-10 前后，仅作背景。
@@ -531,7 +565,7 @@ Codex 接手期间的四单**全部经独立验证通过**，非采信自述：
 - 所有端口绑 loopback：8080 surface / 9222 CDP / 5900 VNC / 6080 noVNC
 - cron 两项：`notify_push` 每分钟、`offsite_backup` 每日 04:17
 - **代码基线** main@`8a613a1e` = 白皮书审计基线（现 HEAD 已含本轮修复）
-- 白皮书正本在 Mac `docs/`；服务器副本 `lykoi@~/白皮书v1.1.md`；**服务器只保留最新版，更新时旧版直接删**
+- 白皮书正本在本仓库 `governance/docs/`（现行 v1.2）；服务器副本 `lykoi@~/白皮书v1.2.md`；**服务器只保留最新版，更新时旧版直接删**
 
 ### 三个结构性缺口（白皮书结论章）
 
@@ -557,7 +591,10 @@ Codex 接手期间的四单**全部经独立验证通过**，非采信自述：
 
 ## 八、接手第一步建议
 
-1. 读白皮书 v1.1 + 协作方案 + 本文件（尤其第四节那 16 条教训）
+> ⚠️ 本节写于 2026-08-08：第 3 条的期望值（HEAD/服务数）与第 4 条的"下一步"
+> 早已过时，现状一律以第五节 2026-08-31 快照为准；本节保留的是流程骨架。
+
+1. 读白皮书 v1.2 + 协作方案 + 本文件（尤其第四节的教训清单）
 2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
 3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `74f5907c`、四个 active、health 含 `browser_request_guard=ready`
 4. 下一步执行干净 Ubuntu 24.04 VM 从零重建演练；不要直接在生产恢复、不要把 secrets 放进备份。该门通过后再做 S4 Secret + 阶段 2 Delegation Gateway 联合边界设计。除非 Kevin 改变指示，不使用 Opus/Sonnet，主治理 Agent 直接实施
