@@ -31,9 +31,26 @@ export const RULES_CANONICAL = '/home/lykoi/state/approval_rules.json'
 export const PERSONA_TOML_CANONICAL = '/home/lykoi/runtime/persona/lykoi_base.toml'
 export const AUDIT_CANONICAL = '/var/log/lykoi-audit/audit.jsonl'
 
-/** 新体治理 state 目录（W1 三路 + W3 出站六路 + 通知 + 显著性影子库都落这里）。 */
-const STATE_DIR = '/home/lykoi/state'
-const at = (name: string): string => `${STATE_DIR}/${name}`
+/**
+ * 新体治理 state 目录（W1 三路 + W3 出站六路 + 通知 + 显著性影子库都落这里）。
+ *
+ * **D-SC-1（WO-STATE-CANON）**：源码缺省全部是**仓库相对**的 `var/state/…`
+ * （`lykoi-kernel/src/approval.ts:36` 等十余处），与这里的绝对规范值靠**一条
+ * 符号链接**调和（`<repo>/var/state` → 本目录）。定案刻意不改源码相对缺省、
+ * 不加 unit env —— 于是「两个落点会不会分叉」全落在那一条链接上，由检查项⑧
+ * `checkStateCanon` 守。本常量是它的 canonical 缺省。
+ */
+export const STATE_CANONICAL = '/home/lykoi/state'
+
+/**
+ * 调和链接的**仓库相对**落址 —— 源码缺省 `var/state/…` 的那半边。
+ *
+ * 刻意**不**做成入参（与 canonical 目标不同）：检查项⑧ 要测的就是生产上真正会
+ * 被写到的那一个落址，把它参数化等于测了个别的地方。
+ */
+export const STATE_LINK_REL = 'var/state'
+
+const at = (name: string): string => `${STATE_CANONICAL}/${name}`
 
 // ============================== GK-6 env 钉面 ==============================
 

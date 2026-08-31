@@ -17,7 +17,7 @@ lykoi-cordis/
 ├── packages/          插件树。每个包一个器官或一层治理地基
 │   ├── lykoi-kernel     特权层：dispatch 主链 / 三层审批门 / policy core /
 │   │                    path guard / 委托台账 / 通知原语。她咨询它但削不动它
-│   ├── lykoi-gate       启动完整性门（七检查项）。**不是插件** —— 启动前跑一次就退出
+│   ├── lykoi-gate       启动完整性门（八检查项）。**不是插件** —— 启动前跑一次就退出
 │   ├── lykoi-heart      心脏：基线节律 + 显著性唤醒接口，只置位不消费
 │   ├── lykoi-audit      治理地基：append-only 审计 sink（JSONL）
 │   ├── lykoi-budget     治理地基：费用硬顶，每次 LLM 调用必经

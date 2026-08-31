@@ -1,5 +1,5 @@
 /**
- * 完整性门的红绿双验夹具：在 tmpdir 里立一棵**合成受保护树**，让七检查项跑真
+ * 完整性门的红绿双验夹具：在 tmpdir 里立一棵**合成受保护树**，让八检查项跑真
  * 逻辑。
  *
  * 数据纪律：全程 tmpdir 副本，一个字节都不碰真 state（golden devstate 永远只读；
@@ -28,6 +28,10 @@ export interface Fixture {
   personaToml: string
   rulesPath: string
   auditPath: string
+  /** 合成的 `/home/lykoi/state`（活规则就住在里面）。 */
+  stateCanonical: string
+  /** 仓库内那一条调和链接 `<repo>/var/state`（检查项⑧ 的被检对象）。 */
+  stateLink: string
   cleanup(): void
 }
 
@@ -121,6 +125,14 @@ export function makeFixture(): Fixture {
   write(auditPath, '')
   chmodSync(dirname(auditPath), 0o755)
 
+  // --- state 落点调和（检查项⑧ 的被检对象；WO-STATE-CANON D-SC-1） ---
+  // 合成的 `/home/lykoi/state` = 上面那个 root/state 目录（活规则也住在里面）；
+  // 仓库内 `var/state` 是指向它的符号链接 —— 生产机上那一条的等价物。
+  const stateCanonical = dir(join(root, 'state'))
+  const stateLink = join(repoRoot, 'var', 'state')
+  dir(dirname(stateLink))
+  symlinkSync(stateCanonical, stateLink)
+
   const env: GateEnv = {
     repoRoot,
     rootUid: process.getuid!(),
@@ -128,12 +140,16 @@ export function makeFixture(): Fixture {
     personaToml,
     rulesPath,
     auditPath,
+    stateCanonical, // 合成的 `/home/lykoi/state`（检查项⑧ 的 canonical 目标）
     appendOnlyProbe: () => true, // 合成 sink 没有真的 chattr +a；探针替身答"有"
     isProtectedPath: productionSemanticsGuard,
   }
 
   signManifest(env)
-  return { repoRoot, env, personaToml, rulesPath, auditPath, cleanup: () => rmSync(root, { recursive: true, force: true }) }
+  return {
+    repoRoot, env, personaToml, rulesPath, auditPath, stateCanonical, stateLink,
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  }
 }
 
 /**

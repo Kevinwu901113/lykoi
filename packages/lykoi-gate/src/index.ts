@@ -14,7 +14,7 @@
  *  - manifest.ts      **纯函数**清单生成器 + 受保护面唯一出处（签的=验的）
  *  - rules-schema.ts  approval_rules 结构 schema 的**孪生这一份**（SK-72）
  *  - vocabulary.ts    事件词汇分流定案（W2#6）+ D-08/SK-05 口径分界（W3#7）
- *  - verify.ts        七检查项本体（SK-71）
+ *  - verify.ts        八检查项本体（SK-71）
  *  - cli.ts           SK-70 入口：校验 exit 1 / `--write-manifest` root 重签
  *
  * 三件活体模块在新体的落位（报告留痕）：

@@ -1,5 +1,5 @@
 /**
- * 启动完整性门 —— 七检查项（SK-70..76 等价重建；CF-B1 形态）。
+ * 启动完整性门 —— 八检查项（SK-70..76 等价重建；CF-B1 形态）。
  *
  * 正本：治理仓库 wo/WO-M3-SPEC-KERNEL/guardian-live-20260825/startup_verify.py
  * （425 行，manifest 113 行）。SK-70：任一问题 exit 1；`--write-manifest` 是
@@ -29,7 +29,8 @@ import {
 import { rulesSchemaProblems } from './rules-schema.ts'
 import {
   AUDIT_CANONICAL, ENV_PINS, PERSONA_TOML_CANONICAL, PROD_REPO_ROOT, ROOT_OWNED_PACKAGES,
-  RULES_CANONICAL, collectTs, hashPinnedPackages, isRealDir, scanEnvReads,
+  RULES_CANONICAL, STATE_CANONICAL, STATE_LINK_REL, collectTs, hashPinnedPackages, isRealDir,
+  scanEnvReads,
 } from './surface.ts'
 import {
   CHANNEL_FIELD, CHANNEL_TELEMETRY, DUAL_NAMES, IMMUTABLE_EMITTER_REL, IMMUTABLE_TYPES,
@@ -54,6 +55,16 @@ export interface GateEnv {
   rulesPath: string
   /** 审计 sink 路径（检查项⑦读它）。 */
   auditPath: string
+  /**
+   * 规范 state 目录 —— 检查项⑧ 里 `<repoRoot>/var/state` 这条链接**该指向的
+   * 地方**。缺省 = `STATE_CANONICAL`。
+   *
+   * 做成入参与 `personaToml` / `auditPath` / `rootUid` 是同一条可测性让步：红绿
+   * 双验要在 tmpdir 的合成树上跑真逻辑（真 lstat、真 realpath），而 `/home/lykoi`
+   * 在开发机上不存在。**链接自身的落址不在让步之列** —— 它由 `repoRoot` +
+   * `STATE_LINK_REL` 推出来，因为那正是运行期真的会被写到的那一个位置。
+   */
+  stateCanonical: string
   /** append-only 属性探针：true/false/**null = 读不出来**（活体 None 同义，fail closed）。 */
   appendOnlyProbe: (path: string) => boolean | null
   /**
@@ -75,6 +86,9 @@ export function productionEnv(repoRoot: string): GateEnv {
     personaToml: PERSONA_TOML_CANONICAL, // 刻意用规范路径而非 env 解析（活体注释逐字理由）
     rulesPath: environ.LYKOI_APPROVAL_RULES ?? RULES_CANONICAL,
     auditPath: environ.LYKOI_AUDIT_PATH ?? AUDIT_CANONICAL,
+    // 刻意**不**读 env：调和的规范目标是定案常量，不是可覆盖项（D-SC-1 明写
+    // 「不加 unit env」；能被 env 换掉的 canonical 等于没有 canonical）。
+    stateCanonical: STATE_CANONICAL,
     appendOnlyProbe: defaultAppendOnlyProbe,
     isProtectedPath,
   }
@@ -569,6 +583,70 @@ export function checkAuditSink(env: GateEnv, problems: string[]): void {
   }
 }
 
+// ============================== ⑧ state 落点调和 ==============================
+
+/**
+ * 检查项⑧ —— GK-6 state 落点调和（WO-STATE-CANON 定案 D-SC-1）。**活体无对应
+ * 物**：活体的 state 路径在源码里就是绝对的，没有两个落点可分叉；新体的源码
+ * 缺省是仓库相对的 `var/state/…`，于是多出了这一条只在部署面存在的调和物。
+ *
+ * 被检事实一条：`<repoRoot>/var/state` 必须是**符号链接**且 realpath 等于
+ * `env.stateCanonical`。三态：
+ *
+ *  - 是链接且指对 → OK
+ *  - **真实目录（或普通文件）→ FAIL**：分叉已经发生。这不是假想 —— 2026-09-01
+ *    01:18 的止损重启就让服务进程在仓库内 mkdir 了真实 `var/state/` 并写进去
+ *    一个 `telegram_outbox.cursor`；审批面诸文件因懒加载才侥幸没跟着分叉。
+ *  - **不存在 → 同样 FAIL**：不是「没什么可查」。运行期 `writeJsonAtomic` 会
+ *    自己 `mkdir -p` 出上面那个真实目录，所以缺失 = **未来分叉**，与已分叉同罪。
+ *
+ * 形态上刻意与检查项②b `checkResolutionLink` 同构（那一条也是「必须是 symlink
+ * 且 realpath 等于某处」，也用「不是链接 = 一次改道」这同一套失败语义）：两条守
+ * 的是同一类攻/错面 —— **文件内容一个字节没变，落点整个改道**，manifest 全绿。
+ */
+export function checkStateCanon(env: GateEnv, problems: string[]): void {
+  const link = join(env.repoRoot, STATE_LINK_REL)
+  let info: ReturnType<typeof lstatSync>
+  try {
+    info = lstatSync(link)
+  } catch {
+    problems.push(
+      `state landing missing: ${link} (expected a symlink to ${env.stateCanonical}) — `
+      + 'runtime writeJsonAtomic would mkdir a real directory here and fork her state',
+    )
+    return
+  }
+  if (!info.isSymbolicLink()) {
+    problems.push(
+      `state landing is not a symlink (forked state): ${link} is a `
+      + `${info.isDirectory() ? 'real directory' : 'regular file'}, `
+      + `expected a symlink to ${env.stateCanonical}`,
+    )
+    return
+  }
+  let target: string
+  try {
+    target = realpathSync(link)
+  } catch (exc) {
+    // 悬空链接：写盘会 ENOENT，不是分叉但同样起不来。fail closed。
+    problems.push(`state landing unresolvable: ${link} (${exc instanceof Error ? exc.message : String(exc)})`)
+    return
+  }
+  let expected: string
+  try {
+    expected = realpathSync(env.stateCanonical)
+  } catch {
+    // canonical 自己解析不出来 → 退回字面比较（与检查项③ path 类同一条退法）。
+    expected = resolve(env.stateCanonical)
+  }
+  if (target !== expected) {
+    problems.push(
+      `state landing points outside the canonical state dir: ${link} -> ${target} `
+      + `(canonical: ${expected})`,
+    )
+  }
+}
+
 // ============================== 汇总 ==============================
 
 /** 检查项的稳定名（报告与红测按名索引）。 */
@@ -581,6 +659,7 @@ export const CHECKS = Object.freeze([
   ['rules', checkRules],
   ['event_vocabulary', checkEventVocabulary],
   ['audit_sink', checkAuditSink],
+  ['state_canon', checkStateCanon],
 ] as const satisfies readonly (readonly [string, (env: GateEnv, problems: string[]) => void])[])
 
 /** 跑全部检查，返回问题清单（空 = 全绿）。活体 `verify()` 对应物。 */
