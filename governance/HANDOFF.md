@@ -347,11 +347,55 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     >10 分钟的远程命令:写成服务器端脚本 → `setsid nohup … &` → 输出落服务器
     文件 → 本地每几分钟一次新连接查完成标记。
 
+### 关于切换窗与粘贴稿（2026-09-01 新增，M4 切换事故与后续实勘）
+
+47. **切换分支翻位前，须核每个被翻条目「翻开即可启用」**（2026-09-01 00:54
+    事故本体）。占位条目（缺必填配置的 wake / 名字不是插件的 learn）在
+    disabled 态下零测试覆盖，唯一暴露点就是生产 loader——七位翻开两位炸，
+    旧体已停新体起不来。后续新增器官位时，翻位 commit 的复核清单必须含
+    「dev 装配或测试里起过一次该条目」。详 wo/WO-M4-FIX-WAKE/。
+
+48. **粘贴稿断言一律显式 if/exit，禁 `[ … ] && echo OK` 形态**（2026-09-01
+    落地稿实证）。`set -e` 对 AND-OR 列表有豁免：`[ 测试 ] && echo` 失败时
+    **不中止**，断言静默滑过——当晚六位断言 grep 模式又恰好错（严格子串漏了
+    heart 位注释「；R-01」变体），双错叠加零告警。软断言 = 没有断言。
+
+49. **切换材料必须对 GK-6 canonical 表逐条验证「运行时实际落点」，不能只验
+    文件存在**（2026-09-01 实勘，WO-STATE-CANON）。prod yml 声称逐字沿用
+    `/home/lykoi/state` 活体身份文件，但源码缺省是仓库相对 `var/state/…`、
+    unit 零 LYKOI_* env——调和物（var/state 符号链接）从未进部署材料，止损
+    重启 40 分钟内服务进程就在仓库内 mkdir 真实目录分叉了一个游标。审批面
+    诸文件靠懒加载才没跟着分叉。现已由门检查项⑧永久看住（缺失也算 FAIL）。
+
 ---
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-08-31 刷新；比下方一切条目新，先读这里）
+### 📍 状态快照（2026-09-01 刷新；比下方一切条目新，先读这里）
+
+- **M4 切换完成，新体上线**：`lykoi-cordis.service` = 现行身体，生产树钉
+  detached `m4-switch`（六器官位翻开：llm-deepseek / memory / converse /
+  wake / telegram-transport / telegram；learn 位退役 = D-FIX-2 定案）。
+  切换窗当夜事故（占位条目被翻开 → loader 炸）当夜完全修法关单
+  （wo/WO-M4-FIX-WAKE/，教训 47/48）；`autonomy_wake` 首拍已实证。
+- **WAVE-OBS-PREP（观察周前完善波）进行中**：① WO-STATE-CANON（GK-6 state
+  落点调和：var/state symlink 定案 + 门检查项⑧，教训 49）复核 PASS 已合入；
+  ② WO-CORE-RETIRE（旧体退役：浏览器栈 mask、lykoi crontab 整表退役、
+  state 白名单外科归档，归档零删除）粘贴稿待 Kevin root 执行；
+  ③ WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫）排队；
+  ④ 波末 m4-switch 重钉 + 落地稿 B（新树 + symlink 调和 + 重签）。
+  **两稿定序：退役稿必须先跑**（僵尸 notify_push 轮询器先死，canonical
+  notifications.json 才许回连 —— D-SC-3）。
+- **观察周 W1**：波收官后起算，runbook =
+  `governance/docs/observation_week_1_runbook_2026-09-01.md`。观察期内不签
+  新器官单。之后主线 = **认知线**（心脏—大脑—器官深化；Kevin 2026-09-01
+  授权治理侧选定；Mac 线缓行）。候选首单：U2 器官自感知
+  （OrganInventoryCache 脚手架已在 converse/wake import 面）。
+- 下方 08-31 快照仍有效的部分：单仓库化、CF-1 路线、M0–M3 全 PASS、
+  云端对接、进度正本指引。其「M4 W3 卡点」「旧体现状五服务 active」
+  两条已被本快照取代。
+
+### 旧快照存档（2026-08-31 刷新；已被上方 2026-09-01 快照部分取代）
 
 - **本仓库已是唯一仓库**（2026-08-31 单仓库化）：原独立治理仓 `lykoi-governance`
   与旧 Python 仓 `lykoi` 已从 GitHub 删除（完整 bundle 存 Mac

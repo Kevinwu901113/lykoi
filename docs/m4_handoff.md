@@ -48,8 +48,10 @@ W2 已经证过这条路（实弹前置条件已证，生产不接线）。M4 �
 
     旧体 stop（确认进程真的没了）→ 备份 state → 新体 start
 
-`profile/cordis.prod.yml` 里 `memory` / `converse` / `wake` / `learn` 四条全部
+`profile/cordis.prod.yml` 里 `memory` / `converse` / `wake` 三条全部
 `disabled: true`，注释里直接引了这条规则 —— 翻开它们就是切换动作本身。
+（原文写「四条」含 `learn`：该条目已退役 —— lykoi-learn 是纯库、由 wake 经
+SA-171 驱动，永远不设 loader 条目。D-FIX-2，WO-M4-FIX-WAKE，2026-09-01。）
 
 ### 前置 #5 · DA-11：活体 persona TOML 的 sha 取证
 
@@ -177,7 +179,8 @@ root 单元。M4 部署清单必含。
 
 ### 切换窗验收（按序，任一条不过就回滚）
 
-1. `node packages/lykoi-gate/src/cli.ts` → `gate: OK`（七检查项全绿）
+1. `node packages/lykoi-gate/src/cli.ts` → `gate: OK`（八检查项全绿；
+   ⑧ = state 落点调和，WO-STATE-CANON，2026-09-01 起）
 2. 服务起得来；`audit.jsonl` 有新行且**只增不改**（`chattr +a` 在位）
 3. 她收得到消息（inbound 走通）
 4. 她说得出话（outbound 走通，一条 `messenger.send` 落 `action_dispatch` +
