@@ -1,0 +1,11 @@
+# Lykoi Cordis watchdog 节律（每 5 分钟）。M4 前置 #10。
+# 安装：install -o root -g root -m 644 → /etc/systemd/system/；enable --now 本 timer。
+[Unit]
+Description=Run lykoi-cordis watchdog probe every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+# Lykoi Cordis watchdog（root oneshot；由 .timer 拉起）。M4 前置 #10。
+# 安装：install -o root -g root -m 644 → /etc/systemd/system/
+[Unit]
+Description=Lykoi Cordis watchdog probe (root supervisor)
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/sbin/lykoi-cordis-watchdog.sh
