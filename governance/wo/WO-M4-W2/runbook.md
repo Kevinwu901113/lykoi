@@ -5,6 +5,20 @@
 （= main `27f4682a94dd04f0fd6ae29c9e859931e031eba3` + 七个器官位翻开）。
 一切标识符按 2026-08-31 对真树与真服务器取证写成（教训 42：不凭记忆写粘贴稿）。
 
+> **钉点复核（2026-08-31 晚，治理侧）**：main 已前进 `27f4682` → `2798f72`
+> （W2 材料入库 / token 决策存档 / 治理仓 subtree 并入 / README+deploy 文档）。
+> 经核 `git diff 27f4682..2798f72`，governance/ 之外仅 README.md、`deploy/`、
+> `docs/deploy.md` —— packages/ / profile/ / lockfile **零触碰**，切换态树生产
+> 等价 → **钉点维持 `ebaeda8`，不重钉**（§2 重钉法保留，备 main 再前进触及
+> 生产面时用）。随核修正一处：单仓库化后 main 携带治理全史（白皮书 / 安全缺口
+> 报告等），原 bundle 命令打 `main m4-switch` 会把治理史对象带上生产箱 ——
+> 单仓库化时无人决断过的副作用。paste-1 头注已改为**只打 `m4-switch`**：
+> 其父即旧 main `27f4682`（历史自足，已核 `ebaeda8^`），且 subtree 并入不在
+> 其史内（已核 `merge-base --is-ancestor` 为否）= 复核过的部署树原样落箱；
+> 服务器侧仅用 bundle 对象 + 钉点 sha detach checkout，`main` ref 无人依赖，
+> clone 机制不变。**否决窗口 = 切换窗前**（Kevin 若要治理史上箱，把 bundle
+> 命令加回 `main` 即可，其余零改）。
+
 ## 1 · 全景
 
 ```

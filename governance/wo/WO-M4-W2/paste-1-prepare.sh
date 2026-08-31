@@ -8,7 +8,10 @@
 #
 # 前置（Kevin 在 Mac 上先做，仓库私有、服务器零凭据 —— git bundle 传树）：
 #   cd ~/Documents/lykoi/lykoi-cordis
-#   git bundle create /tmp/lykoi-cordis.bundle main m4-switch
+#   git bundle create /tmp/lykoi-cordis.bundle m4-switch
+#     （只打 m4-switch —— 单仓库化后 main 携带治理全史，不上生产箱；m4-switch
+#       父即旧 main 27f4682、历史自足 = 复核过的部署树原样。钉点复核 2026-08-31，
+#       详 runbook 头注；服务器侧 clone/checkout 机制零改。）
 #   shasum -a 256 /tmp/lykoi-cordis.bundle        # 记下这个值，下面 BUNDLE_SHA 用
 #   scp /tmp/lykoi-cordis.bundle lykoi-gov:/tmp/lykoi-cordis.bundle
 #
