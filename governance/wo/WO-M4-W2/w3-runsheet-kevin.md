@@ -1,5 +1,14 @@
 # M4 W3 · Kevin 操作稿(三样,精确到命令)
 
+> **⚠️ 档案注(2026-09-01 补)**:本稿服务的首个切换窗已执行。实况:paste-1 全绿
+> → paste-2 首跑因 uvicorn 卡宿主机 KVM 异步缺页 D 态两轮受阻(重启 VM 清除)
+> → 起新失败,暴露两缺陷(wake 配置 `persona` 必填缺失;learn 是库非插件)→
+> `WO-M4-FIX-WAKE` 修复(wake 改 personaToml 必填、learn 从装配面退役,"七位"
+> 定案改**六位**),m4-switch 重钉 **`7fed677`**(本稿所引 `ebaeda8`/`27f4682a`
+> 自此作废)→ 落地(见 `../WO-M4-FIX-WAKE/paste-landing.sh` 与关单记录,wake
+> 首拍到账)。本稿保留作首窗档案;续用任何命令前,钉点以 `runbook.md` 现行
+> sha 为准。
+
 - **写于**:2026-08-31,云端执行会话(据 `runbook.md` / `paste-1-prepare.sh` /
   `paste-2-switch.sh` / `approval-briefing.md` 四件正本推导,零新决策)。
 - **本稿写作时点的钉点核验**(云端对 origin 只读取证):
