@@ -123,19 +123,28 @@
     visionRoute: disabled
     visionModel: disabled
 
-# ---- 自主侧（wake / learn）---------------------------------------------------
+# ---- 自主侧（wake）-----------------------------------------------------------
 # 同样受 R-01 约束（写同一个 state 库）。
+#
+# **这里没有 learn 条目，是定案不是缺件**（D-FIX-2，WO-M4-FIX-WAKE）：
+# `lykoi-learn` 是**纯库**（整合/专注的 re-export 桶，没有 apply），它的驱动位在
+# wake —— SA-171：一拍 completed 之后由 wake 串行驱动整合与专注，各自吞掉异常。
+# 曾经这里挂过一条 `- id: learn / name: lykoi-learn`，那条从第一天起就是错的：
+# 一被翻开 loader 就 `invalid plugin, expect function or object with an "apply"
+# method`（2026-09-01 00:54 切换窗事故的两条根因之一）。修法是删掉条目，
+# 不是给一个库套插件壳。
 - id: wake
   name: lykoi-wake
   disabled: true
   config:
     dbPath: /home/lykoi/state/memory.db
+    # 人格 TOML：与 converse 段**同一个文件**（D-FIX-1）—— 醒着的她和聊天的她
+    # 读同一份先天内核，装配面只给路径，数据本身只有 owner 域 TOML 一个事实源。
+    # root 属主 444、父目录 root；完整性门检查项②③⑤三处核它。
+    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
     route: deepseek
     model: deepseek-chat
     checkIntervalMs: 5000
-- id: learn
-  name: lykoi-learn
-  disabled: true
 
 # ---- 出站器官（Telegram）----------------------------------------------------
 # 需 root 供给：unit 文件里的 `Environment=LYKOI_TELEGRAM_BOT_TOKEN=…`
