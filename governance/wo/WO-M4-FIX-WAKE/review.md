@@ -71,9 +71,9 @@ sed 的脏被覆盖，树回到签名对象）→ `--write-manifest` 重签 → 
   在 set -e 下失败**不中止**（AND-OR 豁免），断言静默滑过。已出修正稿
   （模式放宽 + 全部软断言改 if/exit 硬断言）。教训并入 HANDOFF 候选：
   **粘贴稿断言一律显式 if/exit，禁 `[ … ] && echo` 形态**。
-- 尾项：wake 首拍（audit 流 `autonomy_wake`，心跳基线最长 30 分钟）观察中；
-  治理账号可读 journal、不可读 audit.jsonl（620 root:lykoi，sudo 白名单外），
-  首拍读数由 root 侧一条 grep 收尾。
+- 尾项已收：**wake 首拍到账**（Kevin root 实测 `grep -c autonomy_wake
+  audit.jsonl` = 1，心跳基线内）。自主醒拍链路（heart → wake →
+  loadPersona(personaToml)）全线实证。**本单彻底关单。**
 
 ## 事故账（关账）
 
