@@ -71,13 +71,15 @@ mv "node-$NODE_V-linux-x64" "node-$NODE_V"
 |---|---|---|
 | `/home/lykoi/projects/lykoi-cordis` | 仓库根 | `lykoi` clone，之后 `packages/` `profile/` 转 root |
 | `/home/lykoi/state/` | 她的 state（memory.db + 治理账本十余份） | `lykoi:lykoi` |
+| `<repo>/var/state` | **符号链接** → `/home/lykoi/state`（见 `§4b`） | `lykoi:lykoi`（链接本身），父目录 `var/` 同 |
 | `/home/lykoi/runtime/persona/lykoi_base.toml` | 先天人格 | `root:root 444`，父目录 `root:root 755` |
 | `/home/lykoi/secrets/` | 凭据禁区（她永不可达） | `root:root` |
 | `/var/log/lykoi-audit/audit.jsonl` | 不可变审计 sink | `root:lykoi 620` + `chattr +a`，父目录 `root:root 755` |
 
 出处：`packages/lykoi-gate/src/surface.ts`（`PROD_REPO_ROOT` / `RULES_CANONICAL` /
-`PERSONA_TOML_CANONICAL` / `AUDIT_CANONICAL` / `ENV_PINS` 全表）、
-`profile/cordis.prod.yml` 文末「生产 state 路径全表」、`m4_handoff.md` 前置 #9。
+`PERSONA_TOML_CANONICAL` / `AUDIT_CANONICAL` / `STATE_CANONICAL` / `STATE_LINK_REL` /
+`ENV_PINS` 全表）、`profile/cordis.prod.yml` 文末「生产 state 路径全表」、
+`m4_handoff.md` 前置 #9。
 
 **装在别的路径**：`PROD_REPO_ROOT`（`surface.ts`）与 `GATE_SOURCE_CANONICAL`
 （`packages/lykoi-kernel/src/policy-core.ts`）两处都写死了 `/home/lykoi/projects/lykoi-cordis`。
@@ -134,6 +136,42 @@ sudo -u lykoi env "PATH=$NODE_DIR/bin:$PATH" "$NODE_DIR/bin/npm" ci --ignore-scr
 
 **这一步必须在 `§6 root 属主域` 之前做完** —— 之后 `packages/` 归 root，
 `npm ci` 就不再是 lykoi 能做的事了。
+
+---
+
+## 4b · state 落点调和（🔒 D-SC-1；完整性门检查项⑧）
+
+**漏了这一步 = 她的审批记忆在错误落点新开一份副本。** 这不是假想：2026-09-01
+01:18 的止损重启就让服务进程自己在仓库内 `mkdir` 了一个真实 `var/state/` 并写进去
+一个 `telegram_outbox.cursor`；审批面诸文件因懒加载才侥幸没跟着分叉。
+
+```sh
+REPO=/home/lykoi/projects/lykoi-cordis
+
+sudo -u lykoi mkdir -p "$REPO/var"
+sudo -u lykoi ln -sfn /home/lykoi/state "$REPO/var/state"
+
+# 自检：必须打印 /home/lykoi/state
+readlink -f "$REPO/var/state"
+```
+
+**为什么需要这一条链接**：源码里的 state 缺省全部是**仓库相对路径**
+（`lykoi-kernel/src/approval.ts:36` 的 `var/state/approval_rules.json`，另十余处
+同形），而钉面与 `cordis.prod.yml` 尾表的 canonical 全部是绝对的
+`/home/lykoi/state/…`。定案（D-SC-1）**不改源码相对缺省、不加 unit env**
+（`Environment=` 面只放凭据，前置 #11 维持），两者就靠这一条符号链接调和。
+
+`var/` 在 `.gitignore` 里，所以链接**不随树落地**，每台机器都要单独供给一次；
+开发机维持既有形态（真实目录），那是 dev 装配自己的 state，与生产无关。
+
+门检查项⑧（`verify.ts` `checkStateCanon`）核的就是它，三态：
+是符号链接且 `realpath` = `/home/lykoi/state` → 绿；**是真实目录 → 红**（分叉
+已经发生）；**不存在 → 同样红**（运行期 `writeJsonAtomic` 会自己 `mkdir`，
+缺失 = 未来分叉，与已分叉同罪）。
+
+出处：`governance/wo/WO-STATE-CANON/order.md` D-SC-1、
+`packages/lykoi-gate/src/surface.ts`（`STATE_CANONICAL` / `STATE_LINK_REL`）、
+`WO-M4-W2/paste-1-prepare.sh` §3b。
 
 ---
 
@@ -296,9 +334,10 @@ sudo -u lykoi /opt/node-v24.18.0/bin/node packages/lykoi-gate/src/cli.ts
 
 出处：`WO-M4-W2/paste-1-prepare.sh` §8-9、`packages/lykoi-gate/src/cli.ts` 文件头。
 
-门的七检查项（`verify.ts` `CHECKS`）：①门自身的属主与不可写 ②受保护树 + 影蔽面
+门的八检查项（`verify.ts` `CHECKS`）：①门自身的属主与不可写 ②受保护树 + 影蔽面
 （构建产物 / 包解析劫持 / symlink）③GK-6 env 钉面 22 条 ④path guard 自检
-⑤manifest 三向 + 反向核对 ⑥活规则硬门核对 + 事件词汇分流 ⑦审计 sink 六断言。
+⑤manifest 三向 + 反向核对 ⑥活规则硬门核对 + 事件词汇分流 ⑦审计 sink 六断言
+⑧state 落点调和（`§4b` 那一条链接）。
 任一有问题 → `exit 1` → 服务不起来。这是 fail closed 的物理面。
 
 ---
@@ -512,4 +551,7 @@ chown -R lykoi:lykoi /home/lykoi/state
 | `LYKOI_TELEGRAM_PROXY must be unset in production` | 代理走装配面，不走 env |
 | `audit sink … missing append-only attribute` | `chattr +a` 没做，或 `lsattr` 读不出来（缺 `e2fsprogs` / 文件系统不支持） |
 | `persona TOML missing` | `§6` 没做 |
+| `state landing missing: …/var/state` | `§4b` 没做。**缺失即失败** —— 运行期 `writeJsonAtomic` 会在这里 `mkdir` 出真实目录，她的 state 就分叉了 |
+| `state landing is not a symlink (forked state)` | `§4b` 那条链接被一个**真实目录**顶掉了（多半是漏了 `§4b` 就起过服务）。分叉**已经发生**：先核对该目录里有哪些文件，再决定弃/并，然后重建链接 |
+| `state landing points outside the canonical state dir` | 链接在，但指到了 `/home/lykoi/state` 之外。`ln -sfn` 重建（`§4b`） |
 | `path guard does not protect the integrity gate itself` | 树装在了非规范路径而没改 `PROD_REPO_ROOT` / `GATE_SOURCE_CANONICAL`（`§2`） |

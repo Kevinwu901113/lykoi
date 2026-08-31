@@ -56,6 +56,19 @@ echo '== 3 · 依赖（--ignore-scripts；钉版由 lockfile；undici 必须 8.1
 sudo -u lykoi env "PATH=$NODE_DIR/bin:$PATH" "$NPM" ci --ignore-scripts
 [ "$(sudo -u lykoi "$NODE" -p 'require("undici/package.json").version')" = 8.10.0 ]
 
+echo '== 3b · state 落点调和（D-SC-1；检查项⑧ 的供给面） =='
+# 源码的 state 缺省全是**仓库相对**的 var/state/…（approval.ts:36 等十余处），
+# 钉面 canonical 全是绝对的 /home/lykoi/state/… —— 两者靠这一条符号链接调和。
+# 定案不改源码相对缺省、不加 unit env，所以漏了这一步 = 服务进程会自己在仓库内
+# mkdir 一个真实 var/state/ 并往里写，她的 state 当场分叉（2026-09-01 01:18 实证）。
+# var/ 在 .gitignore 里 → 链接不随树落地，每台机器供给一次。幂等：ln -sfn。
+sudo -u lykoi mkdir -p "$REPO/var"
+sudo -u lykoi ln -sfn /home/lykoi/state "$REPO/var/state"
+[ -L "$REPO/var/state" ] || { echo 'FAIL: var/state 不是符号链接（真实目录？先核对里面有什么再决定弃/并）'; exit 1; }
+[ "$(readlink -f "$REPO/var/state")" = /home/lykoi/state ] \
+  || { echo 'FAIL: var/state 没指向 /home/lykoi/state'; exit 1; }
+echo 'STATE LANDING OK'
+
 echo '== 4 · audit sink（前置 #9 逐字；检查项⑦六断言的供给面） =='
 install -d -o root -g root -m 755 /var/log/lykoi-audit
 [ -e /var/log/lykoi-audit/audit.jsonl ] \

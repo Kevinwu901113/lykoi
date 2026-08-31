@@ -194,6 +194,17 @@
 #   /var/log/lykoi-audit/audit.jsonl             LYKOI_AUDIT_PATH       (活体逐字)
 #   /home/lykoi/runtime/persona/lykoi_base.toml  LYKOI_PERSONA_TOML     (活体逐字)
 #
+# 上表怎么与源码缺省对上的（D-SC-1，WO-STATE-CANON）：**靠一条符号链接**。
+# 源码缺省全部是仓库相对的 `var/state/…`（lykoi-kernel/src/approval.ts:36 等
+# 十余处），生产机上 `<repo>/var/state` 是指向 `/home/lykoi/state` 的符号链接
+# （lykoi 属主）。定案刻意**不改**源码相对缺省、**不加** unit env（Environment=
+# 面只放凭据），于是「两个落点会不会分叉」全落在那一条链接上。
+# 供给步：docs/deploy.md §4b、WO-M4-W2/paste-1-prepare.sh §3b。
+# 守它的是完整性门检查项⑧（verify.ts checkStateCanon）：是链接且 realpath 等于
+# canonical → 绿；**是真实目录 → 红**（分叉已发生）；**不存在 → 同样红**
+# （运行期 writeJsonAtomic 会 mkdir，缺失 = 未来分叉）。
+# 开发机维持真实目录形态，那是 dev 装配自己的 state，与本表无关。
+#
 # ============================================================================
 # D-01 超时预算 · 生产值（**已填；M4-W1**）
 # ============================================================================

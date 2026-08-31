@@ -85,6 +85,8 @@ dev 装配把 `var/`（audit / budget / heart-state）落在仓库根下，首�
 
 完整性门（`node packages/lykoi-gate/src/cli.ts`）在开发机上**必然红**：它核的是
 生产机上的 root 属主、规范路径与 manifest 签名。这是设计如此，不是坏了。
+（检查项⑧ 另要求 `var/state` 是指向 `/home/lykoi/state` 的符号链接 —— dev 用
+真实目录，所以这一条在开发机上同样必红。生产供给步见 `docs/deploy.md §4b`。）
 
 ## 生产部署
 
