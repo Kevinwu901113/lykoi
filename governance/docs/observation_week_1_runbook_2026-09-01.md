@@ -12,7 +12,8 @@
 grep -c autonomy_wake /var/log/lykoi-audit/audit.jsonl
 # ② 预算账本（花费与硬顶的距离）
 cat /home/lykoi/state/budget.json
-# ③ 服务健康（重启次数看 NRestarts）
+# ③ 服务健康（重启次数看 NRestarts **增量**：W1 起点 = 626，系 09-01 落地前
+#    检查项④拦启动的重启环累计，属历史包袱不清零；升级线按日增 >3 算）
 systemctl show lykoi-cordis -p ActiveState,NRestarts
 # ④ 当日日志里的异常面
 journalctl -u lykoi-cordis --since today --no-pager | grep -iE 'error|fail|refus' | tail -5

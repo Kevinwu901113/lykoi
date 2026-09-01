@@ -399,21 +399,23 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
   wake / telegram-transport / telegram；learn 位退役 = D-FIX-2 定案）。
   切换窗当夜事故（占位条目被翻开 → loader 炸）当夜完全修法关单
   （wo/WO-M4-FIX-WAKE/，教训 47/48）；`autonomy_wake` 首拍已实证。
-- **WAVE-OBS-PREP（观察周前完善波）收官中**：① WO-STATE-CANON（GK-6 state
-  落点调和：var/state symlink 定案 + 门检查项⑧，教训 49）复核 PASS 已合入；
-  ② WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫；产线 yml 两 personaToml
-  同路径已核）复核 PASS 已合入；③ WO-GUARD-RETIRE（护栏旧体条目退役，
-  事故驱动，教训 50）复核 PASS 已合入；④ WO-CORE-RETIRE 粘贴稿 v4：
-  服务器侧步 1–8 已完成（crontab 退役、旧单元+浏览器栈退役、旧仓/控制器/
-  browser-profile 封存、state 外科归档、僵尸写者确死），步 9 冷启核验顺延
-  落地稿 B（教训 50/51 出处）；⑤ 波末 m4-switch 重钉 + 落地稿 B 进行中。
-  **她现停机等落地稿 B**（检查项④拦旧树，预期行为；Kevin 已知）。
-  **两稿定序：退役稿先于落地稿 B**（D-SC-3）。
-- **观察周 W1**：波收官后起算，runbook =
-  `governance/docs/observation_week_1_runbook_2026-09-01.md`。观察期内不签
-  新器官单。之后主线 = **认知线**（心脏—大脑—器官深化；Kevin 2026-09-01
-  授权治理侧选定；Mac 线缓行）。候选首单：U2 器官自感知
-  （OrganInventoryCache 脚手架已在 converse/wake import 面）。
+- **WAVE-OBS-PREP 已收官（2026-09-01 10:36 落地稿 B 全绿）**：四单全关——
+  ① WO-STATE-CANON（var/state symlink 定案 + 门检查项⑧，教训 49）；
+  ② WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫；产线两 personaToml
+  同路径，两器官共享同一内核对象）；③ WO-GUARD-RETIRE（护栏旧体条目退役，
+  事故驱动，教训 50，PROTECTED_PATHS 收敛两条 + 检查项④探针换防 canonical
+  state）；④ WO-CORE-RETIRE（四跑收敛 v1→v4，教训 51：旧体 12 单元/
+  browser-profile/控制器 19 件/旧仓/state 22 项全封存，crontab 整表退役，
+  僵尸 notify_push 确死；两封存区可 mv 回滚）。生产树钉 **5f706bd**
+  （= main f37aac8 + 六翻位），manifest 103 文件重签，**八检查项产线全绿**，
+  12 插件起立，起立后 journal 零报错。已知缺口：offsite_backup 随旧
+  crontab 停转，**新体无异地备份**——观察周后跟单。
+- **观察周 W1 进行中（2026-09-01 起算）**：runbook =
+  `governance/docs/observation_week_1_runbook_2026-09-01.md`（NRestarts
+  基点 626，看增量）。观察期内不签新器官单。之后主线 = **认知线**
+  （心脏—大脑—器官深化；Kevin 2026-09-01 授权治理侧选定；Mac 线缓行）。
+  候选首单：U2 器官自感知（OrganInventoryCache 脚手架已在 converse/wake
+  import 面）。
 - 下方 08-31 快照仍有效的部分：单仓库化、CF-1 路线、M0–M3 全 PASS、
   云端对接、进度正本指引。其「M4 W3 卡点」「旧体现状五服务 active」
   两条已被本快照取代。
