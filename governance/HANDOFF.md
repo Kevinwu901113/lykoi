@@ -367,6 +367,27 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     重启 40 分钟内服务进程就在仓库内 mkdir 真实目录分叉了一个游标。审批面
     诸文件靠懒加载才没跟着分叉。现已由门检查项⑧永久看住（缺失也算 FAIL）。
 
+50. **ops 退役单签发前必须 grep 全仓被退役的绝对路径——代码里引用它的常量/
+    探针要有代码侧配套单**（2026-09-01 退役三跑事故）。封存旧仓后，kernel
+    禁区表 `PROTECTED_PATHS` 的旧 guardian base 解析失败，SK-74 fail-closed
+    把「一条 base 消失」放大成「护栏对一切路径判在内」→ 门检查项④双 FAIL
+    拦启动。机制是功臣（真放她起来，运行时她寸步难行）；缺的是退役单的代码侧
+    另一半（WO-GUARD-RETIRE 补齐，含条目寿命纪律入注释与机制钉）。且旧体
+    源码注释早已预告此步（「留到旧体退役之后（CORE-RETIRE 正本）」）——签
+    退役类单时**搜一遍代码注释里的 RETIRE/退役字样**，前人埋的提醒别浪费。
+
+51. **服务器实物层三连坑（退役稿三跑实录）**：① 手工安装的 systemd 单元常
+    实住 `/etc/systemd/system/`（真文件），`systemctl mask` 撞真文件被拒——
+    退役 = disable → 单元文件归档 → mask 占名；② 旧审计类文件可能带
+    `chattr +a`，root 的 rename 也 EPERM——归档前 lsattr、摘属性、append-only
+    移完补回；③ 重定向 `cmd > 存档文件` 在 cmd 失败时**先截断后失败**——
+    幂等稿里存档一律先写临时文件成功后再落位。另：带引号的 glob 白名单条目
+    （`'*.sqlite3'`）在 `[ -e "$f" ]` 里永不展开，要裸变量二层循环。
+
+52. **执行方子 Agent 在场时，治理侧不动共享工作副本；动了须即刻知会**
+    （2026-09-01，WO-CACHE-PERSONA 作业期间治理侧改了退役稿，执行方交卷时
+    如实上报未误收——这次靠执行方显式路径 add 的纪律兜住，下次未必）。
+
 ---
 
 ## 五、当前进度
@@ -378,14 +399,16 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
   wake / telegram-transport / telegram；learn 位退役 = D-FIX-2 定案）。
   切换窗当夜事故（占位条目被翻开 → loader 炸）当夜完全修法关单
   （wo/WO-M4-FIX-WAKE/，教训 47/48）；`autonomy_wake` 首拍已实证。
-- **WAVE-OBS-PREP（观察周前完善波）进行中**：① WO-STATE-CANON（GK-6 state
+- **WAVE-OBS-PREP（观察周前完善波）收官中**：① WO-STATE-CANON（GK-6 state
   落点调和：var/state symlink 定案 + 门检查项⑧，教训 49）复核 PASS 已合入；
-  ② WO-CORE-RETIRE（旧体退役：浏览器栈 mask、lykoi crontab 整表退役、
-  state 白名单外科归档，归档零删除）粘贴稿待 Kevin root 执行；
-  ③ WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫）排队；
-  ④ 波末 m4-switch 重钉 + 落地稿 B（新树 + symlink 调和 + 重签）。
-  **两稿定序：退役稿必须先跑**（僵尸 notify_push 轮询器先死，canonical
-  notifications.json 才许回连 —— D-SC-3）。
+  ② WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫；产线 yml 两 personaToml
+  同路径已核）复核 PASS 已合入；③ WO-GUARD-RETIRE（护栏旧体条目退役，
+  事故驱动，教训 50）复核 PASS 已合入；④ WO-CORE-RETIRE 粘贴稿 v4：
+  服务器侧步 1–8 已完成（crontab 退役、旧单元+浏览器栈退役、旧仓/控制器/
+  browser-profile 封存、state 外科归档、僵尸写者确死），步 9 冷启核验顺延
+  落地稿 B（教训 50/51 出处）；⑤ 波末 m4-switch 重钉 + 落地稿 B 进行中。
+  **她现停机等落地稿 B**（检查项④拦旧树，预期行为；Kevin 已知）。
+  **两稿定序：退役稿先于落地稿 B**（D-SC-3）。
 - **观察周 W1**：波收官后起算，runbook =
   `governance/docs/observation_week_1_runbook_2026-09-01.md`。观察期内不签
   新器官单。之后主线 = **认知线**（心脏—大脑—器官深化；Kevin 2026-09-01

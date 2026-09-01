@@ -17,17 +17,27 @@
 # 修订 v3（2026-09-01，二跑实录）：二跑在步 7 audit.jsonl 中止——旧体给审计
 # 上了 chattr 追加/不可变属性，rename 连 root 都拒。修法：移动前摘 i/a 属性，
 # 归档后把 append-only 原样补回（封存件继续防篡改）。
+# 修订 v4（2026-09-01，三跑实录）：三跑步 1–8 全成，步 9 冷启被完整性门拒——
+# 旧仓封存后 kernel 禁区表 PROTECTED_PATHS 的旧 guardian base 解析失败，
+# SK-74 fail-closed 使护栏全封锁，检查项④双 FAIL（门按设计履职）。修法归
+# WO-GUARD-RETIRE（代码侧退役，随落地稿 B 上产线）；本稿步 9 改为：产线树
+# 尚未含该修法时，冷启核验**顺延到落地稿 B**（她保持停机），树已含则照常核验。
 set -euo pipefail
 
 ARCH=/home/lykoi/archive/old-body-20260901
 RARCH=/root/archive-old-body-20260901
 STATE=/home/lykoi/state
 CURSOR=$STATE/notify_push.cursor
+REPO=/home/lykoi/projects/lykoi-cordis
 
 echo '== 1 · 前验 =='
 if [ "$(id -u)" != 0 ]; then echo 'FATAL: 须 root'; exit 1; fi
-if ! systemctl is-active --quiet lykoi-cordis; then
-  echo 'FATAL: 新体不在 active，先排障再退役'; exit 1
+# v4：新体 active 前验降为记录——三跑后她因检查项④预期停机（见 v4 修订注），
+# 「须 active」若仍硬断言，本稿将永远无法收尾。
+if systemctl is-active --quiet lykoi-cordis; then
+  echo '--- 新体 active（正常在线形态）'
+else
+  echo '--- 新体不在 active（v4 预期形态：等落地稿 B；见修订注）'
 fi
 mkdir -p "$ARCH/state" "$RARCH/sbin" "$RARCH/units"
 chown root:root /home/lykoi/archive "$ARCH" "$ARCH/state"
@@ -170,23 +180,33 @@ fi
 echo 'zombie writer dead: OK'
 
 echo '== 9 · 新体冷启核验 =='
-systemctl restart lykoi-cordis
-sleep 8
-if ! systemctl is-active --quiet lykoi-cordis; then
-  echo 'FATAL: 退役后新体起不来 —— 立即联系治理侧（归档全部可 mv 回滚）'
-  journalctl -u lykoi-cordis -n 30 --no-pager
-  exit 1
+if grep -q "projects/lykoi/guardian'" "$REPO/packages/lykoi-kernel/src/policy-core.ts"; then
+  echo '>> 产线树尚未含 WO-GUARD-RETIRE（护栏禁区表仍有旧 guardian 条目）。'
+  echo '>> 旧仓已封存 → 该树被完整性门检查项④拦启动是**预期**（fail-closed 履职）。'
+  echo '>> 冷启核验顺延到落地稿 B（树重钉 + manifest 重签 + 起立断言在彼处）。'
+  systemctl stop lykoi-cordis 2>/dev/null || true
+  COLDSTART='deferred-to-landing-b'
+  echo 'cold start: DEFERRED（服务保持停机，等落地稿 B）'
+else
+  systemctl restart lykoi-cordis
+  sleep 8
+  if ! systemctl is-active --quiet lykoi-cordis; then
+    echo 'FATAL: 退役后新体起不来 —— 立即联系治理侧（归档全部可 mv 回滚）'
+    journalctl -u lykoi-cordis -n 30 --no-pager
+    exit 1
+  fi
+  if ! journalctl -u lykoi-cordis -n 30 --no-pager | grep -q 'production assembly up'; then
+    echo 'FATAL: 未见 production assembly up'; exit 1
+  fi
+  COLDSTART='ok'
+  echo 'cold start after retire: OK'
+  journalctl -u lykoi-cordis -n 14 --no-pager | tail -8
 fi
-if ! journalctl -u lykoi-cordis -n 30 --no-pager | grep -q 'production assembly up'; then
-  echo 'FATAL: 未见 production assembly up'; exit 1
-fi
-echo 'cold start after retire: OK'
-journalctl -u lykoi-cordis -n 14 --no-pager | tail -8
 
 echo '== 10 · 记账与清单 =='
 ls -la "$ARCH" "$RARCH/sbin" | head -50
 if [ -d /home/lykoi-gov/reports ]; then
-  printf '%s\n' '{"ts":"'"$(date -Iseconds)"'","actor":"root-paste","action":"retire","wo":"WO-CORE-RETIRE","detail":"旧体退役：lykoi crontab 整表退役、旧单元+浏览器栈 mask、browser-profile 封存、控制器/旧仓库归档、state 白名单外科归档；新体冷启核验通过"}' \
+  printf '%s\n' '{"ts":"'"$(date -Iseconds)"'","actor":"root-paste","action":"retire","wo":"WO-CORE-RETIRE","detail":"旧体退役：lykoi crontab 整表退役、旧单元+浏览器栈退役（单元文件归档+mask）、browser-profile 封存、控制器/旧仓库归档、state 白名单外科归档、僵尸写者死亡核验通过；冷启核验='"$COLDSTART"'"}' \
     >> /home/lykoi-gov/reports/governance-ops.jsonl
 fi
 echo '== 退役完成：旧体全部机件封存，回滚材料在上述两个封存区。 =='
