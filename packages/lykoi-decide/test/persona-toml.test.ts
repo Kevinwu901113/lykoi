@@ -6,11 +6,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative as relativePath } from 'node:path'
 import {
   buildPersonaKernel, getPersona, loadPersona, parseTomlSubset, PersonaConfigError,
+  resetPersonaCacheForTest,
 } from '../src/index.ts'
 import { FIXTURE_PERSONA } from './persona-fixture.ts'
 
@@ -115,9 +116,70 @@ test('TOML 子集解析细节：注释/多行数组/字面字符串/转义/井�
   })
 })
 
+// ===== getPersona 进程级缓存 + path 一致性守卫（D-CP-2/3，WO-CACHE-PERSONA） =====
+//
+// 缓存是模块级状态，`node --test` 每个测试文件一个进程 —— 同文件的用例共享它。
+// 每条开头 resetPersonaCacheForTest()：唯有如此各条才不靠顺序活着，「失败不占坑」
+// 那条也才真的从空缓存出发（缓存已热时它测到的会是守卫而不是装载失败）。
+
+/** 与 fixture 同形、identity.name 不同的第二份**合法**内核 —— 守卫要挡的正是它。 */
+function divergentToml(): string {
+  const text = readFileSync(FIXTURE_TOML, 'utf8')
+  const swapped = text.replace('name = "Lykoi"', 'name = "NotLykoi"')
+  assert.notEqual(swapped, text, 'fixture 的 identity.name 行漂了，本用例的前提失效')
+  return tmpToml(swapped)
+}
+
 test('getPersona 进程级缓存：第二次调用返回同一对象（改 TOML 需重启的契约面）', () => {
+  resetPersonaCacheForTest()
   const first = getPersona(FIXTURE_TOML)
   const second = getPersona(FIXTURE_TOML)
   assert.equal(first, second)
   assert.deepEqual(first, FIXTURE_PERSONA)
+})
+
+test('getPersona 守卫：相对/绝对写法指向同一文件不误炸（resolve 归一化实证）', () => {
+  resetPersonaCacheForTest()
+  const asRelative = relativePath(process.cwd(), FIXTURE_TOML)
+  assert.notEqual(asRelative, FIXTURE_TOML, '两种写法必须真的不同，否则这条什么也没证')
+  const first = getPersona(FIXTURE_TOML)
+  const second = getPersona(asRelative) // 同一个文件，另一种写法 —— 守卫不该响
+  assert.equal(first, second)
+  // 反向也成立：先相对后绝对同样不炸。
+  resetPersonaCacheForTest()
+  assert.equal(getPersona(asRelative), getPersona(FIXTURE_TOML))
+})
+
+test('getPersona 守卫：第二个 path 不同 → PersonaConfigError（不再静默给错人格）', () => {
+  resetPersonaCacheForTest()
+  const other = divergentToml()
+  // 前提钉：第二份文件确实是**另一个**她 —— 旧行为下第二个器官会拿到 Lykoi 且无声。
+  assert.equal(loadPersona(other).identity.name, 'NotLykoi')
+
+  assert.equal(getPersona(FIXTURE_TOML).identity.name, 'Lykoi')
+  assert.throws(
+    () => getPersona(other),
+    (exc: unknown) =>
+      exc instanceof PersonaConfigError
+      && exc.message === `persona TOML path conflict: process already loaded ${FIXTURE_TOML}, `
+        + `refusing ${other} (one persona kernel per process, SA-156)`,
+    '两器官配置分叉必须启动即炸，且 message 两个 path 都在（人话可排障）',
+  )
+  // 炸归炸，进程既有内核不受影响（守卫在装载之前就拦，缓存原样）。
+  assert.equal(getPersona(FIXTURE_TOML).identity.name, 'Lykoi')
+})
+
+test('getPersona 守卫：失败装载不占坑（坏 path 先抛，好 path 后仍装得上）', () => {
+  resetPersonaCacheForTest()
+  const missing = join(mkdtempSync(join(tmpdir(), 'lykoi-persona-toml-')), 'absent.toml')
+  assert.throws(
+    () => getPersona(missing),
+    (exc: unknown) =>
+      exc instanceof PersonaConfigError && exc.message === `persona TOML not found: ${missing}`,
+    '坏 path 的姿态与 loadPersona 逐字相同（不包不吞）',
+  )
+  // 坑没被占：好 path 走的是**首次装载**分支，而不是撞上 path conflict 守卫。
+  const persona = getPersona(FIXTURE_TOML)
+  assert.deepEqual(persona, FIXTURE_PERSONA)
+  assert.equal(getPersona(FIXTURE_TOML), persona)
 })

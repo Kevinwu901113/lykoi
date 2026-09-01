@@ -16,9 +16,12 @@
  * 读歪。新体形态适配，报告留痕。
  *
  * 进程级缓存（get_persona 对应物）：首次装载后缓存，改 TOML 需重启 ——
- * 与模块级 prompt 常量同一契约（SA-156）。
+ * 与模块级 prompt 常量同一契约（SA-156）。缓存带 **path 一致性守卫**
+ * （D-CP-2，WO-CACHE-PERSONA）：两个器官若配置分叉，第二个必须启动即炸，
+ * 而不是静默拿到第一个器官的人格。
  */
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { PersonaConfigError, parsePersonaData, type PersonaConfig } from './persona.ts'
 
 // ============================== TOML 子集解析 ==============================
@@ -195,15 +198,47 @@ export function loadPersona(path: string): PersonaConfig {
 }
 
 let cached: PersonaConfig | null = null
+let cachedPath: string | null = null
 
 /**
  * 进程级 persona 内核（get_persona 对应物）：首次装载后缓存 —— 改 TOML 需
- * 重启，与模块级 prompt 常量同一契约。首个调用点的 path 生效（活体的 path 是
- * 模块常量；新体由插件配置传入，同样每进程恰一个）。
+ * 重启，与模块级 prompt 常量同一契约。活体的 path 是模块常量；新体由插件配置
+ * 传入，同样**每进程恰一个**（SA-156）。
+ *
+ * **path 一致性守卫（D-CP-2）**：首次**成功**装载时记录归一化 path（resolve
+ * 后）；后续调用若 path 归一化后不同 → 抛 PersonaConfigError。曾经的姿态是
+ * 「首个调用点 path 生效、后续静默忽略」——那意味着两器官配置一旦分叉，第二个
+ * 器官会拿到**错的人格且无声**；SA-156「每进程恰一份内核」只靠「文件恰好没变」
+ * 这个偶然事实撑着。守卫把静默错人格换成启动即炸。
+ *
+ * 只有**成功装载**才落缓存与首 path：装载失败不占坑 —— 一次坏 path 不会把
+ * 整个进程的内核位锁死，负例测试也不会毒化后续顺序。
  */
 export function getPersona(path: string): PersonaConfig {
+  const normalized = resolve(path)
   if (cached === null) {
-    cached = loadPersona(path)
+    // 先装载后落坑：loadPersona 抛出时 cached/cachedPath 原样为 null。
+    const loaded = loadPersona(normalized)
+    cached = loaded
+    cachedPath = normalized
+    return loaded
+  }
+  if (cachedPath !== normalized) {
+    throw new PersonaConfigError(
+      `persona TOML path conflict: process already loaded ${cachedPath}, `
+      + `refusing ${normalized} (one persona kernel per process, SA-156)`,
+    )
   }
   return cached
+}
+
+/**
+ * **测试专用**清缓存（D-CP-3，WO-CACHE-PERSONA）：生产代码路径零调用 ——
+ * 缓存在生产不可清除是 SA-156「每进程恰一份内核」的一部分。存在的唯一理由是
+ * 让守卫的各条用例各自从干净起点出发（否则四条用例互相顺序耦合，「失败不占坑」
+ * 那条更是会在缓存已热时测到别的东西）。
+ */
+export function resetPersonaCacheForTest(): void {
+  cached = null
+  cachedPath = null
 }
