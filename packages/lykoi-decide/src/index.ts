@@ -35,6 +35,12 @@ import {
   type RegulationValues,
 } from 'lykoi-regulation'
 import { plusFixed2, pyRound } from 'lykoi-snapshot'
+import {
+  emitCapabilityGap,
+  GAP_KIND_NOT_IN_CANDIDATES,
+  GAP_UNKNOWN_KIND,
+  type CapabilityGapContext,
+} from './capability-gap.ts'
 import type { PersonaConfig } from './persona.ts'
 import { buildPersonaKernel } from './persona.ts'
 
@@ -42,6 +48,7 @@ export * from './persona.ts'
 export * from './persona-toml.ts'
 export * from './organs.ts'
 export * from './seed.ts'
+export * from './capability-gap.ts'
 
 // ============================== 词汇表常量（SA-01..03） ==============================
 
@@ -821,6 +828,12 @@ export interface EvaluateOptions {
   /** SA-24：按白名单**原样抬入零解释**（先查 decision 对象，再查顶层）。 */
   envelopeFields?: readonly string[]
   logEvent?: LogEvent
+  /**
+   * WO-U2-SENSE-01：`capability_gap` 的情境栏（source / run_id）。**只进事件，
+   * 不参与任何判定** —— 缺席时 gap 事件照发，两栏记 null。刻意不给缺省值：
+   * 「不知道是谁问的」与「是 wake 问的」必须分得开。
+   */
+  gap?: CapabilityGapContext
 }
 
 /**
@@ -854,6 +867,11 @@ export function evaluateMessage(
   const decisionRaw = raw.decision as Record<string, unknown>
   const kind = decisionRaw.kind
   if (typeof kind !== 'string' || !kinds.includes(kind)) {
+    // 位点①（动作词表判定）：她点了一个本情境词汇表里没有的 kind。
+    // 旁路留痕；下面那一行的抛错语义逐字节不变（这一拍/这一周期仍照旧失败）。
+    emitCapabilityGap(logEvent, {
+      wanted: kind, reason: GAP_UNKNOWN_KIND, source: opts.gap?.source, runId: opts.gap?.runId,
+    })
     throw new Error(`unknown decision kind: ${pyRepr(kind)}`)
   }
 
@@ -914,7 +932,17 @@ export function evaluateMessage(
   }
   const offered = new Set(candidates.map((c) => c.kind))
   if (!offered.has(kind)) {
-    return demote(decision, 'kind_not_in_candidates', { safeKind, logEvent })
+    // 位点②（候选过滤）：kind 合法，但本拍的桌上没有它。降级语义与
+    // decision_ungrounded 那条账逐字节不变 —— gap 事件在它**之后**补一笔，
+    // 于是既有「第一条事件是 decision_ungrounded」的读法不被打断。
+    const demoted = demote(decision, 'kind_not_in_candidates', { safeKind, logEvent })
+    emitCapabilityGap(logEvent, {
+      wanted: kind,
+      reason: GAP_KIND_NOT_IN_CANDIDATES,
+      source: opts.gap?.source,
+      runId: opts.gap?.runId,
+    })
+    return demoted
   }
   if (cited.length === 0) {
     return demote(decision, 'reason_not_grounded', { safeKind, logEvent })

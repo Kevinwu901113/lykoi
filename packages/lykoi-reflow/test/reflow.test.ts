@@ -295,7 +295,13 @@ test('G-1：未知 kind → 落审计 unknown_decision_kind + failed，零 dispa
   assert.equal(status, 'failed')
   assert.equal(dispatch.calls.length, 0, '未知 kind 不许流向任何 kernel 通道')
   assert.deepEqual(counts, { action: 0, external_read: 0, notification: 0 })
-  assert.deepEqual(log.events, [['unknown_decision_kind', { run_id: RUN, kind: 'daydream' }]])
+  // WO-U2-SENSE-01：原账在前（逐字节不变），capability_gap 旁路补一笔。
+  assert.deepEqual(log.events, [
+    ['unknown_decision_kind', { run_id: RUN, kind: 'daydream' }],
+    ['capability_gap', {
+      wanted: 'daydream', source: 'wake', run_id: RUN, reason: 'no_execution_branch',
+    }],
+  ])
   assert.equal(
     store.recentExperiences(1)[0]!.content,
     '未知 kind(daydream):reflow 没有它的执行分支,这一拍记 failed',

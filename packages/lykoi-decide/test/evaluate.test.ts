@@ -100,11 +100,21 @@ test('红测 6：kind 不在候选表 → demote(kind_not_in_candidates) + 事�
   assert.equal(d.demote_why, 'kind_not_in_candidates')
   assert.equal(d.original_kind, 'queue_notification')
   assert.deepEqual(d.grounded_concern_ids, []) // 降级后不许再点亮任何关切
-  assert.deepEqual(events, [['decision_ungrounded', {
-    why: 'kind_not_in_candidates',
-    original_kind: 'queue_notification',
-    reason: '积压的经验值得看一眼',
-  }]])
+  // WO-U2-SENSE-01：护栏账在前（语义不变），capability_gap 是它旁边补的一笔。
+  // 本例没传 gap 情境栏 → source/run_id 记 null（不编造来源）。
+  assert.deepEqual(events, [
+    ['decision_ungrounded', {
+      why: 'kind_not_in_candidates',
+      original_kind: 'queue_notification',
+      reason: '积压的经验值得看一眼',
+    }],
+    ['capability_gap', {
+      wanted: 'queue_notification',
+      source: null,
+      run_id: null,
+      reason: 'kind_not_in_candidates',
+    }],
+  ])
 })
 
 test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/21）', () => {
