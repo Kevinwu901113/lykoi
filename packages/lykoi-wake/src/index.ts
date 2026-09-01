@@ -257,6 +257,9 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
       injectedConcernIds,
       injectedThreadIds,
       logEvent: deps.logEvent,
+      // WO-U2-SENSE-01：capability_gap 的情境栏。只进事件，不参与四道关的任何
+      // 一道 —— 传不传，这一拍的降级/抛错结果一个字节都不差。
+      gap: { source: 'wake', runId },
     })
     // 阶段 5：执行 + 回流。
     status = await executeAndReflow(decision, runId, counts, {

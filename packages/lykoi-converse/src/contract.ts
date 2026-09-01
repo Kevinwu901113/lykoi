@@ -319,12 +319,16 @@ export function parseEnvelope(
     injectedConcernIds?: Iterable<number> | null
     injectedThreadIds?: Iterable<number> | null
     logEvent?: LogEvent
+    /** WO-U2-SENSE-01：capability_gap 的 run_id 栏（source 在本情境恒为 converse）。 */
+    runId?: string | null
   } = {},
 ): Decision {
   const decision = evaluateMessage(message, opts.candidates ?? CONVERSATION_CATALOGUE, {
     injectedThoughtIds: opts.injectedThoughtIds,
     injectedConcernIds: opts.injectedConcernIds,
     injectedThreadIds: opts.injectedThreadIds,
+    // 情境栏只进 capability_gap 事件，不参与四道关的任何一道（WO-U2-SENSE-01）。
+    gap: { source: 'converse', runId: opts.runId ?? null },
     kinds: CONVERSATION_KINDS,
     contentRequired: CONVERSATION_CONTENT_REQUIRED,
     safeKind: CONVERSATION_SAFE_KIND,

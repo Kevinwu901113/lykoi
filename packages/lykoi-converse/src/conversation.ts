@@ -32,6 +32,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   applyInner, buildPersonaKernel, buildPersonaPrompt,
+  emitCapabilityGap, GAP_UNKNOWN_ACTION,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
 import { retrieveForConcern } from 'lykoi-learn'
@@ -852,6 +853,7 @@ export class Conversation {
           decision = parseEnvelope({ content: result.content }, {
             injectedThoughtIds: injected,
             logEvent: this.#deps.logEvent,
+            runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
           })
           break
         } catch (exc) {
@@ -1046,6 +1048,15 @@ export class Conversation {
     const actionType = TOOL_TO_ACTION[name]
     if (actionType === undefined) {
       this.#log(CYCLE_UNKNOWN_TOOL_EVENT, { name })
+      // 位点④（工具名词表判定；WO-U2-SENSE-01）：她点了一个白名单外的工具名 ——
+      // 这是「她想做但没有」在对话路径上最贴近判定的那一处。旁路留痕：上面那条
+      // 账与下面回填的 error 结果都逐字节不变。
+      emitCapabilityGap(this.#deps.logEvent, {
+        wanted: name,
+        reason: GAP_UNKNOWN_ACTION,
+        source: 'converse',
+        runId: this.#lastRunId || null, // 空串 = 还没进过回合：记 null，不记 ''
+      })
       return [null, { success: false, error: `unknown tool '${name}'` }]
     }
     let params: Record<string, unknown>

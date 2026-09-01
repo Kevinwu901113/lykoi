@@ -27,7 +27,9 @@
  * 时钟纪律（C-23 / W1 TODO#7）：所有入口 now 必传（Date）；注入源在 lykoi-wake
  * 的 clock 薄件（生产=systemClock、测试=VirtualClock）。
  */
-import type { Decision, LogEvent } from 'lykoi-decide'
+import {
+  emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
+} from 'lykoi-decide'
 import { parseStateTimestamp, type HistoryRow } from 'lykoi-memory'
 import type { ExperienceSource } from 'lykoi-memory/rw'
 import {
@@ -392,6 +394,14 @@ export async function executeAndReflow(
       // G-1：未知 kind → 落审计 + 按 failed，**永不默默变成通知**。把静默误
       // 路由变成大声失败；action_result 照写（没有结果也是结果）。
       logEvent?.('unknown_decision_kind', { run_id: runId, kind: decision.kind })
+      // 位点③（执行点无分支；WO-U2-SENSE-01）：kind 过了词汇表与候选表，却在
+      // 这里没有身体可用。旁路留痕 —— 上面那条账与下面 failed 的落法都不动。
+      emitCapabilityGap(logEvent, {
+        wanted: decision.kind,
+        reason: GAP_NO_EXECUTION_BRANCH,
+        source: 'wake', // executeAndReflow 只有自主拍一个调用方（converse 走信封周期）
+        runId,
+      })
       status = 'failed'
       result = `未知 kind(${decision.kind}):reflow 没有它的执行分支,这一拍记 failed`
     }
