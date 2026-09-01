@@ -58,7 +58,8 @@
     ledgerPath: /home/lykoi/state/budget.json
     dailyTotalTokens: 2000000
     dailyRouteTokens:
-      deepseek: 2000000
+      # 键名 = LLM 调用的 route 名（gate/charge 按它记账）——随下方 route 位同名。
+      deepseek-official: 2000000
 
 # ---- 心脏 -------------------------------------------------------------------
 # 基线节律走源码缺省（30 分钟）：`LYKOI_HEARTBEAT_BASELINE_MIN` 是 GK-6 的
@@ -99,8 +100,12 @@
   config:
     dbPath: /home/lykoi/state/memory.db
     personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
-    route: deepseek
-    model: deepseek-chat
+    # route 名必须 = vendor 注册常量 `deepseek-official`（vendor/index.js:1628
+    # 写死，配置面无改名位）；对不上 = dsh-llm NO_ADAPTER 被归一成空回复，
+    # 全体调用无声失败（WO-INC-LLM-ROUTE 事故正本）。model 取 vendor 目录
+    # 且老体实证的主模型。
+    route: deepseek-official
+    model: deepseek-v4-flash
     restartMarker: /home/lykoi/state/restart-marker.json
     narrativeFlag: ''
     # M3-W4 restart 生产采集器（M2 遗留 #8）。两者都给才采得到 HEAD 与 downtime；
@@ -118,7 +123,7 @@
     interpretRetries: 1
     cycleTimeoutS: 180
     # ===== vision 路由位：M4 定案「显式 disabled」 =====
-    # deepseek-chat 无视觉面，切换窗不开新回路。写显式值而非留空 ——
+    # deepseek-v4-flash 无视觉面，切换窗不开新回路。写显式值而非留空 ——
     # 「忘了填」（空串）与「决定不开」（disabled）在事件流上必须分得开。
     visionRoute: disabled
     visionModel: disabled
@@ -142,8 +147,10 @@
     # 读同一份先天内核，装配面只给路径，数据本身只有 owner 域 TOML 一个事实源。
     # root 属主 444、父目录 root；完整性门检查项②③⑤三处核它。
     personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
-    route: deepseek
-    model: deepseek-chat
+    # route/model 约束同 converse 段（vendor 常量 deepseek-official，
+    # WO-INC-LLM-ROUTE 事故正本）。
+    route: deepseek-official
+    model: deepseek-v4-flash
     checkIntervalMs: 5000
 
 # ---- 出站器官（Telegram）----------------------------------------------------
@@ -227,7 +234,7 @@
 # ============================================================================
 # vision 路由位（M4 定案：**显式 disabled**）
 # ============================================================================
-# `lykoi-converse/src/vision.ts` 的 describeImage seam 在位，但 deepseek-chat 无
+# `lykoi-converse/src/vision.ts` 的 describeImage seam 在位，但 deepseek-v4-flash 无
 # 视觉面，切换窗不为它开新回路 ——
 #   converse.config.visionRoute: disabled
 #   converse.config.visionModel: disabled
