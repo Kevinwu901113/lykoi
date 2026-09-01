@@ -8,6 +8,15 @@
 # 定序：本稿必须先于 WO-STATE-CANON 落地稿（D-SC-3：僵尸通知轮询器先死，
 #       canonical notifications.json 才许回连）。
 # 断言一律显式 if/exit（教训 48）。幂等：跑一半断了可整稿重跑。
+# 修订 v2（2026-09-01，首跑实录）：首跑完成步 1/2 后在步 3 中止——旧单元文件
+# 实住 /etc/systemd/system/（真文件），mask 造 /dev/null 软链撞真文件被拒。
+# 修法：disable→单元文件归档至 $RARCH/units/（D-RET-1 归档不删除）→mask
+#（腾位后成立）→daemon-reload。同修两处重跑隐患：步 2 重跑不再截断已存档
+# 的 crontab 正本（重定向先截断后失败的坑）；步 7 白名单 glob 条目真展开
+#（原写法引号内字面量永不匹配）。
+# 修订 v3（2026-09-01，二跑实录）：二跑在步 7 audit.jsonl 中止——旧体给审计
+# 上了 chattr 追加/不可变属性，rename 连 root 都拒。修法：移动前摘 i/a 属性，
+# 归档后把 append-only 原样补回（封存件继续防篡改）。
 set -euo pipefail
 
 ARCH=/home/lykoi/archive/old-body-20260901
@@ -20,42 +29,67 @@ if [ "$(id -u)" != 0 ]; then echo 'FATAL: 须 root'; exit 1; fi
 if ! systemctl is-active --quiet lykoi-cordis; then
   echo 'FATAL: 新体不在 active，先排障再退役'; exit 1
 fi
-mkdir -p "$ARCH/state" "$RARCH/sbin"
+mkdir -p "$ARCH/state" "$RARCH/sbin" "$RARCH/units"
 chown root:root /home/lykoi/archive "$ARCH" "$ARCH/state"
 chmod 700 /home/lykoi/archive "$ARCH"
 
 echo '== 2 · crontab 存档与退役（D-RET-4）=='
 T0=$(date +%s)
-if crontab -l -u lykoi > "$ARCH/crontab-lykoi.txt" 2>/dev/null; then
+CRONTMP=$(mktemp)
+if crontab -l -u lykoi > "$CRONTMP" 2>/dev/null; then
+  cp "$CRONTMP" "$ARCH/crontab-lykoi.txt"
   echo '--- lykoi crontab（已存档，即将整表移除）：'
   cat "$ARCH/crontab-lykoi.txt"
   crontab -r -u lykoi
   echo '--- lykoi crontab 已移除'
 else
-  echo '--- lykoi 无 crontab（僵尸写者另有其人，稿末 mtime 核验会揭穿）'
-  echo '(no crontab)' > "$ARCH/crontab-lykoi.txt"
+  echo '--- lykoi 无 crontab（首跑已退役，或写者另有其人——步 8 会揭穿）'
+  if [ ! -e "$ARCH/crontab-lykoi.txt" ]; then
+    echo '(no crontab)' > "$ARCH/crontab-lykoi.txt"
+  fi
 fi
+rm -f "$CRONTMP"
 echo '--- root crontab（只取证不动）：'
 crontab -l -u root 2>/dev/null || echo '(no root crontab)'
 if grep -rn lykoi /etc/crontab /etc/cron.d/ 2>/dev/null | grep -v cordis; then
   echo 'WARN: /etc/cron* 有 lykoi 相关行（见上），本稿不动，待治理跟单'
 fi
 
-echo '== 3 · 旧核心单元 mask（D-RET-2）=='
+# 退役一个旧单元：disable+stop → 单元文件（真文件或指旧仓的软链）归档腾位
+# → mask。已 mask 的幂等跳过。绝不受理新体单元。
+retire_unit() {
+  u=$1
+  case "$u" in *cordis*) echo "FATAL: retire_unit 拒收新体单元 $u"; exit 1;; esac
+  if [ -L "/etc/systemd/system/$u" ] \
+     && [ "$(readlink "/etc/systemd/system/$u")" = /dev/null ]; then
+    echo "    $u: 已 mask（幂等跳过）"
+    return 0
+  fi
+  systemctl disable --now "$u" 2>/dev/null || true
+  if [ -e "/etc/systemd/system/$u" ] || [ -L "/etc/systemd/system/$u" ]; then
+    mv "/etc/systemd/system/$u" "$RARCH/units/$u"
+  fi
+  if [ -d "/etc/systemd/system/$u.d" ]; then
+    mv "/etc/systemd/system/$u.d" "$RARCH/units/$u.d"
+  fi
+  systemctl mask "$u"
+}
+
+echo '== 3 · 旧核心单元退役（D-RET-2：归档单元文件 + mask 占名）=='
 for u in lykoi-core.service lykoi-server.service lykoi-autonomy.service \
          lykoi-watchdog.service lykoi-telegram.service \
          lykoi-gate-readout.service lykoi-gate-readout.timer; do
-  systemctl disable --now "$u" 2>/dev/null || true
-  systemctl mask "$u"
+  retire_unit "$u"
 done
-echo 'old core units masked: OK'
+systemctl daemon-reload
+echo 'old core units retired+masked: OK'
 
 echo '== 4 · 浏览器栈停用 + browser-profile 封存（M5 章程）=='
 for u in lykoi-chrome.service lykoi-novnc.service lykoi-vnc.service \
          lykoi-fluxbox.service lykoi-xvfb.service; do
-  systemctl disable --now "$u" 2>/dev/null || true
-  systemctl mask "$u"
+  retire_unit "$u"
 done
+systemctl daemon-reload
 if [ -d /home/lykoi/browser-profile ]; then
   mv /home/lykoi/browser-profile "$ARCH/browser-profile"
 fi
@@ -109,10 +143,17 @@ OLD_STATE=(
 )
 MOVED=0
 for f in "${OLD_STATE[@]}"; do
-  if [ -e "$STATE/$f" ]; then
-    mv -- "$STATE/$f" "$ARCH/state/"
-    MOVED=$((MOVED+1))
-  fi
+  for p in $STATE/$f; do
+    if [ -e "$p" ]; then
+      # 旧体部分文件带 chattr 追加/不可变属性（如 audit.jsonl +a），
+      # rename 连 root 都拒；先摘属性，append-only 归档后补回。
+      ATTRS=$(lsattr -d -- "$p" 2>/dev/null | awk '{print $1}') || ATTRS=''
+      case "$ATTRS" in *a*|*i*) chattr -ia -- "$p";; esac
+      mv -- "$p" "$ARCH/state/"
+      case "$ATTRS" in *a*) chattr +a -- "$ARCH/state/$(basename "$p")";; esac
+      MOVED=$((MOVED+1))
+    fi
+  done
 done
 echo "archived from state: $MOVED 项"
 echo '--- state 剩余（应全部属 canonical/新体活面）：'
