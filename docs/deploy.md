@@ -482,8 +482,11 @@ journal 里起来的样子（出处：`profile/index.prod.ts` 末尾两行）：
    它的文件头写明「**只被测试树 import**」—— 那是测试夹具，不是迁移器。
    `lykoi-memory` 主入口是只读三重防写（`readOnly: true` + `PRAGMA query_only`
    + 服务面零写方法）。参考部署里 `memory.db` 是从上一具躯体原样接管的
-   （Python 活体的 `migrations.py` 建的库，`mind_schema` 版本 15，
-   见 `packages/lykoi-memory/src/index.ts` 的 `EXPECTED_MIND_SCHEMA_VERSION`）。
+   （Python 活体的 `migrations.py` 建的库，`mind_schema` 版本 15）。本仓库当前
+   期望版本是 16（`packages/lykoi-memory/src/index.ts` 的
+   `EXPECTED_MIND_SCHEMA_VERSION`）：接管来的 15 库要先在停机窗内施加
+   `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`，
+   否则新体开库即拒。
    全新部署要自己造这个库。
 2. **没有 `owner_primary` 行就没有所有者**。`bootstrap-preauth` 从
    `SELECT id FROM users WHERE role = 'owner_primary' AND status = 'active'` 读它，

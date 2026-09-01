@@ -6,7 +6,7 @@
  * 'lykoi-memory/testing' 取同一份 schema，包内夹具只负责各自的数据播种。
  *
  * DDL/索引/触发器逐字取自 WO-M0-STATE-CONTRACT §1（触发器消息是契约的一部分，
- * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=15、
+ * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=16、
  * regulation_field 四行 baseline、integration_state 单行、learning_layer_state
  * 两键），不含她的任何数据。
  *
@@ -29,6 +29,11 @@
  * WO-P2-S1B 把首次绑定定义成一次刻意的人工登记动作，这张表就是"她长着哪些
  * 通道"的事实源）。不播种任何绑定行：绑定属她的数据，不属中性基线。
  *
+ * WO-MEM-SOURCE-01 增量（mind_schema 15 → 16）：experiences 末列 `epistemic`
+ * （认识论第二轴，设计稿 §3.1）+ mind_schema 台账多一行 16。夹具描的是**迁移后**
+ * 的物理 schema；对应迁移件在
+ * `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`。
+ *
  * 生产纪律不变：本文件只被测试树 import；golden devstate 永远只读，写测试先
  * copy 进 os.tmpdir（各包夹具自持这半段）。
  */
@@ -45,6 +50,7 @@ export const PY_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{6})?\+00:00$
 export const STATE_FIXTURE_DDL = `
     CREATE TABLE IF NOT EXISTS mind_schema (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
     INSERT INTO mind_schema VALUES (15, '2026-08-24T00:00:00.000Z');
+    INSERT INTO mind_schema VALUES (16, '2026-09-01T00:00:00.000Z');
 
     CREATE TABLE regulation_field (
       name TEXT PRIMARY KEY CHECK (name IN ('coherence','load','relational_tension','exploration_hunger')),
@@ -90,7 +96,13 @@ export const STATE_FIXTURE_DDL = `
       salience REAL NOT NULL DEFAULT 0.5 CHECK (salience >= 0.0 AND salience <= 1.0),
       related_concern_id INTEGER REFERENCES concerns(id),
       integrated INTEGER NOT NULL DEFAULT 0 CHECK (integrated IN (0,1)),
-      integration_id INTEGER
+      integration_id INTEGER,
+      -- WO-MEM-SOURCE-01（mind_schema 16）：认识论第二轴。列位在**末尾**且 CHECK
+      -- 逐字与迁移件 016 的 ALTER TABLE ADD COLUMN 一致 —— ADD COLUMN 只能加在
+      -- 表尾，夹具与迁移后的生产表因此列序同形。NULL 合法且含义唯一：016 之前
+      -- 写下的旧行未回填（写路径不再产 NULL）。
+      epistemic TEXT CHECK (epistemic IS NULL OR epistemic IN
+              ('observed','executed','user_reported','inferred','imagined','simulated'))
     );
     CREATE INDEX idx_experiences_integrated ON experiences(integrated);
     CREATE TRIGGER IF NOT EXISTS experiences_no_delete BEFORE DELETE ON experiences

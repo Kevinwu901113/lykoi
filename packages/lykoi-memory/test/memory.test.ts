@@ -54,7 +54,7 @@ function makeFixture(version: number): string {
       event_type TEXT, content TEXT);
     CREATE TABLE experiences (id INTEGER PRIMARY KEY, ts TEXT, source TEXT, content TEXT,
       salience REAL DEFAULT 0.5, related_concern_id INTEGER, integrated INTEGER DEFAULT 0,
-      integration_id INTEGER);
+      integration_id INTEGER, epistemic TEXT);
     CREATE TABLE users (id TEXT PRIMARY KEY, display_name TEXT, role TEXT,
       created_at TEXT, status TEXT DEFAULT 'active');
     CREATE TABLE identity_bindings (id INTEGER PRIMARY KEY, user_id TEXT,
@@ -77,12 +77,15 @@ function makeFixture(version: number): string {
 
 // ============================== schema 门（fixture） ==============================
 
-test('打开即断言 mind_schema==15：不等则抛明确错误（新体不得读不认识的 schema）', () => {
-  assert.throws(() => new ReadOnlyMemory(makeFixture(14)), (err: Error) => {
-    assert.match(err.message, /mind_schema version 14 != expected 15/)
+// WO-MEM-SOURCE-01：期望版本 15 → 16（016 迁移登记的新版本号）。判定逻辑逐字
+// 未动（仍是"恰等于期望值，否则拒开"），双向拒开也照旧：低于（未施加迁移的旧库）
+// 与高于（比我新的 schema）都不许读。
+test('打开即断言 mind_schema==16：不等则抛明确错误（新体不得读不认识的 schema）', () => {
+  assert.throws(() => new ReadOnlyMemory(makeFixture(15)), (err: Error) => {
+    assert.match(err.message, /mind_schema version 15 != expected 16/)
     return true
   })
-  assert.throws(() => new ReadOnlyMemory(makeFixture(16)), /mind_schema version 16/)
+  assert.throws(() => new ReadOnlyMemory(makeFixture(17)), /mind_schema version 17/)
 })
 
 test('mind_schema 表缺席（不是 state 副本）：明确报错而非误读', () => {
@@ -134,7 +137,9 @@ test('cordis 插件面：装载提供 lykoiMemory 服务，fiber 卸载关连接
 
 // ============================== devstate（只读；零内容输出） ==============================
 
-test('devstate：只读打开成功即 mind_schema==15（断言在构造器内完成）', { skip: devstateSkip }, () => {
+// 注：devstate 副本要施加过 016 迁移才打得开（版本 15 的旧副本会被构造器拒开，
+// 这正是版本门的设计意图）。副本缺席时本组照旧 skip 不 fail。
+test('devstate：只读打开成功即 mind_schema==16（断言在构造器内完成）', { skip: devstateSkip }, () => {
   const memory = new ReadOnlyMemory(DEVSTATE!)
   assert.equal(memory.busyTimeoutMs, 10000)
   memory.close()

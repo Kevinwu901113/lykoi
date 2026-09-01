@@ -18,8 +18,17 @@ import Schema from '@deepseek-ai/schemastery'
 import { DatabaseSync } from 'node:sqlite'
 import { resolve } from 'node:path'
 
-/** mind_schema 的当前版本（WO-M0-STATE-CONTRACT §1.0）。新体不得读不认识的 schema。 */
-export const EXPECTED_MIND_SCHEMA_VERSION = 15
+/**
+ * mind_schema 的当前版本（WO-M0-STATE-CONTRACT §1.0）。新体不得读不认识的 schema。
+ *
+ * 16 = 15 + WO-MEM-SOURCE-01 的 `experiences.epistemic` 列（迁移件
+ * `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`）。
+ * 「拒开」判定本身逐字未动（仍是 `MAX(version) !== 期望值` 则抛）——本次只是
+ * **登记一个新版本号**：加列而不升版会让两种物理 schema 同称 15，版本门就形同
+ * 虚设（门放行之后才在 `no such column: epistemic` 上炸，正是这道门要防的事）。
+ * 部署纪律因此是「停 → 施加 016 → 起新体」；回滚梯子见 `.down.sql`。
+ */
+export const EXPECTED_MIND_SCHEMA_VERSION = 16
 
 // ============================== C-22 时间戳 ==============================
 
@@ -114,6 +123,47 @@ export interface HistoryRow {
   content: string
 }
 
+// ============================== 认识论第二轴（epistemic） ==============================
+
+/**
+ * `experiences.epistemic` 六值（人格分层设计稿 v1 §3.1，D-PERS-1）。
+ *
+ * 与渠道轴 `experiences.source`（八值 CHECK，从哪来）**正交**：本轴回答的是
+ * 认识论地位——该多信、能否当事实引用。同是 `conversation` 渠道，Kevin 说的
+ * 话是 `user_reported`，她自己产出的是 `executed`；同是 `thought_lapse`，可以
+ * 是 `inferred` 也可以是 `imagined`。source 的八值枚举与 `ExperienceSource`
+ * 类型本单逐字未动。
+ *
+ * `null` = 016 迁移之前写下的旧行未回填（读侧按"非虚构"处理，见
+ * `factualEpistemicClause`）。
+ */
+export type EpistemicStance
+  = 'observed' | 'executed' | 'user_reported' | 'inferred' | 'imagined' | 'simulated'
+
+/** 六值枚举（库层 CHECK 的逐字对应物；顺序 = 设计稿 §3.1 列举序）。 */
+export const EPISTEMIC_STANCES: readonly EpistemicStance[] = [
+  'observed', 'executed', 'user_reported', 'inferred', 'imagined', 'simulated',
+]
+
+/**
+ * 晋升铁律的排除集（设计稿 §3.1）：`imagined|simulated` 永不自动晋升为事实性
+ * 自传记忆——她设想过的事不得在装配/整合里以"我经历过"的身份出现。带标引用
+ * （"我曾设想过…"）属后续单；本单只落"排除"。
+ */
+export const NON_FACTUAL_EPISTEMIC: readonly EpistemicStance[] = ['imagined', 'simulated']
+
+/**
+ * 事实性供给的 SQL 过滤片段（读侧凡向装配/晋升通道供料之处一律挂它）。
+ *
+ * `IS NULL OR NOT IN (...)` 两段缺一不可：SQL 三值逻辑下 `NULL NOT IN (...)`
+ * 求值为 NULL 而非 TRUE，只写后半段会把全部未回填的旧行一起挡在门外（= 她
+ * 016 之前的全部经历凭空消失）。
+ */
+export function factualEpistemicClause(alias: string): string {
+  const quoted = NON_FACTUAL_EPISTEMIC.map((s) => `'${s}'`).join(',')
+  return `(${alias}.epistemic IS NULL OR ${alias}.epistemic NOT IN (${quoted}))`
+}
+
 export interface ExperienceRow {
   id: number
   ts: string
@@ -123,6 +173,8 @@ export interface ExperienceRow {
   relatedConcernId: number | null
   integrated: number
   integrationId: number | null
+  /** 认识论第二轴；null = 016 之前的旧行未回填。 */
+  epistemic: EpistemicStance | null
 }
 
 export interface BindingResolution {
@@ -151,7 +203,12 @@ export interface LykoiMemoryService {
   openThoughts(): ThoughtRow[]
   /** 最近 N 条 history（id 降序；history 是 AUTOINCREMENT，id 单调，C-26）。 */
   recentHistory(limit: number): HistoryRow[]
-  /** 最近 N 条 experiences（id 降序）。 */
+  /**
+   * 最近 N 条**事实性** experiences（id 降序）。
+   * 晋升铁律（设计稿 §3.1）：`imagined|simulated` 不在供给里——这个出口喂的是
+   * 快照装配（lykoi-snapshot 的最近经验块），她设想过的事不得从这里以事实身份
+   * 进入 prompt。未回填的旧行（epistemic IS NULL）照常供给。
+   */
   recentExperiences(limit: number): ExperienceRow[]
   /**
    * identity_bindings 查询：channel+channel_key → user（JOIN users 带出 role）。
@@ -188,7 +245,10 @@ export class ReadOnlyMemory implements LykoiMemoryService {
     }
   }
 
-  /** 打开即断言 mind_schema MAX(version) == 15；不等则抛明确错误（不读不认识的 schema）。 */
+  /**
+   * 打开即断言 mind_schema MAX(version) == `EXPECTED_MIND_SCHEMA_VERSION`（现 16）；
+   * 不等则抛明确错误（不读不认识的 schema）。
+   */
   #assertSchemaVersion(): void {
     let version: unknown
     try {
@@ -278,8 +338,10 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   recentExperiences(limit: number): ExperienceRow[] {
     assertLimit(limit)
     const rows = this.#db.prepare(
-      `SELECT id, ts, source, content, salience, related_concern_id, integrated, integration_id
-         FROM experiences ORDER BY id DESC LIMIT ?`,
+      `SELECT id, ts, source, content, salience, related_concern_id, integrated, integration_id,
+              epistemic
+         FROM experiences WHERE ${factualEpistemicClause('experiences')}
+         ORDER BY id DESC LIMIT ?`,
     ).all(limit) as Record<string, unknown>[]
     return rows.map((r) => ({
       id: r.id as number,
@@ -290,6 +352,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
       relatedConcernId: (r.related_concern_id ?? null) as number | null,
       integrated: r.integrated as number,
       integrationId: (r.integration_id ?? null) as number | null,
+      epistemic: (r.epistemic ?? null) as EpistemicStance | null,
     }))
   }
 

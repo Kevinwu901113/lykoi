@@ -50,9 +50,11 @@ import {
 } from 'lykoi-regulation'
 import {
   EXPECTED_MIND_SCHEMA_VERSION,
+  factualEpistemicClause,
   parseStateTimestamp,
   type AutonomyStateRow,
   type ConcernRow,
+  type EpistemicStance,
   type ExperienceRow,
   type HistoryRow,
   type RegulationFieldRow,
@@ -84,6 +86,52 @@ export function formatPyIso(moment: Date): string {
 export type ExperienceSource
   = 'conversation' | 'wake_action' | 'action_result' | 'silence'
   | 'owner_event' | 'system' | 'thought_lapse' | 'environment'
+
+/**
+ * `conversation` 渠道的消息方向（设计稿 §3.1：同一渠道按方向劈认识论地位）。
+ * `inbound` = 对方产出（他说的）→ `user_reported`；
+ * `outbound` = 她自己产出（她说的/她做的）→ `executed`。
+ */
+export type ConversationDirection = 'inbound' | 'outbound'
+
+/**
+ * 渠道 → 认识论地位的默认推导（人格分层设计稿 v1 §3.1 映射表逐字）：
+ *   `wake_action` / `action_result`      → executed
+ *   `owner_event`                        → user_reported
+ *   `silence` / `environment` / `system` → observed
+ *   `thought_lapse`                      → inferred
+ *   `conversation`                       → 按消息方向劈（inbound=user_reported /
+ *                                          outbound=executed）
+ *
+ * `conversation` 缺方向时取 `user_reported`：对话渠道的经验默认记的是"对方说了
+ * 什么"这件被告知的事，取更弱的认识论主张是保守侧；知道自己是产出方的调用点
+ * 显式传 `outbound`。**本函数永不产出 `imagined|simulated`**——虚构地位只能由
+ * 写入方显式声明（如 contemplate 产物标 imagined），推不出来。
+ */
+export function deriveEpistemic(
+  source: ExperienceSource,
+  direction?: ConversationDirection,
+): EpistemicStance {
+  switch (source) {
+    case 'wake_action':
+    case 'action_result':
+      return 'executed'
+    case 'owner_event':
+      return 'user_reported'
+    case 'silence':
+    case 'environment':
+    case 'system':
+      return 'observed'
+    case 'thought_lapse':
+      return 'inferred'
+    case 'conversation':
+      return direction === 'outbound' ? 'executed' : 'user_reported'
+    default: {
+      // 渠道轴是 CHECK 枚举，走到这里说明调用方绕过了类型面。
+      throw new ValueError(`unknown experience source: '${String(source)}'`)
+    }
+  }
+}
 
 export type ThoughtKind = 'intent' | 'question' | 'hypothesis' | 'rumination' | 'observation'
 export type ThoughtSource = 'wake' | 'conversation' | 'integration' | 'contemplate'
@@ -203,8 +251,13 @@ function cpSlice(s: string, n: number): string {
 export const L2_INTAKE_WATERMARK_KEY = 'l2_intake_watermark_id'
 /** 层 2 节律计数键（store.py:1701）。 */
 export const L4_FOCUS_WAKES_KEY = 'l4_focus_wakes_since'
-/** SA-91 取料口 WHERE 片段（store.py:1380-1381 逐字）。 */
+/**
+ * SA-91 取料口 WHERE 片段（store.py:1380-1381 逐字）+ WO-MEM-SOURCE-01 的晋升
+ * 铁律：整合管线是"经验 → 叙事（自传）"的晋升通道，`imagined|simulated` 在此
+ * 被排除，未回填的旧行（NULL）照常取料。
+ */
 const INTAKE_CLAUSE = "ec.class = 'working' AND e.integrated = 0 AND e.id > ?"
+  + ` AND ${factualEpistemicClause('e')}`
 
 const NARRATIVE_TRIGGERS: readonly string[] = ['integration', 'owner_edit']
 const NARRATIVE_CLASSES: readonly string[]
@@ -329,7 +382,10 @@ export class ReadWriteMemory {
     }
   }
 
-  /** 与只读入口同一道门：mind_schema != 15 拒开（不写不认识的 schema，更甚于不读）。 */
+  /**
+   * 与只读入口同一道门：mind_schema != `EXPECTED_MIND_SCHEMA_VERSION`（现 16）
+   * 拒开（不写不认识的 schema，更甚于不读）。
+   */
   #assertSchemaVersion(): void {
     let version: unknown
     try {
@@ -383,28 +439,47 @@ export class ReadWriteMemory {
    * 的这条,而它恰恰是最新的）。判据是纯函数（lykoi-learn/l1，SA-83），这里不做
    * 任何额外判断；INSERT OR IGNORE = 回填与实时写入相遇时先到者胜且答案相同。
    * pending 计数随写同步（_sync_pending 对应物）。
+   *
+   * WO-MEM-SOURCE-01：每条新经验都带认识论第二轴 `epistemic`——缺省由渠道推导
+   * （`deriveEpistemic`，映射表 = 设计稿 §3.1），写入方可显式覆盖。新行**永不**
+   * 落 NULL：NULL 的含义被 016 迁移钉死为"旧行未回填"，写路径再产 NULL 会把
+   * 这个区分弄脏。
    */
   recordExperience(
     source: ExperienceSource,
     content: string,
-    opts: { salience?: number; relatedConcernId?: number | null; now: Date },
+    opts: {
+      salience?: number
+      relatedConcernId?: number | null
+      /**
+       * 认识论第二轴的**显式覆盖**（设计稿 §3.1）：缺省由渠道推导
+       * （`deriveEpistemic`）。虚构地位（`imagined|simulated`）只能从这里来。
+       */
+      epistemic?: EpistemicStance
+      /** `conversation` 渠道的消息方向；非 conversation 渠道忽略。 */
+      conversationDirection?: ConversationDirection
+      now: Date
+    },
   ): number {
     if (typeof content !== 'string' || content.length === 0) {
       throw new TypeError('lykoi-memory: experience content must be a non-empty string')
     }
     const salience = opts.salience ?? 0.5
+    const epistemic = opts.epistemic ?? deriveEpistemic(source, opts.conversationDirection)
     const ts = formatPyIso(opts.now)
     let pending = 0
     const experienceId = this.#tx(() => {
       const info = this.#db.prepare(
-        `INSERT INTO experiences (ts, source, content, salience, related_concern_id)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(ts, source, content, salience, opts.relatedConcernId ?? null)
+        `INSERT INTO experiences (ts, source, content, salience, related_concern_id, epistemic)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(ts, source, content, salience, opts.relatedConcernId ?? null, epistemic)
       const id = Number(info.lastInsertRowid)
       this.#recordClassInTx(id, source, content, ts)
       pending = this.#syncPendingInTx()
       return id
     })
+    // 事件字段面不动：`mind_experience` 是 Python 逐字字段的对拍面
+    // （rw-w4.test.ts:45 精确 deepEqual），第二轴不往里塞。
     this.#log('mind_experience', { id: experienceId, source, salience, pending })
     return experienceId
   }
@@ -824,6 +899,12 @@ export class ReadWriteMemory {
   /**
    * 未整合行为经验数（mind/store.count_pending_experiences 对应物）。
    * W1 environment 沉淀明确不计（integrated = 0 AND source <> 'environment'）。
+   *
+   * WO-MEM-SOURCE-01 刻意不加 epistemic 过滤：这是账面口径（Python 逐字对应物），
+   * 不是供给口径。晋升铁律落在真正的供给通道上——取料/触发闸走
+   * `INTAKE_CLAUSE`、快照走 `recentExperiences`、检索走 `relevanceCandidateRows`，
+   * 三处都排除 imagined|simulated。代价是虚构行会把这个计数抬高，但它不决定
+   * 任何一条经验是否进整合。
    */
   countPendingExperiences(): number {
     const row = this.#db.prepare(
@@ -851,14 +932,22 @@ export class ReadWriteMemory {
     return row?.ts ?? null
   }
 
-  /** 最近 N 条经验（mind/store.recent_experiences 对应物：ORDER BY id DESC）。 */
+  /**
+   * 最近 N 条**事实性**经验（mind/store.recent_experiences 对应物：ORDER BY id DESC）。
+   *
+   * 晋升铁律（设计稿 §3.1，WO-MEM-SOURCE-01）：这个出口是快照装配的最近经验块
+   * （lykoi-snapshot experienceBlock），`imagined|simulated` 在此被排除——她设想
+   * 过的事不得以"我经历过"的身份进 prompt。未回填的旧行（NULL）照常供给。
+   */
   recentExperiences(n: number): ExperienceRow[] {
     if (!Number.isInteger(n) || n < 0) {
       throw new TypeError('lykoi-memory: limit must be a non-negative integer')
     }
     const rows = this.#db.prepare(
-      `SELECT id, ts, source, content, salience, related_concern_id, integrated, integration_id
-         FROM experiences ORDER BY id DESC LIMIT ?`,
+      `SELECT id, ts, source, content, salience, related_concern_id, integrated, integration_id,
+              epistemic
+         FROM experiences WHERE ${factualEpistemicClause('experiences')}
+         ORDER BY id DESC LIMIT ?`,
     ).all(n) as Record<string, unknown>[]
     return rows.map((r) => ({
       id: r.id as number,
@@ -869,6 +958,7 @@ export class ReadWriteMemory {
       relatedConcernId: (r.related_concern_id ?? null) as number | null,
       integrated: r.integrated as number,
       integrationId: (r.integration_id ?? null) as number | null,
+      epistemic: (r.epistemic ?? null) as EpistemicStance | null,
     }))
   }
 
@@ -1109,9 +1199,16 @@ export class ReadWriteMemory {
     const cps = [...summary]
     const clipped = cps.length <= 100 ? summary : cps.slice(0, 100).join('') + '…'
     this.#db.prepare(
-      `INSERT INTO experiences (ts, source, content, salience)
-       VALUES (?, 'thought_lapse', ?, ?)`,
-    ).run(ts, `放掉了一个没想完的念头:${clipped} (${reason})`, THOUGHT_LAPSE_SALIENCE)
+      `INSERT INTO experiences (ts, source, content, salience, epistemic)
+       VALUES (?, 'thought_lapse', ?, ?, ?)`,
+    ).run(
+      ts,
+      `放掉了一个没想完的念头:${clipped} (${reason})`,
+      THOUGHT_LAPSE_SALIENCE,
+      // 第二轴走同一张映射表：thought_lapse → inferred（"我放掉了它"是从
+      // charge 落到阈下推出来的，不是观察到的外部事实）。
+      deriveEpistemic('thought_lapse'),
+    )
   }
 
   /**
@@ -1754,7 +1851,10 @@ export class ReadWriteMemory {
     since: string | null
     until: string | null
   }): RawRow[] {
-    const clauses: string[] = []
+    // WO-MEM-SOURCE-01 晋升铁律：检索命中会被当作"我记得的事"装配进对话，
+    // `imagined|simulated` 因此不在候选域里（NULL 旧行照常在）。这一条无条件
+    // 挂上，不受 terms/实体/时间轴任何一路过滤是否为空的影响。
+    const clauses: string[] = [factualEpistemicClause('e')]
     const params: (string | number)[] = []
     let join = ''
     if (opts.subjectUserId !== null) {
