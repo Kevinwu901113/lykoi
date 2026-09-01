@@ -23,7 +23,8 @@ lykoi-cordis/
 │   ├── lykoi-budget     治理地基：费用硬顶，每次 LLM 调用必经
 │   ├── lykoi-converse   对话心智：上下文装配器 + 决策信封周期
 │   ├── lykoi-wake       自主侧：醒来一拍（推演 / 接地 / 内语）
-│   ├── lykoi-learn      学习环 L1..L5
+│   ├── lykoi-learn      学习环 L1..L5（纯库，装配面无条目；由 wake 在一拍
+│   │                    完成后串行驱动整合与专注，SA-171）
 │   ├── lykoi-memory     她的 state 库接入（缺省只读 + 显式 rw 入口）
 │   ├── lykoi-adapter-telegram   出入站器官：Telegram
 │   └── …                decide / reflow / regulation / snapshot / llm / llm-deepseek
@@ -58,13 +59,13 @@ lykoi-cordis/
 ## dev 快速上手
 
 零真网、零 root 供给、不碰任何真 state。以下命令在一份全新 clone 上实证跑过
-（Node v24.18.0 / npm 11.16.0，2026-08-31）。
+（Node v24.18.0 / npm 11.16.0，2026-08-31；测试计数为 2026-09-01 现行基线）。
 
 ```sh
 git clone <本仓库> lykoi-cordis && cd lykoi-cordis
 
 npm ci                       # lockfile 钉版；服务器上用 npm ci --ignore-scripts
-npm test                     # 797 项（786 pass / 11 skip / 0 fail），逐包 node --test
+npm test                     # 813 项（802 pass / 11 skip / 0 fail），逐包 node --test
 npm run typecheck            # tsc --noEmit，净
 
 LYKOI_M1_SMOKE=1 npm start   # 一次性验收序列：心跳在跳 / 每拍落 audit / budget 硬顶拒调
@@ -111,6 +112,10 @@ manifest 签署、systemd 接线、按序翻开器官位与冒烟验证，并逐
 **已废弃归档**：前者的回滚锚 `tag cordis-night-20260822`（HEAD `4463ae8`）
 与后者的全史都存于本地 git bundle，线上仓库不再维护。治理平面已并入本仓
 `governance/`，本仓库是唯一维护仓库。
+
+本仓运行时已于 **2026-08-31 夜切换为线上活体**（M4）；旧 Python 躯体于
+**2026-09-01 从服务器物理退役**（单元 / 旧仓 / 控制器 / crontab 全封存，
+可 mv 回滚，正本见 `governance/wo/WO-CORE-RETIRE/`）。
 
 对那一具旧躯体而言记忆不迁移：`/home/lykoi/state/`（`memory.db` 等）由新体原样接管
 —— 换躯体不换记忆。迁移总案见
