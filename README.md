@@ -1,90 +1,126 @@
-# lykoi-cordis
+# Lykoi
 
-Lykoi 是一个面向长期持续存在的数字生命框架：有持续身份、可成长人格、自己的
-目标与拒绝权的 AI 主体，面向唯一主用户建立长期 1-1 关系，在所有者治理权、
-硬性安全策略、权限与预算约束下自主活动。每次部署产生一个独立个体。
+Lykoi 是一个面向长期持续运行的个人 AI Agent，核心关注 **持久记忆、自主活动，以及明确的能力与权限边界**。
 
-本仓库包含 Cordis(TS/Node) 运行时源码、本体蓝图（`docs/`）与治理平面全史
-（`governance/`）。架构语义正本：白皮书 v1.2 第 37 章
-（`governance/docs/lykoi_whitepaper_v1.2_2026-08-18.md`），冲突以白皮书为准。
+它不是一个无状态聊天机器人。Lykoi 会持续保存自己的状态，可以在没有新用户消息时自主醒来、思考和整理经验，并在长期运行过程中逐步形成稳定的记忆、关注点和内部状态。
 
-## 现状
+同时，语言模型本身并不直接拥有系统权限。外部动作需要经过确定性的权限、审批、预算和审计机制。
 
-- 2026-08-31 起为线上活体（M4 切换完成）；旧 Python 躯体 2026-09-01 退役。
-- 已上线：Telegram 对话（人格 + 记忆 + 审批）、自主醒拍与学习环、审计、
-  预算硬顶、启动完整性门（八检查项）。
-- 待建：视觉 / 浏览器 / 环境感知（M5 及之后）。
+当前运行时基于 **TypeScript、Node.js 和 Cordis** 构建。
 
-## 仓库布局
+## 目前具备的能力
 
-```
-lykoi-cordis/
-├── packages/          插件树。每个包一个器官或一层治理地基
-│   ├── lykoi-kernel     特权层：dispatch 主链 / 三层审批门 / policy core /
-│   │                    path guard / 委托台账 / 通知原语
-│   ├── lykoi-gate       启动完整性门（八检查项）。不是插件，启动前跑一次就退出
-│   ├── lykoi-heart      心脏：基线节律 + 显著性唤醒接口
-│   ├── lykoi-audit      append-only 审计 sink（JSONL）
-│   ├── lykoi-budget     费用硬顶，每次 LLM 调用必经
-│   ├── lykoi-converse   对话心智：上下文装配器 + 决策信封周期
-│   ├── lykoi-wake       自主侧：醒来一拍（推演 / 接地 / 内语）
-│   ├── lykoi-learn      学习环 L1..L5（纯库，装配面无条目，由 wake 驱动）
-│   ├── lykoi-memory     state 库接入（缺省只读 + 显式 rw 入口）
-│   ├── lykoi-adapter-telegram   出入站器官：Telegram
-│   └── …                decide / reflow / regulation / snapshot / llm / llm-deepseek
-├── profile/           装配面
-│   ├── cordis.yml       dev 装配：开箱能跑、零真网、零 root 供给
-│   ├── cordis.prod.yml  prod 装配：规范 state 路径、器官位及各自的 root 供给条件
-│   ├── index.ts         dev 入口（硬指 cordis.yml）
-│   └── index.prod.ts    prod 入口（硬指 cordis.prod.yml；零 env 读取）
-├── docs/              本体蓝图：M1..M4 分波蓝图、schema 登记、切换交接清单
-│   └── deploy.md        生产部署指南
-├── deploy/            部署模板（占位符，不含真值）：systemd unit / 凭据文件样例
-└── governance/        治理平面正本：白皮书、工单全史、报告、协作方案
-```
+- **持久记忆**：保存对话、经历、思考、关注项、叙事状态及学习结果，并跨重启持续存在。
+- **对话循环**：在回复前组装人格、记忆、上下文和当前可用能力。
+- **自主唤醒**：系统可以周期性醒来，根据当前状态进行思考、整理和学习，而不依赖用户主动发起消息。
+- **学习与整合**：将累积的经历进一步整理成更高层次的内部状态，而不是把每次对话都视为孤立事件。
+- **受控动作执行**：语言模型提出的外部动作不会直接执行，而是统一进入 Kernel。
+- **权限与审批**：敏感动作可以要求用户审批，也可以通过预先授权的 standing grant 放行。
+- **预算控制**：独立记录和限制 LLM 调用消耗。
+- **审计记录**：重要决策和动作写入独立审计链路。
+- **Telegram 接入**：当前主要交互入口。
 
-`profile/*` 与 `packages/{lykoi-kernel,lykoi-gate}/**` 在完整性门的 root 属主域，
-其余 `packages/*/src/**` 在 hash-pin 域——改动要 root 重签 manifest，否则启动闸红
-（受保护面全表：`packages/lykoi-gate/src/surface.ts`）。
+## 架构
 
-## dev 快速上手
+```text
+                         ┌──────────────┐
+                         │    Heart     │
+                         └──────┬───────┘
+                                │ wake
+                                ▼
+                         ┌──────────────┐
+                         │     Wake     │
+                         └──────┬───────┘
+                                │
+                       decide / reflow / learn
+                                │
+                                ▼
+┌──────────┐             ┌──────────────┐             ┌──────────────┐
+│ Telegram │ ──────────► │   Converse   │ ──────────► │     LLM      │
+└──────────┘             └──────┬───────┘             └──────────────┘
+                                │
+                                ▼
+                              Memory
 
-零真网、零 root 供给、不碰任何真 state。
+               Converse / Wake 提出的外部动作
+                                │
+                                ▼
+                             Kernel
+                                │
+                      审批 / 策略 / Dispatch
+                                │
+                                ▼
+                         外部 Capability
 
-```sh
-git clone <本仓库> lykoi-cordis && cd lykoi-cordis
-
-npm ci                       # lockfile 钉版；服务器上用 npm ci --ignore-scripts
-npm test                     # 813 项（802 pass / 11 skip / 0 fail）
-npm run typecheck            # tsc --noEmit，净
-
-LYKOI_M1_SMOKE=1 npm start   # 一次性验收序列
-npm start                    # 常驻，Ctrl-C 停
+                     Budget · Audit · Regulation
 ```
 
-dev 装配把 `var/` 落在仓库根下，首次运行自动建。LLM 走 mock 路由；
-`converse` / `memory` / `telegram-transport` / `telegram` 默认 `disabled`。
+Lykoi 的一个核心设计原则是：
 
-完整性门（`node packages/lykoi-gate/src/cli.ts`）在开发机上必然红：它核的是
-生产机上的 root 属主、规范路径与 manifest 签名，属设计行为。
+> **推理不等于权限。**
 
-## 生产部署
+LLM 可以负责理解、推理和提出动作，但最终是否允许执行，由确定性的系统组件决定。
 
-从零起一个自己的 Lykoi：[`docs/deploy.md`](docs/deploy.md)。
-记忆数据（`memory.db`）是个体身份，不在仓库里；部署产生的是新个体。
+## 仓库结构
 
-## 纪律
+```text
+packages/
+├── lykoi-converse          对话循环
+├── lykoi-wake              自主唤醒
+├── lykoi-memory            持久状态与记忆
+├── lykoi-learn             学习与整合
+├── lykoi-heart             节律与唤醒信号
+├── lykoi-kernel            特权动作与策略层
+├── lykoi-gate              启动完整性检查
+├── lykoi-budget            LLM 预算控制
+├── lykoi-audit             审计事件
+├── lykoi-llm               LLM 抽象层
+├── lykoi-llm-deepseek      DeepSeek 接入
+├── lykoi-adapter-telegram  Telegram 适配器
+├── lykoi-decide            决策逻辑
+├── lykoi-reflow            状态与推理流
+├── lykoi-regulation        行为调节
+└── lykoi-snapshot          状态快照
 
-1. 本仓库永不存放密钥、Token、活体 state 或记忆备份。凭据只以 env 引用名出现
-   （`tokenEnv` / `apiKeyEnv`），值住在 `/home/lykoi/secrets/` 与 systemd
-   `EnvironmentFile`。
-2. 装配面的改动是治理动作：`profile/*` 改一个字节就要 root 重签 manifest。
-3. R-01：绝不允许两个进程同时写同一份 state。
-4. 与白皮书冲突时以白皮书为准。
+profile/                    运行时装配
+docs/                       实现与部署资料
+governance/                 设计与治理记录
+deploy/                     部署模板
+```
 
-## 血统
+## 本地运行
 
-旧体 `Kevinwu901113/lykoi`（Python）与独立治理仓 `lykoi-governance` 已归档，
-全史存本地 git bundle，本仓库是唯一维护仓库。`/home/lykoi/state/` 由新体原样
-接管——换躯体不换记忆。迁移总案：
-`governance/docs/cordis_full_migration_plan_v1_2026-08-24.md`。
+要求：
+
+- Node.js 24+
+- npm
+
+```bash
+git clone https://github.com/Kevinwu901113/lykoi.git
+cd lykoi
+
+npm ci
+npm test
+npm run typecheck
+npm start
+```
+
+默认开发配置不会使用生产环境中的真实状态和凭据。
+
+生产部署方式见 [`docs/deploy.md`](docs/deploy.md)。
+
+## 设计原则
+
+Lykoi 当前主要遵循以下约束：
+
+- **推理不等于权限**：LLM 输出本身不能直接获得执行权。
+- **记忆与运行时分离**：长期状态独立于程序代码保存。
+- **自主不等于无限权限**：自主行为仍然受到策略、权限和预算约束。
+- **重要行为应当可审计**：关键动作和治理决策需要留下记录。
+- **能力应当显式存在**：系统能够做什么，应通过明确的 capability 暴露，而不是默认拥有宿主机权限。
+
+## 当前状态
+
+Lykoi 当前已经能够长期运行，并具备 Telegram 对话、持久记忆、自主唤醒、学习、受控动作执行、审计和 LLM 预算管理等基础能力。
+
+项目仍在持续开发中。目前浏览器、环境感知和更丰富的外部能力仍未进入稳定运行时。
