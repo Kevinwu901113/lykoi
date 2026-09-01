@@ -107,26 +107,53 @@ test('classify：落进任一禁区 → "deny"，否则 "allow"', () => {
   }
 })
 
-test('SK-73 第三旋钮：PROTECTED_PATHS 三条 —— 活体两条逐字保全 + GK-13 重划的门自身', () => {
+test('SK-73 第三旋钮：PROTECTED_PATHS 退役后两条 —— 活体 secrets 逐字保全 + GK-13 重划的门自身', () => {
   assert.deepEqual([...PROTECTED_PATHS], [
-    '/home/lykoi/secrets',                     // 活体逐字①
-    '/home/lykoi/projects/lykoi/guardian',     // 活体逐字②（旧体 guardian，M4 共存窗照旧不可达）
-    GATE_SOURCE_CANONICAL,                     // GK-13 重划：新体完整性门源目录
+    '/home/lykoi/secrets',   // 活体逐字①
+    GATE_SOURCE_CANONICAL,   // GK-13 重划：新体完整性门源目录
   ])
+  // 活体逐字②（旧体 guardian `/home/lykoi/projects/lykoi/guardian`）随
+  // WO-CORE-RETIRE 封存旧仓到期退役（D-GD-1）；条目为什么必须跟着目录一起走，
+  // 见下面那条 D-GD-3 机制钉。
   assert.equal(GATE_SOURCE_CANONICAL, '/home/lykoi/projects/lykoi-cordis/packages/lykoi-gate')
 })
 
-test('SK-73：isProtectedPath = PROTECTED_PATHS 上的 any(isWithin)（三条禁区自身必受保护）', () => {
+test('SK-73：isProtectedPath = PROTECTED_PATHS 上的 any(isWithin)（两条禁区自身必受保护）', () => {
   for (const base of PROTECTED_PATHS) {
     assert.equal(isProtectedPath(base), true, base)
   }
   assert.equal(isProtectedPath('/home/lykoi/secrets/llm.env'), true)
 })
 
+test('D-GD-3 机制钉：base 不存在 → 对**任意存在的 path** 判 true（这是设计，不是缺陷）', () => {
+  const fx = fixture()
+  try {
+    // 自造一条**从来没建过**的 base（不依赖本机有没有 /home/lykoi/*），
+    // 拿真实存在、且明显不在它下面的路径去问。
+    const vanished = join(fx.root, 'vanished-base')
+    const alive = join(fx.root, 'outside', 'plain.txt')
+    assert.equal(isWithin(alive, vanished), true, 'base 解析不出来 → fail closed 判在内')
+    assert.equal(isWithin(join(fx.root, 'zone'), vanished), true, '换个存在的 path 也一样')
+    // 毒化沿 classify 传播：任一 base 命中即 deny —— 所以一条失踪的 base
+    // 足以让**整张**禁区表对一切路径答 deny。
+    assert.equal(classify(alive, [vanished]), 'deny')
+    assert.equal(classify(alive, [join(fx.root, 'zone'), vanished]), 'deny')
+
+    // 这是 SK-74 的**设计方向**：读不出治理周界时她什么都够不着，而不是什么都
+    // 够得着。代价 2026-09-01 冷启事故已实证：WO-CORE-RETIRE 封存旧仓后，
+    // PROTECTED_PATHS 里的旧体 guardian base 从磁盘消失 → isProtectedPath 恒
+    // true → 完整性门检查项④两条「不得误封」探针双 FAIL → ExecStartPre 拒启。
+    // 修法是退役过期条目（D-GD-1），**不是**松开 fail closed —— 这一行为本身
+    // 由本条钉住，谁要改 isWithin 先撞它。
+  } finally {
+    fx.cleanup()
+  }
+})
+
 test('SK-73 fail closed 的代价（写明白，不绕过去）：禁区 base 解析不出来时**一切**判受保护', () => {
   const fx = fixture()
   try {
-    // 开发机上 `/home/lykoi/*` 三条 base 一条都不存在 → isWithin 的
+    // 开发机上 `/home/lykoi/*` 两条 base 一条都不存在 → isWithin 的
     // `except OSError: return True` 对每条 base 都成立 → 任何路径都判成在内。
     assert.equal(isProtectedPath(join(fx.root, 'outside', 'plain.txt')), true)
 

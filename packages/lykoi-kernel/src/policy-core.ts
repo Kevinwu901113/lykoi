@@ -19,8 +19,9 @@
  *   autonomous 请求硬门动作（terminal.exec）是拒绝，不是排队给一个不存在的
  *   审批人（GT-4）。
  * - isProtectedPath：文件系统禁区判定 —— 依赖 path-guard（realpath fail
- *   closed）。W1 只钉 PROTECTED_PATHS 常量，W4 补齐判定函数本体 + GK-13 的
- *   第三条禁区（新体完整性门源目录）。
+ *   closed）。W1 只钉 PROTECTED_PATHS 常量，W4 补齐判定函数本体 + GK-13 重划的
+ *   那条禁区（新体完整性门源目录；2026-09-01 旧体 guardian 条目退役后它是第二条，
+ *   见 PROTECTED_PATHS 上方的退役记录）。
  *
  * import 纪律（活体「imports nothing from the lykoi package」的对应物）：本模块
  * 只 import 同属 root 属主域的 `./path-guard.ts`，**再无别的**。完整性门直接
@@ -63,22 +64,37 @@ export const AUTONOMOUS_ALLOWED: ReadonlySet<string> = new Set([
 // 任何资源都永不可达的文件系统禁区（realpath 经 path_guard 应用，symlink/".."
 // 逃不出前缀）。
 //
-// 前两条 = 活体取证值**逐字保全**，一个字节都没动：`/home/lykoi/secrets` 是
-// 同一台机器上的同一个密钥目录；`/home/lykoi/projects/lykoi/guardian` 是**旧体**
-// 的 guardian —— M4 切换窗里新旧体同机共存（R-01：绝不同时写 state），旧体的
-// guardian 在那段时间必须照旧不可达，所以这条不但不删，还必须留到旧体退役之后
-// （CORE-RETIRE 正本）。
+// **条目寿命纪律（D-GD-3，2026-09-01 事故换来的）**：这张表里的每一条都必须是
+// 机器上**长存**的路径。path-guard 的 `isWithin` 是 SK-74 fail closed —— base
+// 或 path 任一 realpath 解析失败一律判「在内」—— 所以一条 base 从磁盘上消失，
+// 不是这一条失效，而是**任何路径**对它都在内：整张护栏全封锁，
+// `isProtectedPath` 恒 true，gate 检查项④的两条「不得误封」探针双 FAIL，
+// ExecStartPre 拦启动。**条目消失 = 护栏全封锁 = 检查项④拦启动**；要加条目或
+// 要挪走一条已存在的目录，先读这一段。
 //
-// 第三条 = GK-13 受保护面重划（DK-05；蓝图明写「W4 细化」）的新体一半：CF-B2
+// 第一条 = 活体取证值**逐字保全**，一个字节都没动：`/home/lykoi/secrets` 是
+// 同一台机器上的同一个密钥目录。
+//
+// **退役记录（D-GD-1，WO-GUARD-RETIRE，2026-09-01）**：原第二条
+// `/home/lykoi/projects/lykoi/guardian`（活体取证逐字②，**旧体**的 guardian）
+// 已删。它的原注释亲口写了寿命条款 —— 「M4 切换窗里新旧体同机共存（R-01：绝不
+// 同时写 state），旧体的 guardian 在那段时间必须照旧不可达，所以这条不但不删，
+// 还必须留到旧体退役之后（CORE-RETIRE 正本）」。WO-CORE-RETIRE 于 2026-09-01
+// 封存旧仓 `/home/lykoi/projects/lykoi`，该条款到期，条目随之退役：删的是**过期
+// 条目**，不是那段历史（保史即此段）。旧体现址是归档区
+// `/home/lykoi/archive/old-body-20260901`（root:root 700），物理不可达，
+// 无需护栏条目接替。退役的代价在链条另一头已实证：条目留着而目录没了，正是上面
+// 那条寿命纪律说的全封锁事故。
+//
+// 第二条 = GK-13 受保护面重划（DK-05；蓝图明写「W4 细化」）的新体一半：CF-B2
 // 退役后「guardian 自身」这个禁区在新体的住址是完整性门的源目录。值是**生产
-// 规范路径**（不是运行期推导）—— 与前两条同形态，物理上没有 env/cwd
+// 规范路径**（不是运行期推导）—— 与第一条同形态，物理上没有 env/cwd
 // 重定向面。生产仓库根路径是 M4 供给项（docs/m4_handoff.md 前置 #7）：若治理侧
 // 最终把新体装在别的路径上，这一行随之重签 manifest，属于部署期一次性动作。
 export const GATE_SOURCE_CANONICAL = '/home/lykoi/projects/lykoi-cordis/packages/lykoi-gate'
 
 export const PROTECTED_PATHS: readonly string[] = [
   '/home/lykoi/secrets',
-  '/home/lykoi/projects/lykoi/guardian',
   GATE_SOURCE_CANONICAL,
 ]
 
