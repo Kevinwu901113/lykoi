@@ -14,6 +14,7 @@ import {
   checkPathGuard, checkProtectedTree, checkRules, verify,
 } from '../src/verify.ts'
 import { manifestPath } from '../src/manifest.ts'
+import { STATE_CANONICAL } from '../src/surface.ts'
 import { makeFixture, signManifest } from './fixture.ts'
 
 /** 跑一个检查项，返回问题清单。 */
@@ -250,13 +251,43 @@ test('④红：治理核的 PROTECTED_PATHS 被清空（守卫不再护 secrets�
   }
 })
 
-test('④红：守卫写太宽（把工作区也封了）→ 红（过度封锁同样是失败）', () => {
+test('④红【事故形态负例】：恒 true 的守卫（= 任一禁区 base 不可解析的实网等价物）→ 两条 over-blocks 同时红', () => {
   const fx = makeFixture()
   try {
+    // 2026-09-01 冷启事故的可执行留痕。链条：WO-CORE-RETIRE 封存旧仓 →
+    // PROTECTED_PATHS 里的旧体 guardian base 从磁盘上消失 → path-guard 的
+    // SK-74 fail closed（base 解析不出来 = 判在内）把真守卫变成**恒 true** →
+    // 检查项④的两条「不得误封」探针双 FAIL → ExecStartPre 拒启。
+    // 门按设计履职；坏的是那条过期条目（D-GD-1 已退役它）。
     const problems = run(checkPathGuard, { ...fx.env, isProtectedPath: () => true })
     assert.equal(problems.length, 2)
-    assert.match(problems[0]!, /over-blocks the workspace/)
+    assert.match(problems[0]!, /over-blocks the canonical state dir/)
     assert.match(problems[1]!, /over-blocks the new-body workspace/)
+    // 红的**只**会是 over-blocks 那一半：全封锁下「护住 secrets」「护住门自身」
+    // 两条正向断言反而是满足的 —— 护栏坏死的自欺就长这个样子，所以「不得误封」
+    // 这一半不是锦上添花，是唯一能逮住它的东西。
+    assert.equal(problems.every((p) => p.includes('over-blocks')), true)
+  } finally {
+    fx.cleanup()
+  }
+})
+
+test('④：canonical state 探针的正负两态（D-GD-2 换防：旧体工作区 → /home/lykoi/state）', () => {
+  const fx = makeFixture()
+  try {
+    // 正：退役后的生产语义（PROTECTED_PATHS 两条）下 canonical state 不在任何
+    // 禁区里 → 探针答 false → 检查项④零问题。她必须写得进自己的 state。
+    assert.equal(STATE_CANONICAL, '/home/lykoi/state')
+    assert.equal(fx.env.isProtectedPath(STATE_CANONICAL), false)
+    assert.deepEqual(run(checkPathGuard, fx.env), [])
+
+    // 负：只多封 canonical state 一处（其余三条探针的答案一个字不变）→
+    // 恰好这一条红，不多不少。
+    const overBlocksState = (path: string): boolean =>
+      path === STATE_CANONICAL || path.startsWith(STATE_CANONICAL + '/')
+      || fx.env.isProtectedPath(path)
+    const problems = run(checkPathGuard, { ...fx.env, isProtectedPath: overBlocksState })
+    assert.deepEqual(problems, ['path guard over-blocks the canonical state dir'])
   } finally {
     fx.cleanup()
   }

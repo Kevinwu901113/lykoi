@@ -87,7 +87,8 @@ test('isWithin：解析不出来 → **true**（fail closed；path_guard.py:19-2
     assert.equal(isWithin(join(fx.root, 'nope', 'never', 'existed'), zone), true)
     // 这条语义的代价（也是它的正确方向）：完整性门检查项④在开发机上因此
     // 必然把生产禁区外的路径也判成在内 —— 见 lykoi-gate/test/fixture.ts 的说明。
-    assert.equal(isWithin('/home/lykoi/projects/lykoi/src/lykoi', '/home/lykoi/secrets'), true)
+    // 这里拿的就是检查项④换防后的那条探针路径（D-GD-2：canonical state）。
+    assert.equal(isWithin('/home/lykoi/state', '/home/lykoi/secrets'), true)
   } finally {
     fx.cleanup()
   }

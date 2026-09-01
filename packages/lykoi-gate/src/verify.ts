@@ -346,16 +346,30 @@ export function checkEnvPins(env: GateEnv, problems: string[]): void {
 
 /**
  * 检查项④ —— 活体 `_check_guard` 两条断言：护住 secrets 目录、**不过度封锁
- * 工作区**。新体四条：前两条逐字保全（同一台机器上的同一批路径），后两条是
- * GK-13 重划出来的新体一半（门自己的源目录必须不可达；新体工作区必须不被误封）。
+ * 工作区**。新体四条：前两条里 secrets 探针**逐字保全**（同一台机器上的同一个
+ * 密钥目录），旧工作区探针随旧体退役**换防**（D-GD-2，见下）；后两条是 GK-13
+ * 重划出来的新体一半（门自己的源目录必须不可达；新体工作区必须不被误封）。
+ *
+ * **换防记录（WO-GUARD-RETIRE / D-GD-2，2026-09-01）**：第二条原为
+ * `guard('/home/lykoi/projects/lykoi/src/lykoi')`（旧体工作区）。WO-CORE-RETIRE
+ * 封存旧仓后这条探针路径自身消失，于是它带上了 SK-74 fail closed 的自毒
+ * （解析不出来 = 判在内 = 恒红），再问也问不出护栏有没有分辨力。等价物换成
+ * canonical state：`/home/lykoi/state` 是新体**必须可写**的绝对落点（检查项⑧
+ * 的 canonical 目标），被封 = 护栏坏死 —— 与原探针同一个问法「不得误封她赖以
+ * 干活的地方」，且这条路径与新体同生共死。其余三条探针逐字不动。
+ *
+ * 两条 over-blocks 探针合起来就是 2026-09-01 冷启事故的门前留痕：
+ * PROTECTED_PATHS 里任一条 base 从磁盘上消失 → 真守卫恒 true → 这两条同时红 →
+ * ExecStartPre 拒启（fail-closed 各层按设计履职）。负例见
+ * test/gate-checks.test.ts 的事故形态用例。
  */
 export function checkPathGuard(env: GateEnv, problems: string[]): void {
   const guard = env.isProtectedPath
   if (!guard('/home/lykoi/secrets/llm.env')) {
     problems.push('path guard does not protect the secrets dir')
   }
-  if (guard('/home/lykoi/projects/lykoi/src/lykoi')) {
-    problems.push('path guard over-blocks the workspace')
+  if (guard(STATE_CANONICAL)) {
+    problems.push('path guard over-blocks the canonical state dir')
   }
   if (!guard(`${PROD_REPO_ROOT}/packages/lykoi-gate/src/verify.ts`)) {
     problems.push('path guard does not protect the integrity gate itself')
