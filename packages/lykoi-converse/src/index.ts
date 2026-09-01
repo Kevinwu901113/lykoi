@@ -250,8 +250,12 @@ export function apply(ctx: Context, config: Config) {
   setMessengerLogEvent(logEvent)
   setTransportLogEvent(logEvent)
   // U1 ①：未送达 → 她的经验，走 reflow 的**单写者入口**（不直接碰 store）。
+  // WO-MEM-SOURCE-01：这条经验记的是**她自己**那句话没送出去（transport 对她
+  // 一次开口的回音），方向是 outbound → 第二轴推导为 executed，而不是"别人告诉
+  // 我的"（user_reported）。渠道值仍由 transport 侧给（'conversation'，不新造）。
   setUndeliveredExperienceSink((source, content, opts) => recordExperience(
-    store, source as 'conversation', content, { salience: opts.salience, now: new Date() },
+    store, source as 'conversation', content,
+    { salience: opts.salience, conversationDirection: 'outbound', now: new Date() },
   ))
   // GK-8 的落笔面（开关**默认关** —— 未开启时这个 sink 一次都不会被调到）。
   setNotificationOutboxSink(outboxNotificationSink(logEvent))

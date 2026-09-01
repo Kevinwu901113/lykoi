@@ -28,12 +28,14 @@ function openRw(): { rw: ReadWriteMemory; raw: DatabaseSync } {
 
 // ============================== 连接门与纪律 ==============================
 
-test('rw 入口同样有 schema 门：mind_schema != 15 / 非 state 库拒开', () => {
-  const bad = join(tmp(), 'v14.db')
+// WO-MEM-SOURCE-01：期望版本 15 → 16（016 迁移登记的新版本号）；判定逻辑未动。
+// 用 15 造反例正好钉住"未施加 016 的旧库拒开"这条部署纪律。
+test('rw 入口同样有 schema 门：mind_schema != 16 / 非 state 库拒开', () => {
+  const bad = join(tmp(), 'v15.db')
   const db = new DatabaseSync(bad)
-  db.exec("CREATE TABLE mind_schema (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL); INSERT INTO mind_schema VALUES (14, 'x')")
+  db.exec("CREATE TABLE mind_schema (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL); INSERT INTO mind_schema VALUES (15, 'x')")
   db.close()
-  assert.throws(() => new ReadWriteMemory(bad), /mind_schema version 14 != expected 15/)
+  assert.throws(() => new ReadWriteMemory(bad), /mind_schema version 15 != expected 16/)
   const notState = join(tmp(), 'not-state.db')
   const db2 = new DatabaseSync(notState)
   db2.exec('CREATE TABLE t (a)')

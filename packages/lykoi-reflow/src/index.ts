@@ -30,8 +30,8 @@
 import {
   emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
 } from 'lykoi-decide'
-import { parseStateTimestamp, type HistoryRow } from 'lykoi-memory'
-import type { ExperienceSource } from 'lykoi-memory/rw'
+import { parseStateTimestamp, type EpistemicStance, type HistoryRow } from 'lykoi-memory'
+import type { ConversationDirection, ExperienceSource } from 'lykoi-memory/rw'
 import {
   conversationTimestamps,
   medianGapHours,
@@ -83,7 +83,15 @@ export interface ReflowStore {
   recordExperience(
     source: ExperienceSource,
     content: string,
-    opts: { salience?: number; relatedConcernId?: number | null; now: Date },
+    opts: {
+      salience?: number
+      relatedConcernId?: number | null
+      /** 认识论第二轴显式覆盖（WO-MEM-SOURCE-01；缺省由渠道推导）。 */
+      epistemic?: EpistemicStance
+      /** conversation 渠道的消息方向（缺省 inbound 口径）。 */
+      conversationDirection?: ConversationDirection
+      now: Date
+    },
   ): number
   applyRegulationCause(cause: string, opts: { now: Date }): unknown
   listConcerns(status?: string | readonly string[]): { id: number }[]
@@ -160,7 +168,18 @@ export function recordExperience(
   store: ReflowStore,
   source: ExperienceSource,
   content: string,
-  opts: { salience?: number; relatedConcernId?: number | null; now: Date },
+  opts: {
+    salience?: number
+    relatedConcernId?: number | null
+    /**
+     * WO-MEM-SOURCE-01：第二轴的显式覆盖与方向提示原样穿到 store 的写点
+     * （本层不推导、不改写——推导表只有一份，在 lykoi-memory/rw
+     * `deriveEpistemic`）。
+     */
+    epistemic?: EpistemicStance
+    conversationDirection?: ConversationDirection
+    now: Date
+  },
 ): number {
   const experienceId = store.recordExperience(source, content, opts)
   store.applyRegulationCause('experience_recorded', { now: opts.now })
