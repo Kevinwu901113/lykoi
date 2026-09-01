@@ -388,6 +388,17 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     （2026-09-01，WO-CACHE-PERSONA 作业期间治理侧改了退役稿，执行方交卷时
     如实上报未误收——这次靠执行方显式路径 add 的纪律兜住，下次未必）。
 
+53. **验证性事件计数一律精确匹配 `"type":"X"`，禁子串 grep；实证必须能
+    区分成败**（2026-09-01，WO-INC-LLM-ROUTE 认知断流事故）。M4 夜「wake
+    首拍实证」用 `grep -c autonomy_wake`，子串同时命中 `autonomy_wake_failed`
+    ——她自切换起 18 拍全败、预算全零，靠 W1 首日读数组合异常才揭出。
+    根因：yml `route: deepseek` 对不上 vendor 写死常量 `deepseek-official`
+    （registerAdapter 仅此一条，配置面无改名位）→ dsh-llm NO_ADAPTER。
+    配套教训：**空回复 ≠ 根因，要往下剥到失败位**——dsh-llm 把 dispatch
+    抛错归一成 finish{error} 不外抛，lykoi-llm 不检查 finish 位返回空文本，
+    wake 解码才炸，报错离根因隔两层。跟进项（观察周后）：lykoi-llm 应把
+    finish{error} 外显（抛错或入结果），失败原因不许静默吞掉。
+
 ---
 
 ## 五、当前进度
@@ -398,7 +409,17 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
   detached `m4-switch`（六器官位翻开：llm-deepseek / memory / converse /
   wake / telegram-transport / telegram；learn 位退役 = D-FIX-2 定案）。
   切换窗当夜事故（占位条目被翻开 → loader 炸）当夜完全修法关单
-  （wo/WO-M4-FIX-WAKE/，教训 47/48）；`autonomy_wake` 首拍已实证。
+  （wo/WO-M4-FIX-WAKE/，教训 47/48）。当夜的「首拍实证」后被证伪
+  （子串 grep 计入了 failed，教训 53）——真首拍见下条 WO-INC-LLM-ROUTE。
+- **WO-INC-LLM-ROUTE 已关（2026-09-01 午后，W1 Day 1 事故例外）**：W1 首日
+  读数揭出**认知断流**——route 名对不上 vendor 常量，她自切换起 18 拍全败。
+  修正 = route: deepseek-official / model: deepseek-v4-flash / budget 键随名，
+  生产树钉更新为 **acb814f**（= main 1e82ad8 + 六翻位；5f706bd 作废），
+  manifest 重签、八检查项全绿。**12:38:10 本地 = 她上线以来第一次成功的
+  自主思考**（精确 autonomy_wake 0→1；同 runId 两笔 charge：阶段 4b 认知
+  13907 tokens + SA-171 整合/专注 16705 tokens——SA-171 首次活体实证）。
+  W1 醒拍/预算基线自修复落地重新起算；跟进项 = lykoi-llm finish{error}
+  外显（教训 53）。
 - **WAVE-OBS-PREP 已收官（2026-09-01 10:36 落地稿 B 全绿）**：四单全关——
   ① WO-STATE-CANON（var/state symlink 定案 + 门检查项⑧，教训 49）；
   ② WO-CACHE-PERSONA（getPersona 进程缓存 + path 守卫；产线两 personaToml
