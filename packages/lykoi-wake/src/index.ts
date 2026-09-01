@@ -38,10 +38,12 @@
  * 装配面里的内联 persona 是 owner 域 TOML 的第二事实源，违单一出处；且它必填，
  * 于是「从未填过这一项的 profile 条目」一被翻开就 `$.persona missing required
  * value` 炸在 loader 阶段（2026-09-01 00:54 切换窗事故的两条根因之一）。
- * 本插件的装载面自此**镜像 lykoi-converse**：`loadPersona(resolve(
- * config.personaToml))` —— 同一个装载器、同一个返回类型 PersonaConfig、同一个
- * SA-156 fail-fast 姿态（文件缺失/坏 TOML → PersonaConfigError 启动即炸，
- * 不包不吞）。醒着的她和聊天的她读同一份先天内核，从此连读法都是同一句。
+ * 本插件的装载面自此**镜像 lykoi-converse**：`getPersona(resolve(
+ * config.personaToml))`（D-CP-1，WO-CACHE-PERSONA；曾是 loadPersona 直调）——
+ * 同一个装载器、同一个返回类型 PersonaConfig、同一个 SA-156 fail-fast 姿态
+ * （文件缺失/坏 TOML → PersonaConfigError 启动即炸，不包不吞）。醒着的她和
+ * 聊天的她读同一份先天内核，从此连读法都是同一句 —— 而且是**同一份对象**：
+ * getPersona 的进程级缓存 + path 守卫让「同一份」从偶然变成机制。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -51,7 +53,7 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  loadPersona, OrganInventoryCache, serializeDecision,
+  getPersona, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
@@ -411,7 +413,9 @@ export function apply(ctx: Context, config: Config) {
 
   // D-FIX-1：先天内核从 owner 域 TOML 装载（converse 镜像；SA-156 fail-fast ——
   // 文件缺失/坏 TOML 抛 PersonaConfigError，不包不吞，病内核在启动时炸）。
-  const persona = loadPersona(resolve(config.personaToml))
+  // D-CP-1（WO-CACHE-PERSONA）：经进程级缓存面 getPersona —— 与 converse 同进程
+  // 共用一份内核；两处 personaToml 分叉时由 path 守卫启动即炸。
+  const persona = getPersona(resolve(config.personaToml))
   const notifications: NotificationsView = emptyNotifications // M3-W3 接 kernel 通知队列
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),

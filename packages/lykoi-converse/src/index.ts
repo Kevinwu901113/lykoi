@@ -34,7 +34,7 @@ import {
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
 import {
-  loadPersona, seedPersona, OrganInventoryCache, type LogEvent,
+  getPersona, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
 import { stagedInstructions } from 'lykoi-learn'
 import {
@@ -200,7 +200,10 @@ export function apply(ctx: Context, config: Config) {
   setKernelLogEvent(logEvent)
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
 
-  const persona = loadPersona(resolve(config.personaToml))
+  // D-CP-1（WO-CACHE-PERSONA）：走进程级缓存面（SA-156 每进程恰一份内核），
+  // 不再直调 loadPersona —— 同进程只读+解析一次；且本插件与 wake 的
+  // personaToml 一旦分叉，getPersona 的 path 守卫会启动即炸（而非静默错人格）。
+  const persona = getPersona(resolve(config.personaToml))
 
   // --- 出生序（文件头注释） ---
   seedPersona(store, { now: new Date() })
