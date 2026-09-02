@@ -93,6 +93,24 @@
   config:
     dbPath: /home/lykoi/state/memory.db
 
+# ---- 浏览器器官（她自己的那双手）-------------------------------------------
+# **位置定死在 converse / wake 之前**（WO-M5-ORGAN-BROWSER D-9）：那两个位在
+# 各自的 apply 里调 `outboundOrganResources()` 取一次快照喂 `OrganInventoryCache`，
+# 快照是**调用时**的 `_extraOrgans`。器官位排在它们后面 = 清单里没有这三项
+# （她会以为自己没有手），而这里排在前面就不必动 wake / converse 一行 src。
+#
+# 大脑侧这一条**只需要一个 socket 路径**：Chrome、持久 profile、截图全在另一个
+# OS 用户（lykoi-browser）的独立 systemd 单元里，大脑永不 spawn 浏览器。
+# root 供给（逐条命令见 docs/browser_organ.md）：
+#   useradd lykoi-browser；/etc/lykoi-browser/host.json（root:root 644）；
+#   lykoi-browser.service（RuntimeDirectory=lykoi-browser，socket 0660 组 lykoi）。
+# **宿主没起来大脑照常起**：三个动作返回 browser_host_unreachable，清单仍列三项
+# （接线是事实，宿主在不在是状况）——器官是手，不是心脏。
+- id: browser
+  name: lykoi-organ-browser
+  config:
+    socketPath: /run/lykoi-browser/host.sock
+
 # ---- 对话心智 ---------------------------------------------------------------
 # 需 root 供给：①memory 库（见上，R-01 约束）②人格 TOML
 # （/home/lykoi/runtime/persona/lykoi_base.toml，root 属主 444，父目录 root）——
