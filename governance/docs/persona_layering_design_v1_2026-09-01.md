@@ -112,6 +112,6 @@ D-PERS-1（数据轴，本周可派）→ D-PERS-3（衰减，机制补课）→
 D-PERS-2（relationship overlay，依赖 1 的轴与 3 的通道骨架）→
 装配带标与表达细化（随 overlay 单捎带）。M5 browser 单与本线并行不冲突。
 
-> 改序（Kevin 2026-09-02 裁决）：D-PERS-1、D-PERS-3 已并入 main；**D-PERS-2 排在
-> `WO-M5-ORGAN-BROWSER` 之后**（先让她能出门，再给她第二张脸）。其间先走
-> `WO-FIX-LOOP-01`（认知回路四处小修）。
+> 2026-09-02 记：D-PERS-1、D-PERS-3、D-PERS-2（`WO-PERS-OVERLAY-01`，Kevin 15:22
+> 点名，同日并入并落地 main@29ffab1）全部完成。15:12 的"M5 提前到 D-PERS-2 前"
+> 改序裁决被 15:22 指示取代；本线收官，下一单 `WO-M5-ORGAN-BROWSER`。

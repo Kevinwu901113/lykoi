@@ -493,8 +493,17 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   计为用户层硬失败。活体根因四条（清单撒谎 18→实 5、溯源门误杀 13/47 拍、
   wake 空回包整拍报废 6 拍、重启线索 CST 误解析）→ 开小单
   **`wo/WO-FIX-LOOP-01`**（sonnet 执行，分支 `wo/fix-loop-01`，零迁移零装配）。
-  **队列改序（Kevin 2026-09-02 裁决）：`WO-M5-ORGAN-BROWSER` 提前到人格分层
-  D-PERS-2（relationship overlay）之前** —— 先让她能出门，再给她第二张脸。
+  队列改序（Kevin 15:12 裁决"M5 提前到人格分层前"）**已被 15:22 的更晚指示
+  取代**：D-PERS-2 当日以 `WO-PERS-OVERLAY-01` 并入并落地（下下条）。现行队列：
+  **`WO-FIX-LOOP-01` 裁合 → `WO-M5-ORGAN-BROWSER` 开工**。
+  **WO-FIX-LOOP-01 复核 PASS（同日 18:30）**：sonnet 执行 6 提交 + 治理复核改口
+  1 提交（D-1d gap `wanted` 记工具名；`grounded_concern_ids` 去重升序），rebase 到
+  main@a794e7f 后尖 **a6e4432**，独立复跑 **929/918/0/11**，tsc 净，详见
+  `wo/WO-FIX-LOOP-01/review.md`；**待 Kevin 裁合**，落地 = 拉 main + 重启（零迁移；
+  manifest 钉 src 须 root 重签，见 LANDING-F 教训）。遗留：执行方发现 GK-14 张力
+  （信封 `dispatched` 自称先于 D-1d 闸——未接线 tool_call 会自称派发却无
+  action_dispatch 行），触信封契约，另立小单。执行过程两次中断（429 速率限制、
+  流停滞看门狗），均 SendMessage 续跑，worktree 提交未丢。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落

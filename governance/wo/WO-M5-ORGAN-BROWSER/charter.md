@@ -2,7 +2,7 @@
 
 - 状态：**已立项**（Kevin 2026-08-31 批准；M5 首个器官）
 - 前置：M4 切换完成（m4_handoff 11 硬前置全绿）；本工单在 M4 收口前不动工
-- 队列位置（Kevin 2026-09-02 裁决）：**提前到人格分层 D-PERS-2 之前**；前置补一条：`wo/WO-FIX-LOOP-01` 并入（清单只列接得通的动作、`not_wired` gap 发射点、
+- 队列位置（2026-09-02）：人格分层三单（D-PERS-1/3/2）当日全部并入，**本单为下一单**；前置补一条：`wo/WO-FIX-LOOP-01` 并入（清单只列接得通的动作、`not_wired` gap 发射点、
   explore 候选按接线闸——本单接上 `research_browser.*` 真 handler 后这三处自动跟着变真）
 - 包名：`lykoi-organ-browser`
 
