@@ -1,0 +1,26 @@
+# CI：与 CLAUDE.md「构建与测试」交付线同一口径 —— 全量测试 0 失败 + typecheck 净。
+# 只跑仓库自带的东西：无服务器通道、无真值、无 devstate 夹具（那 11 项测试按设计跳过）。
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: node --version
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

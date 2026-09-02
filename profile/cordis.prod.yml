@@ -4,8 +4,11 @@
 #
 # 与 `cordis.yml`（dev）的关系：**两套分明，互不覆盖**。
 #   - `cordis.yml`      = dev：保持现状、开箱能跑、零真网、零 root 供给。
-#   - `cordis.prod.yml` = prod：本文件。每一条 `disabled: true` 都标了**需要
-#     哪一样 root 供给才能翻开**；供给没到位就别翻，翻了会在启动闸上红。
+#   - `cordis.prod.yml` = prod：本文件。**main 上的本文件 = 生产装配**
+#     （2026-09-02 起；此前六个器官位在 main 上 disabled、只在 m4-switch
+#     分支翻开，落地要重钉游离提交——已废止）。每个器官位的注释写明它需要
+#     哪一样 root 供给；全新部署供给没到位的位可临时加 `disabled: true`，
+#     供给到位后删掉再重签。
 #
 # 启动次序（生产）：
 #   0. **切换窗一次性**（GK-9 / m4_handoff 前置 #1，在首次签 manifest **之前**跑）：
@@ -79,14 +82,14 @@
   name: lykoi-llm
 - id: llm-deepseek
   name: lykoi-llm-deepseek
-  disabled: true # 需 root 供给：/home/lykoi/secrets/llm.env（禁区①，她永不可达）
+  # 启用。root 供给：/home/lykoi/secrets/llm.env（禁区①，她永不可达）
 
 # ---- 记忆（她的 state 库）---------------------------------------------------
 # **R-01 硬规则**：M4 切换窗里新旧体绝不同时写 state。旧体停稳之前这一条
 # 不许翻开（docs/m4_handoff.md 前置 #4）。
 - id: memory
   name: lykoi-memory
-  disabled: true
+  # 启用（R-01：旧体已退役；任何并行写 state 的进程停稳之后才许起本装配）
   config:
     dbPath: /home/lykoi/state/memory.db
 
@@ -96,7 +99,7 @@
 # 完整性门检查项②③⑤三处核它（属主 / env 不许重定向 / 哈希；DA-11 取证对象）。
 - id: converse
   name: lykoi-converse
-  disabled: true
+  # 启用
   config:
     dbPath: /home/lykoi/state/memory.db
     personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
@@ -140,7 +143,7 @@
 # 不是给一个库套插件壳。
 - id: wake
   name: lykoi-wake
-  disabled: true
+  # 启用
   config:
     dbPath: /home/lykoi/state/memory.db
     # 人格 TOML：与 converse 段**同一个文件**（D-FIX-1）—— 醒着的她和聊天的她
@@ -161,7 +164,7 @@
 # 真 fetch 住在 lykoi-adapter-telegram/src/http.ts，**只在本条目的装配面被选中**。
 - id: telegram-transport
   name: lykoi-adapter-telegram/production
-  disabled: true
+  # 启用
   config:
     tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
     # M4 前置 #8：出站代理这一位**只能从这里来**（传输层零 env 读取；
@@ -175,7 +178,7 @@
     proxy: 'http://192.168.0.202:7890'
 - id: telegram
   name: lykoi-adapter-telegram
-  disabled: true
+  # 启用
   config:
     cursorPath: /home/lykoi/state/telegram-cursor.json
     archivePath: /home/lykoi/state/telegram-inbound.json

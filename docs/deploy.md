@@ -25,8 +25,8 @@
 
 在缺口补上之前，你能在全新服务器上完整走完的是：**治理地基起立**
 （审计 sink / 预算硬顶 / 心跳 / LLM 注册层 + 完整性门 + systemd 接管）。
-六个器官位（deepseek / memory / converse / wake / telegram×2）
-按 `§11` 逐条翻开，每一位翻开的条件都写在装配面的注释里。
+六个器官位（deepseek / memory / converse / wake / telegram×2）在 `main` 的装配面上
+默认启用；供给没到位的位按 `§11` 临时关掉，每一位的条件都写在装配面的注释里。
 
 ---
 
@@ -172,6 +172,54 @@ readlink -f "$REPO/var/state"
 出处：`governance/wo/WO-STATE-CANON/order.md` D-SC-1、
 `packages/lykoi-gate/src/surface.ts`（`STATE_CANONICAL` / `STATE_LINK_REL`）、
 `WO-M4-W2/paste-1-prepare.sh` §3b。
+
+---
+
+## 4c · 建 state 库（全新部署）
+
+从上一具躯体接管 `memory.db` 的部署跳过本节，改看 §13 第 1 条的升级路径。
+
+入口：`packages/lykoi-memory/src/init-state.ts`。schema 的正本在
+`packages/lykoi-memory/src/schema.ts`（`STATE_SCHEMA_DDL`），测试夹具与本入口
+共用同一份。入口按该 DDL 一次建到 `mind_schema` 16，落全表、索引与 append-only
+触发器，并可选登记所有者行与一条 Telegram 身份绑定。
+
+```sh
+REPO=/home/lykoi/projects/lykoi-cordis
+
+# 体检：只打印将做的事，不写任何字节
+sudo -u lykoi node "$REPO/packages/lykoi-memory/src/init-state.ts" \
+     --db /home/lykoi/state/memory.db \
+     --owner-name '<你的显示名>' \
+     --telegram-sender-id '<你的 telegram sender id>' \
+     --dry-run
+
+# 真跑（去掉 --dry-run）
+sudo -u lykoi node "$REPO/packages/lykoi-memory/src/init-state.ts" \
+     --db /home/lykoi/state/memory.db \
+     --owner-name '<你的显示名>' \
+     --telegram-sender-id '<你的 telegram sender id>'
+```
+
+参数：
+
+| 参数 | 作用 |
+| --- | --- |
+| `--db <path>` | 必填。目标已存在即退出 2，不覆盖、不迁移。 |
+| `--owner-name <名>` | 落一行 `users(id=user_001, role=owner_primary, status=active)` 与配对的 `contexts(ctx_direct_user_001)`。省略即不落身份行。 |
+| `--telegram-sender-id <id>` | 为该所有者登记 `identity_bindings(channel='telegram', channel_key=<id>)`。需要 `--owner-name`。 |
+| `--now <ISO8601>` | 全部时间戳的注入位。缺省读墙钟。 |
+| `--dry-run` | 只打印将做的事，零写入。 |
+
+退出码：0 建成（或 `--dry-run` 体检过） / 1 用法错 / 2 目标已存在 /
+3 建库过程失败（已回滚，磁盘上不留半成品） / 4 建成后自检不过。
+
+入口不读任何环境变量（GK-6）。摘要输出不含 `channel_key`。
+`--telegram-sender-id` 填的是入站消息的 `message.from.id`：适配器按
+`identityBinding('telegram', String(message.from.id))` 反查
+（`packages/lykoi-adapter-telegram/src/index.ts`）。
+
+建完的库按 §4b 的落点与 §3 的属主复核一遍，再跑 §8 的 bootstrap 预授权。
 
 ---
 
@@ -385,9 +433,10 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 
 ## 11 · 按序翻开器官位（🔒 每一次都要重签）
 
-`profile/cordis.prod.yml` 里六个位默认 `disabled: true`。翻开的做法是**删掉那一行
-`disabled: true`**（可以留一条说明为什么翻开的注释），然后重签 manifest。
-出处：装配面逐条注释 + `m4-switch` 分支上六个位翻开的真实形态。
+`profile/cordis.prod.yml` 里六个位在 `main` 上默认启用（2026-09-02 起 main 即生产
+装配；此前靠 `m4-switch` 分支翻位的做法已废止）。全新部署时供给没到位的位，在该条目下
+加一行 `disabled: true`，供给到位后删掉，每改一次都重签 manifest。
+出处：装配面逐条注释。
 
 | 位 | 翻开的条件 |
 |---|---|
@@ -421,7 +470,7 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 | `converse.interpretTimeoutS` / `interpretRetries` / `cycleTimeoutS` | `30` / `1` / `180` | 「一次审批问句等多久才算问不到」。删掉这三行不换语义 —— Schema 缺省读同一份 `D01_DEFAULTS`（`lykoi-converse/src/deadline.ts`） |
 | `converse.visionRoute` / `visionModel` | `disabled` / `disabled` | 显式「决定不开」。空串是另一回事 = **漏填**，两者在事件流上必须分得开 |
 | `heart.checkIntervalMs` / 基线节律 | `1000` / 源码缺省 30 分钟 | 基线走源码；`LYKOI_HEARTBEAT_BASELINE_MIN` 是旋钮类钉面，生产必须未设 |
-| 六个器官位的 `disabled` | 见上表 | 哪些器官在她身上 |
+| 六个器官位的 `disabled` | 缺省无（启用）；条件见上表 | 哪些器官在她身上 |
 
 重签的唯一合法路径：
 
@@ -475,27 +524,28 @@ journal 里起来的样子（出处：`profile/index.prod.ts` 末尾两行）：
 
 ## 13 · 已知缺口（全新部署必须你自己解决）
 
-逐条如实列出。这些不是"待办"，是本仓库当前**没有**提供的东西。
+逐条如实列出。第 4 条起是本仓库当前**没有**提供的东西，不是"待办"。
+第 1-3 条已有入口（`§4c`），列在这里是因为它们仍要你自己跑一遍、自己填值。
 
-1. **state 库没有生产创建入口**。schema 的唯一一份 DDL 在
-   `packages/lykoi-memory/src/testing.ts`（`STATE_FIXTURE_DDL`），
-   它的文件头写明「**只被测试树 import**」—— 那是测试夹具，不是迁移器。
-   `lykoi-memory` 主入口是只读三重防写（`readOnly: true` + `PRAGMA query_only`
-   + 服务面零写方法）。参考部署里 `memory.db` 是从上一具躯体原样接管的
-   （Python 活体的 `migrations.py` 建的库，`mind_schema` 版本 15）。本仓库当前
+1. **state 库的创建入口在 `§4c`**。schema 正本是
+   `packages/lykoi-memory/src/schema.ts` 的 `STATE_SCHEMA_DDL`，
+   创建入口是 `packages/lykoi-memory/src/init-state.ts`，测试夹具
+   （`src/testing.ts`）与它共用同一份 DDL。入口只造新库：目标已存在即退出 2，
+   不覆盖、不迁移。
+   接管既有库是另一条路径：参考部署里 `memory.db` 是从上一具躯体原样接管的
+   （Python 活体的 `migrations.py` 建的库，`mind_schema` 版本 15），本仓库当前
    期望版本是 16（`packages/lykoi-memory/src/index.ts` 的
-   `EXPECTED_MIND_SCHEMA_VERSION`）：接管来的 15 库要先在停机窗内施加
+   `EXPECTED_MIND_SCHEMA_VERSION`）。接管来的 15 库要先在停机窗内施加
    `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`，
    否则新体开库即拒。
-   全新部署要自己造这个库。
-2. **没有 `owner_primary` 行就没有所有者**。`bootstrap-preauth` 从
+2. **owner_primary 行由 `§4c` 的 `--owner-name` 落**。`bootstrap-preauth` 从
    `SELECT id FROM users WHERE role = 'owner_primary' AND status = 'active'` 读它，
-   读不到 `exit 3`，什么都不授，死锁仍在。
-3. **身份绑定是一次刻意的人工登记**。Telegram 入站消息经
-   `identity_bindings(channel, channel_key)` 反查用户；查不到就丢
-   （`packages/lykoi-adapter-telegram/src/index.ts` 的 `binding === undefined` 分支）。
-   `testing.ts` 明确**不播种任何绑定行**（「绑定属她的数据，不属中性基线」）。
-   本仓库没有登记入口 —— 你要自己往那张表里写你的 telegram sender id → 你的 user id。
+   读不到 `exit 3`，什么都不授，死锁仍在。不带 `--owner-name` 建的库没有这一行。
+3. **身份绑定由 `§4c` 的 `--telegram-sender-id` 落**，仍是一次刻意的人工登记：
+   除这个部署期入口外，运行期没有任何写 `identity_bindings` 的路径。
+   Telegram 入站消息经 `identity_bindings(channel, channel_key)` 反查用户；
+   查不到就丢（`packages/lykoi-adapter-telegram/src/index.ts` 的
+   `binding === undefined` 分支）。测试夹具不播种任何绑定行。
 4. **人格 TOML 要你自己写**（`§6`）。仓库里那份是测试夹具，写的是另一个个体。
 5. **凭据要你自己备**：DeepSeek API key、Telegram bot token（`§7`）。
 6. **网络**：`api.deepseek.com` 必须直连可达（没有代理旋钮）；
