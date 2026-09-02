@@ -334,6 +334,10 @@ export function parseEnvelope(
     safeKind: CONVERSATION_SAFE_KIND,
     envelopeFields: ENVELOPE_FIELDS,
     logEvent: opts.logEvent,
+    // WO-FIX-LOOP-01 D-2b：tool_call 免溯源门（第③关）——一次工具调用本身就是
+    // 可核验的结构化动作，逐字/规范化/片段/结构四路都可能因为工具决定的措辞
+    // 天然不落在 assessment 原文里而误伤；第②关（候选表）照旧卡。
+    groundingExempt: new Set([TOOL_CALL]),
   })
   decision.envelope = {
     tool: sanitizeTool(decision.envelope.tool),
@@ -379,6 +383,13 @@ export const CYCLE_TOOL_DEMOTED_EVENT = 'u3_cycle_tool_demoted'
 
 /** D-02②：unknown-tool 分支的落痕（活体全树少见的完全静默失败路径）。 */
 export const CYCLE_UNKNOWN_TOOL_EVENT = 'cycle_unknown_tool'
+
+/**
+ * WO-FIX-LOOP-01 D-1d：动作**在** TOOL_TO_ACTION 词表里、但注册表里仍是 D-1a
+ * 打了标记的替身（未接线）—— 与 CYCLE_UNKNOWN_TOOL_EVENT（词表外）是两条不同
+ * 的落痕，判断依据也不同（词表 vs. 结构性标记），不许合并。
+ */
+export const CYCLE_TOOL_UNWIRED_EVENT = 'u3_cycle_tool_unwired'
 
 /** kind 值原样入账的长度上限：20 是"标签"与"话"的分界（最长合法 kind 17 字）。 */
 const KIND_DETAIL_MAX = 20

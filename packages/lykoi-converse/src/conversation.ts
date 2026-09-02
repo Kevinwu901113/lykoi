@@ -32,7 +32,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   applyInner, buildPersonaKernel, buildPersonaPrompt,
-  emitCapabilityGap, GAP_UNKNOWN_ACTION,
+  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
 import { retrieveForConcern } from 'lykoi-learn'
@@ -46,7 +46,8 @@ import {
   buildEnvelopeMessages, classifyFailure, cycleCall, cycleRecord, parseEnvelope,
   envelopeJsonMode,
   CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_RETRY_EVENT,
-  CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_DEMOTED_EVENT, CYCLE_UNKNOWN_TOOL_EVENT,
+  CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_DEMOTED_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
+  CYCLE_UNKNOWN_TOOL_EVENT,
   ENVELOPE_RESPONSE_FORMAT, ENVELOPE_RETRY_MAX, FAIL_NOT_JSON, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
   TOOL_TO_ACTION, VISION_TOOL,
@@ -286,6 +287,13 @@ export interface ConverseDeps {
   innerEnabled?: boolean
   /** 测试面（Python 侧以 monkeypatch 模块常量实现同一件事）。 */
   limits?: Partial<{ windowTurns: number; backfillRows: number; maxInputTokens: number }>
+  /**
+   * WO-FIX-LOOP-01 D-1d：真接得通的动作子集（`wiredActionCatalog(resources).
+   * knownActions` 的 Set 化）。`#buildAction` 拿它挡"在 TOOL_TO_ACTION 词表里
+   * 但注册表里仍是替身"的动作——不给 → 行为逐字节不变（既有测试与生产以外的
+   * 调用点零改动）。
+   */
+  wiredActions?: ReadonlySet<string>
 }
 
 // --- 小工具 --------------------------------------------------------------------
@@ -1101,6 +1109,21 @@ export class Conversation {
         runId: this.#lastRunId || null, // 空串 = 还没进过回合：记 null，不记 ''
       })
       return [null, { success: false, error: `unknown tool '${name}'` }]
+    }
+    // WO-FIX-LOOP-01 D-1d：动作**在**词表里，但注册表里仍是 D-1a 打了标记的
+    // 替身（未接线）—— 与上面的"词表外"分支是结构上不同的两件事，不许合并；
+    // 不给 wiredActions 时（未接线口径缺省关）此分支永不触发，行为逐字节不变。
+    if (this.#deps.wiredActions !== undefined && !this.#deps.wiredActions.has(actionType)) {
+      this.#log(CYCLE_TOOL_UNWIRED_EVENT, { name, action_type: actionType })
+      emitCapabilityGap(this.#deps.logEvent, {
+        // 治理复核改口：记工具名（≤20 字，过 capabilityToken 标签闸原样落）而非
+        // 动作类型（`research_browser.read_text` 26 字只会落长度）——与位点④同口径。
+        wanted: name,
+        reason: GAP_NOT_WIRED,
+        source: 'converse',
+        runId: this.#lastRunId || null,
+      })
+      return [null, { success: false, error: `organ not wired: '${name}'` }]
     }
     let params: Record<string, unknown>
     try {

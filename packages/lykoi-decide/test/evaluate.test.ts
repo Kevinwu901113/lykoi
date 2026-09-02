@@ -10,6 +10,8 @@ import {
   evaluateMessage,
   extractJson,
   groundedEntries,
+  normalizeForGrounding,
+  GROUND_FRAGMENT_CHARS,
   type Candidate,
   type LogEvent,
 } from '../src/index.ts'
@@ -260,6 +262,95 @@ test('SA-32：injected_thought_ids 排序落账（审计可复现）', () => {
     injectedThoughtIds: new Set([9, 2, 5]),
   })
   assert.deepEqual(d.injected_thought_ids, [2, 5, 9])
+})
+
+// --- WO-FIX-LOOP-01 D-2（SA-20b）：溯源门四路 -----------------------------
+
+test('D-2 路径 1（现行逐字包含）：保留，先跑', () => {
+  const entry = { item: '未整合数 3', meaning: '积压的经验值得看一眼', pull: 0.5 }
+  assert.deepEqual(groundedEntries([entry], '理由：积压的经验值得看一眼，我想看看'), [entry])
+})
+
+test('D-2 路径 2（规范化包含）正例：『』包裹 + 全角逗号差异', () => {
+  const entry = { item: '想看看未整合的经验', meaning: '', pull: 0.5 }
+  // 原样不含（『』与内部无逗号但 reason 加了顿号）→ 路径 1 落空，规范化后相等 → 路径 2 命中。
+  assert.deepEqual(groundedEntries([entry], '『想看看、未整合的经验』'), [entry])
+})
+
+test('D-2 路径 2 反例：规范化后仍不相干的 reason → 不命中', () => {
+  const entry = { item: '想看看未整合的经验', meaning: '', pull: 0.5 }
+  assert.deepEqual(groundedEntries([entry], '我今天只想安静地待着'), [])
+})
+
+test('D-2 路径 2：normalizeForGrounding 去 NFKC/空白/标点（含全角空格 U+3000）', () => {
+  assert.equal(normalizeForGrounding('『积压的　经验，值得看一眼』'), '积压的经验值得看一眼')
+  assert.equal(normalizeForGrounding('  a, b. c!  '), 'abc')
+})
+
+test('D-2 路径 3（片段引用）正例：GROUND_FRAGMENT_CHARS=10，引了前半句', () => {
+  assert.equal(GROUND_FRAGMENT_CHARS, 10)
+  const entry = {
+    item: '这句评估条目文本刻意写得比较长用来测试片段引用的可行性',
+    meaning: '',
+    pull: 0.5,
+  }
+  // reason 只逐字引用了 item 的前 12 个字（≥10），既非整句包含也非规范化整句包含。
+  const reason = '引用：这句评估条目文本刻意写得，我觉得有道理'
+  assert.deepEqual(groundedEntries([entry], reason), [entry])
+})
+
+test('D-2 路径 3 反例：只共享 9 个字（< 10）→ 不命中', () => {
+  const entry = {
+    item: '这句评估条目文本刻意写得比较长用来测试片段引用的可行性',
+    meaning: '',
+    pull: 0.5,
+  }
+  // 共享前缀"这句评估条目文本刻"恰 9 字，窗口需 10 → 不该命中。
+  const reason = '引用：这句评估条目文本刻，但我改主意了'
+  assert.deepEqual(groundedEntries([entry], reason), [])
+})
+
+test('D-2 路径 4（结构引用）正例：decisionConcernId 命中某条目 concern_id，reason 与文本无关', () => {
+  const entry = { item: '未整合数 3', meaning: '积压的经验值得看一眼', concern_id: 7, pull: 0.5 }
+  assert.deepEqual(groundedEntries([entry], '我单纯想出去走走', 7), [entry])
+})
+
+test('D-2 路径 4 反例：decisionConcernId 为 null/未命中 → 不因结构引用而命中', () => {
+  const entry = { item: '未整合数 3', meaning: '积压的经验值得看一眼', concern_id: 7, pull: 0.5 }
+  assert.deepEqual(groundedEntries([entry], '我单纯想出去走走', null), [])
+  assert.deepEqual(groundedEntries([entry], '我单纯想出去走走', 99), [])
+  assert.deepEqual(groundedEntries([entry], '我单纯想出去走走'), []) // 不传第三参同样不命中
+})
+
+test('D-2b：groundingExempt 命中的 kind 跳过第 3 道溯源门，候选表（第 2 道）照过', () => {
+  const CUSTOM_CANDS: Candidate[] = [{ kind: 'tool_call', weight: 0.5, cost: '0', note: 'n' }]
+  const opts = {
+    kinds: ['tool_call', 'reply'],
+    contentRequired: ['reply'],
+    safeKind: 'silence',
+  }
+  // 不给 groundingExempt：reason 未引用任何评估条目 → 按现行逻辑降级。
+  const demoted = evaluateMessage(
+    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
+    CUSTOM_CANDS, opts,
+  )
+  assert.equal(demoted.demoted, true)
+  assert.equal(demoted.demote_why, 'reason_not_grounded')
+  // 给了 groundingExempt = {'tool_call'}：同样的未接地 reason，不再降级。
+  const exempted = evaluateMessage(
+    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
+    CUSTOM_CANDS, { ...opts, groundingExempt: new Set(['tool_call']) },
+  )
+  assert.equal(exempted.kind, 'tool_call')
+  assert.equal(exempted.demoted, false)
+  // 第 2 道（候选表）依旧照过：kind 不在候选表时，即便在豁免集里也照样降级。
+  const stillGated = evaluateMessage(
+    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
+    [{ kind: 'reply', weight: 0.5, cost: '0', note: 'n' }], // 候选表里没有 tool_call
+    { ...opts, groundingExempt: new Set(['tool_call']) },
+  )
+  assert.equal(stillGated.demoted, true)
+  assert.equal(stillGated.demote_why, 'kind_not_in_candidates')
 })
 
 test('SA-18：两段式解析 —— 前后有杂文时取首 { 到末 } 的切片', () => {

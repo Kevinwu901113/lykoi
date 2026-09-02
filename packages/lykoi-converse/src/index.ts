@@ -39,7 +39,7 @@ import {
 import { stagedInstructions } from 'lykoi-learn'
 import {
   createApprovalConversation, createDispatch, createSuggestionConversation,
-  kernelActionCatalog, getNotifications, markReplied as kernelMarkReplied,
+  wiredActionCatalog, getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
   APPROVAL_RUN_PREFIX,
   INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
@@ -235,10 +235,15 @@ export function apply(ctx: Context, config: Config) {
     logEvent,
   })
 
+  // WO-FIX-LOOP-01 D-1b：只调一次 outboundOrganResources()，同一实例既喂
+  // dispatch 又喂器官清单的动作轴——两处不再各摸各的资源注册表。
+  const resources = outboundOrganResources()
+  const wiredCatalog = wiredActionCatalog(resources)
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),
-    // M3-W1 接线：真 catalog —— kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated。
-    catalog: kernelActionCatalog,
+    // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
+    // 是 `kernelActionCatalog` 的 18 项全表。
+    catalog: wiredCatalog,
     logEvent,
   })
 
@@ -262,7 +267,7 @@ export function apply(ctx: Context, config: Config) {
   // GK-8 开关本身走装配面（cordis.yml），不走 env —— env 钉面要求旋钮一律未设，
   // 而这一条必须**看得见且被 manifest 钉住**：它改的是通知怎么到达 Kevin。
   setNotificationOutboxDelivery(config.notificationOutboxDelivery)
-  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: outboundOrganResources() })
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources })
   const dispatchFn: ConverseDispatchFn = async (action) => {
     const observation = await kernelDispatch(
       { type: action.type, params: action.params },
@@ -423,6 +428,9 @@ export function apply(ctx: Context, config: Config) {
     // ⑤ interactive_lock：S-17 的两次 markActive 接真锁（wake 侧读同一个）。
     markActive: () => { markInteractiveActive() },
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
+    // WO-FIX-LOOP-01 D-1d 传参：`#buildAction` 拿它挡未接线动作——不给 → 行为
+    // 逐字节不变。
+    wiredActions: new Set(wiredCatalog.knownActions),
     // D-01 第三旋钮：一个周期（信封调用 + 工具派发全程）的整体上限。装配面不给
     // 时 Schema 缺省 = D01_DEFAULTS.cycleTimeoutS（源码单一出处）。
     cycleTimeoutS: config.cycleTimeoutS,

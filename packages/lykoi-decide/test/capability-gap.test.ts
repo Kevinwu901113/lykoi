@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   CAPABILITY_GAP_EVENT,
+  GAP_NOT_WIRED,
   GAP_REASONS,
   WANTED_TOKEN_MAX,
   capabilityToken,
@@ -55,9 +56,10 @@ test('名字不分叉：导出的常量 === 发射点里的字面量（门的遥
     '发射点必须是字面量 —— 换成常量，这个名字在完整性门的词汇扫描里会隐形',
   )
   // reason 值域是一张表，不是散字符串。
+  // WO-FIX-LOOP-01 D-1e：追加 not_wired（末位，不改前 5 项顺序/字面值）。
   assert.deepEqual([...GAP_REASONS], [
     'unknown_action', 'unknown_kind', 'kind_not_in_candidates',
-    'no_execution_branch', 'not_registered',
+    'no_execution_branch', 'not_registered', 'not_wired',
   ])
 })
 
@@ -180,6 +182,17 @@ test('对照组 B：reason 未接地的降级 → decision_ungrounded 有，capa
   assert.equal(d.demote_why, 'reason_not_grounded')
   assert.equal(events.map(([n]) => n).includes('decision_ungrounded'), true)
   assert.deepEqual(gaps(events), [], '没接地 ≠ 没有这个能力 —— 两件事不许混成一条账')
+})
+
+test('D-1e：GAP_NOT_WIRED 字面值 = not_wired，且能作为 emitCapabilityGap 的 reason 落盘', () => {
+  assert.equal(GAP_NOT_WIRED, 'not_wired')
+  const { logEvent, events } = recorder()
+  emitCapabilityGap(logEvent, {
+    wanted: 'research_open', reason: GAP_NOT_WIRED, source: 'converse', runId: 'run-9',
+  })
+  assert.deepEqual(gaps(events), [{
+    wanted: 'research_open', source: 'converse', run_id: 'run-9', reason: 'not_wired',
+  }])
 })
 
 test('对照组 C：safe_kind（rest）永不降级 → 零事件、零 gap', () => {

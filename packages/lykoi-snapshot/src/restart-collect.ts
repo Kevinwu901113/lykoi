@@ -76,23 +76,39 @@ export function collectHead(opts: CollectOptions): string | null {
  * 时间戳是 `n/a`（单元从没停过 = 这是第一次启动，没有"停了多久"可言）或
  * 解析不出来；差值为负（钟被调过）同样回 null，因为一个负的停机时长是假的。
  */
+/**
+ * WO-FIX-LOOP-01 D-4：systemctl 的 `--value` 输出在没有 `--timestamp=utc` 时走
+ * 本地时区（`Date.parse` 对 `Tue 2026-09-02 08:00:00 CST` 这类本地化格式并不
+ * 可靠——不同 Node/ICU build 的宽容度不一样，读错时区会把一个假的停机时长
+ * 当真的记下）。加了这个旗标后输出恒为 UTC，形状钉死为
+ * `[Dow ]YYYY-MM-DD HH:MM:SS UTC`，只用这一种形状原样解析，形状不对 →
+ * unparsable_timestamp（不做第二套宽容匹配）。
+ */
+const UTC_TIMESTAMP_RE = /^(?:[A-Za-z]{3} )?(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/
+
 export function collectDowntime(opts: CollectOptions): string | null {
   if (!opts.unit) return null
   const run = opts.run ?? defaultRunCommand
   let raw: string
   try {
-    raw = run('systemctl', ['show', opts.unit, '--property=InactiveEnterTimestamp', '--value']).trim()
+    raw = run('systemctl', [
+      'show', opts.unit, '--property=InactiveEnterTimestamp', '--value', '--timestamp=utc',
+    ]).trim()
   } catch (exc) {
     opts.logEvent?.('restart_clue_unreadable', {
       clue: 'downtime', reason: exc instanceof Error ? exc.name : 'Error',
     })
     return null
   }
-  if (raw.length === 0 || raw === 'n/a') {
-    opts.logEvent?.('restart_clue_unreadable', { clue: 'downtime', reason: 'never_stopped' })
+  // 单元从没停过（这是第一次启动，没有"停了多久"可言）—— 这不是一次读取
+  // 失败，是一个合法的"没有这条线索"结局，不落遥测（零事件）。
+  if (raw.length === 0 || raw === 'n/a') return null
+  const match = UTC_TIMESTAMP_RE.exec(raw)
+  if (match === null) {
+    opts.logEvent?.('restart_clue_unreadable', { clue: 'downtime', reason: 'unparsable_timestamp' })
     return null
   }
-  const stoppedAt = Date.parse(raw)
+  const stoppedAt = Date.parse(`${match[1]}T${match[2]}Z`)
   if (Number.isNaN(stoppedAt)) {
     opts.logEvent?.('restart_clue_unreadable', { clue: 'downtime', reason: 'unparsable_timestamp' })
     return null

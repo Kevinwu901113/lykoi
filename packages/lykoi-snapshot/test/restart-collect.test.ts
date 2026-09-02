@@ -73,12 +73,17 @@ test('HEAD：读到的**不是**一个 40 位 hex（错误提示、空串、短 
 
 // ============================== downtime ==============================
 
-test('downtime：InactiveEnterTimestamp → 四档人话渲染（≥1 天只报天数，SA-163）', () => {
+/**
+ * WO-FIX-LOOP-01 D-4：`--timestamp=utc` 之后 systemctl `--value` 的输出形状
+ * 恒为 `[Dow ]YYYY-MM-DD HH:MM:SS UTC`（不再是 ISO）—— 下面四档改用这个真实
+ * 形状；其中一档带星期前缀，钉住"带不带前缀都认得"这条。
+ */
+test('downtime：InactiveEnterTimestamp（--timestamp=utc 形状）→ 四档人话渲染（≥1 天只报天数，SA-163）', () => {
   const cases: [string, string][] = [
-    ['2026-08-25T11:59:30Z', '30 秒'],
-    ['2026-08-25T11:45:00Z', '15 分钟'],
-    ['2026-08-25T08:30:00Z', '3 小时 30 分钟'],
-    ['2026-08-22T04:00:00Z', '3 天'], // 3 天 8 小时 → 只报天数
+    ['2026-08-25 11:59:30 UTC', '30 秒'],
+    ['2026-08-25 11:45:00 UTC', '15 分钟'],
+    ['Tue 2026-08-25 08:30:00 UTC', '3 小时 30 分钟'], // 带星期前缀那一档
+    ['2026-08-22 04:00:00 UTC', '3 天'], // 3 天 8 小时 → 只报天数
   ]
   for (const [stoppedAt, expected] of cases) {
     const downtime = collectDowntime({
@@ -87,6 +92,31 @@ test('downtime：InactiveEnterTimestamp → 四档人话渲染（≥1 天只报�
     })
     assert.equal(downtime, expected, stoppedAt)
   }
+})
+
+test('downtime：run() 收到的参数里恰有 `--timestamp=utc`（本地时区的输出禁止被当 UTC 解析）', () => {
+  let seenArgs: readonly string[] | null = null
+  collectDowntime({
+    repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
+    run: (file, args) => {
+      seenArgs = args
+      return '2026-08-25 11:59:30 UTC\n'
+    },
+  })
+  assert.ok(seenArgs !== null)
+  assert.ok((seenArgs as readonly string[]).includes('--timestamp=utc'))
+})
+
+test('downtime：systemctl 不听这个旗标、吐出本地时区形状（无 UTC 后缀）→ unparsable_timestamp，不当 UTC 硬解', () => {
+  const ev = events()
+  const downtime = collectDowntime({
+    repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
+    // 没有 --timestamp=utc 时 systemctl 的典型形状（本地时区缩写，非 UTC）。
+    run: runner({ 'InactiveEnterTimestamp': 'Tue 2026-08-25 20:59:30 CST\n' }),
+    logEvent: ev.log,
+  })
+  assert.equal(downtime, null)
+  assert.equal(ev.rows[0]!.fields.reason, 'unparsable_timestamp')
 })
 
 test('downtime：单元名没给 → null（连问都不问）', () => {
@@ -105,17 +135,32 @@ test('downtime：systemctl 读不到 → null', () => {
   assert.equal(ev.rows[0]!.fields.clue, 'downtime')
 })
 
-test('downtime：`n/a`（这个单元从没停过 = 第一次启动）→ null，不编一个"0 秒"', () => {
+/**
+ * WO-FIX-LOOP-01 D-4：`never_stopped` 这个理由整个被撤掉——"这个单元从没停过"
+ * 不是一次读取失败，是一条合法的"没有这条线索"结局，不落遥测（零事件），
+ * 与 SA-164"采集失败 = 省略"的措辞刻意分开：这不是失败，是没有这件事。
+ */
+test('downtime：`n/a`（这个单元从没停过 = 第一次启动）→ null，零事件，不编一个"0 秒"也不编一个理由', () => {
   const ev = events()
   const downtime = collectDowntime({
     repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
     run: runner({ 'InactiveEnterTimestamp': 'n/a\n' }), logEvent: ev.log,
   })
   assert.equal(downtime, null)
-  assert.equal(ev.rows[0]!.fields.reason, 'never_stopped')
+  assert.deepEqual(ev.rows, [], '没有这条线索 ≠ 读取失败，不落 restart_clue_unreadable')
 })
 
-test('downtime：时间戳解析不出来 → null', () => {
+test('downtime：空串同样是"没有这条线索"→ null，零事件', () => {
+  const ev = events()
+  const downtime = collectDowntime({
+    repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
+    run: runner({ 'InactiveEnterTimestamp': '' }), logEvent: ev.log,
+  })
+  assert.equal(downtime, null)
+  assert.deepEqual(ev.rows, [])
+})
+
+test('downtime：时间戳形状不对（连 --timestamp=utc 形状都不是）→ null + unparsable_timestamp', () => {
   const ev = events()
   const downtime = collectDowntime({
     repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
@@ -129,7 +174,7 @@ test('downtime：算出来是负的（钟被调过）→ null —— 一个负�
   const ev = events()
   const downtime = collectDowntime({
     repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
-    run: runner({ 'InactiveEnterTimestamp': '2026-08-25T13:00:00Z\n' }), // 比 now 还晚
+    run: runner({ 'InactiveEnterTimestamp': '2026-08-25 13:00:00 UTC\n' }), // 比 now 还晚
     logEvent: ev.log,
   })
   assert.equal(downtime, null)
@@ -151,7 +196,7 @@ test('三条一次采齐：成功路三样都在', () => {
     repoRoot: '/srv', unit: 'lykoi-cordis', now: T0,
     run: runner({
       'rev-parse HEAD': `${HEAD}\n`,
-      'InactiveEnterTimestamp': '2026-08-25T11:00:00Z\n',
+      'InactiveEnterTimestamp': '2026-08-25 11:00:00 UTC\n',
     }),
   })
   assert.equal(clues.head, HEAD)

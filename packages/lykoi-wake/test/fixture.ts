@@ -122,7 +122,7 @@ export function fakeHeart(beatQueue: number[], nextAt: string | null = null): He
 
 export interface LlmCall {
   messages: ChatMessage[]
-  meta: { runId: string; route: string; origin: string }
+  meta: { runId: string; route: string; origin: string; responseFormat?: { type: 'json_object' } }
 }
 
 export function fakeLlm(reply: string | (() => string)): LlmFn & { calls: LlmCall[] } {

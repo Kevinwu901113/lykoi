@@ -253,13 +253,25 @@ test('失败路（红）：契约失败 → 重试一次 → 仍失败 → 降�
   assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 0)
 })
 
-test('沉默路（红）：tool_call 未接地 → demote → u3_cycle_tool_demoted + 沉默；工具零执行', async () => {
+/**
+ * WO-FIX-LOOP-01 改口：这条用例原先钉的是"tool_call 理由未接地 → SA-20b 溯源闸
+ * 把它 demote 掉"。D-2b 让 tool_call 免溯源门（第③关）——一次工具调用本身就是
+ * 可核验的结构化动作，"理由没有逐字落在 assessment 里"不再是把它按下去的理由。
+ * 于是这份未接地的理由不再能 demote 它；决定被认真对待、真的尝试执行——但
+ * `research_browser.read_text` 是 M5 才到的感知器官，注册表里仍是 D-1a 打了
+ * 标记的替身，D-1d 的新闸在**到达 dispatch 之前**就把它挡下、原样报错回填。
+ * fake LLM 是固定回复（同一封信封），于是这个"挡下→周期继续→模型还是选它"的
+ * 循环会一直复现，直到 D-02 的工具步数预算耗尽——那才是这条路真正的收场闸，
+ * 不再是溯源闸。零 dispatch、零真实副作用这条不变量没变，变的只是"在哪一关
+ * 被拦下"和"拦几次"。
+ */
+test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试未接线器官 → 反复撞 D-1d 闸 → 工具预算耗尽收场；工具零真正执行', async () => {
   const { audit, transport, telegram } = await assemble(JSON.stringify({
     meaning_assessment: [{ item: '他发来一句话', meaning: '他在等我', pull: 0.4 }],
     decision: {
       kind: 'tool_call',
       tool: { name: 'research_read_text', arguments: { url: 'https://example.com' } },
-      reason: '我想自己去看看', // 不引用任何评估条目 → reason_not_grounded
+      reason: '我想自己去看看', // D-2b 起：tool_call 免溯源门，这条未接地的理由不再被挡
     },
   }))
   transport.queueUpdate({
@@ -268,28 +280,35 @@ test('沉默路（红）：tool_call 未接地 → demote → u3_cycle_tool_demo
   })
   await telegram.pollOnce()
 
-  assert.deepEqual(transport.sends, [], '被降级的 tool_call 不执行、不说话')
-  assertSubsequence(types(audit), [
-    'telegram/inbound',
-    'converse/received',
-    'budget/charge',
-    'decision_ungrounded', //     护栏账（lykoi-decide 的 demote 事件）
-    'u3_cycle_envelope', //       demoted=true 的周期账
-    'u3_cycle_tool_demoted', //   D-03：独立告警
-    'inner_outer_pair',
-    'converse/silence',
-  ])
-  const demotedEvent = audit.events.find((e) => e.type === 'u3_cycle_tool_demoted')!
-  assert.equal(demotedEvent.original_kind, 'tool_call')
-  assert.equal(demotedEvent.tool_name, 'research_read_text')
-  const cycle = audit.events.find((e) => e.type === 'u3_cycle_envelope')!
-  assert.equal(cycle.kind, 'silence')
-  assert.equal(cycle.demote_why, 'reason_not_grounded')
+  assert.deepEqual(transport.sends, [], '撞未接线闸的 tool_call 从不真正执行、也不说话')
+  assert.equal(
+    audit.events.some((e) => e.type === 'decision_ungrounded'),
+    false,
+    'D-2b：tool_call 免溯源门——这条降级账不再出现',
+  )
+  assert.equal(
+    audit.events.some((e) => e.type === 'u3_cycle_tool_demoted'),
+    false,
+    'D-2b：demote 路径不再对 tool_call 触发',
+  )
+  const unwired = audit.events.filter((e) => e.type === 'u3_cycle_tool_unwired')
+  assert.ok(unwired.length >= 1, 'D-1d：到不了 dispatch，先在 #buildAction 被拦下')
+  for (const e of unwired) {
+    assert.equal(e.action_type, 'research_browser.read_text')
+    assert.equal(e.name, 'research_read_text')
+  }
+  const gaps = audit.events.filter((e) => e.type === 'capability_gap' && e.source === 'converse')
+  assert.equal(gaps.length, unwired.length, '每次被拦都补一笔 capability_gap')
+  for (const g of gaps) assert.equal(g.reason, 'not_wired')
+  assert.ok(
+    audit.events.some((e) => e.type === 'u3_cycle_tool_budget_exhausted'),
+    '固定回复的 fake LLM 会一直选同一个未接线工具——真正的收场闸是工具步数预算',
+  )
+  assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 0)
   // 工具 URL 不进事件流（隐私：参数只记条数）。
   for (const event of audit.events) {
     assert.equal(JSON.stringify(event).includes('example.com'), false)
   }
-  assert.equal(cycle.dispatched, null, 'demote 后工具字段不算 dispatched')
 })
 
 test('未绑定发送者仍被适配器闸住：不进对话心智、不花预算（S-06 全链回归）', async () => {

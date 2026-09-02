@@ -177,17 +177,59 @@ export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, R
  * 分批到来（messenger/notify/autonomy/telegram 出站 = M3-W3；browser/terminal/
  * research_browser = M5 感知与执行器官；delegation 传输面 = M5），届时逐一换成
  * 真 handler —— 三道门（策略/审计/遮蔽）不因此移动一行。
+ *
+ * WO-FIX-LOOP-01 D-1a：每个替身 handler 额外打一个不可枚举标记
+ * （`UNWIRED_HANDLER_MARK`），供 `isUnwiredHandler` / `wiredActionCatalog`
+ * 结构性识别"这是替身还是真身"——不改抛出的错误文案，不改 `_resolve`。
  */
+const UNWIRED_HANDLER_MARK = Symbol.for('lykoi.kernel.unwired_handler')
+
+function markUnwiredHandler(handler: ResourceHandler): ResourceHandler {
+  Object.defineProperty(handler, UNWIRED_HANDLER_MARK, {
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  })
+  return handler
+}
+
+/** 结构判定：这个 handler 是不是 `unwiredResources()` 造出来的替身（D-1a）。 */
+export function isUnwiredHandler(handler: ResourceHandler): boolean {
+  return (handler as unknown as Record<symbol, unknown>)[UNWIRED_HANDLER_MARK] === true
+}
+
 export function unwiredResources(): ResourceRegistry {
   const registry: Record<string, Record<string, ResourceHandler>> = {}
   for (const actionType of KNOWN_ACTION_LIST) {
     const [prefix, method] = actionType.split('.', 2) as [string, string]
     registry[prefix] ??= {}
-    registry[prefix]![method] = async () => {
+    registry[prefix]![method] = markUnwiredHandler(async () => {
       throw new Error(`器官未接线: ${actionType} 的资源真身随 M3-W3/M5 器官波到来`)
-    }
+    })
   }
   return registry
+}
+
+/**
+ * D-1a：`resources` 里**真的接得通**的动作子集（`KNOWN_ACTION_LIST` 原序保留）。
+ * 一个动作类型算"接得通"，当且仅当 `resources[prefix][method]` 存在、可调用、
+ * 且未打 `UNWIRED_HANDLER_MARK`。`isHardGated` 与 `kernelActionCatalog` 同一
+ * 实现——分级判定不因"接没接线"而改变。
+ */
+export function wiredActionCatalog(resources: ResourceRegistry): {
+  knownActions: readonly string[]
+  isHardGated(actionType: string): boolean
+} {
+  const knownActions = KNOWN_ACTION_LIST.filter((actionType) => {
+    const [prefix, method] = actionType.split('.', 2) as [string, string]
+    const handler = resources[prefix]?.[method]
+    return typeof handler === 'function' && !isUnwiredHandler(handler)
+  })
+  return {
+    knownActions,
+    isHardGated: (actionType: string) => isHardGated(actionType),
+  }
 }
 
 /**
@@ -494,17 +536,17 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
 // --- 器官清单的动作轴（接线：M2 空动作面替身 → 真 catalog） -------------------
 
 /**
- * lykoi-decide OrganActionCatalog 的真身（结构同形：kernel 不 import 插件包）：
- * 她能派发哪些动作 = KNOWN_ACTIONS；哪些永远绕不过 Kevin = 不可变治理核的
- * isHardGated（core 缺失 fail closed 成全表硬门 —— 方向永远是往少了说）。
- * 接线（M3-W1）：wake / converse 的 apply 用它替换 lykoi-decide 的空动作面替身
- * （那个替身 M3-W4 改名 `testDoubleActionCatalog`，只剩测试夹具身份）。
+ * `KNOWN_ACTION_LIST` 的只读派生视图：她**可派发**的动作全集 = KNOWN_ACTIONS；
+ * 哪些永远绕不过 Kevin = 不可变治理核的 isHardGated（core 缺失 fail closed
+ * 成全表硬门 —— 方向永远是往少了说）。
  *
- * **M3-W4 补记（GK-11/DK-15）**：`KNOWN_ACTION_LIST` 是**词汇表**（这个动作类型
- * 合法），不是**图式**（这个器官此刻真的在位）。W3 之后 18 项词汇里只有 5 项接了
- * 真传输面，所以拿本 catalog 直接喂器官清单，等于告诉她她有 13 个伸手就摔在
- * `throw` 上的器官。图式那一层是 `schema-registry.ts`；两者接合与切换时点见
- * docs/m3_schema_registry.md §6/§7（切换属 M5 器官上线编排）。
+ * **WO-FIX-LOOP-01 D-1a 改口**：这是"可派发全集"（词汇表 —— 这个动作类型合法、
+ * `_resolve` 认得），**不是**"接得通全集"（图式 —— 这个器官此刻真的在位）。
+ * W3 之后 18 项词汇里只有 5 项接了真传输面；生产两处（wake/converse）的器官
+ * 清单已改喂 `wiredActionCatalog(resources)`（本单新增，见下），不再用本
+ * catalog 渲染清单文本——本导出保留给测试与"合法动作全集"语境下的旧引用，
+ * 不删。图式那一层是 `schema-registry.ts`；接线时点见
+ * docs/m3_schema_registry.md §6/§7（`registryActionCatalog` 切换属 M5）。
  */
 export const kernelActionCatalog: {
   knownActions: readonly string[]

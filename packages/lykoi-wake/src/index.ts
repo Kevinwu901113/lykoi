@@ -53,14 +53,14 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  getPersona, OrganInventoryCache, serializeDecision,
+  extractJson, getPersona, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
-  createDispatch, isActive as chatIsActive, kernelActionCatalog,
+  createDispatch, isActive as chatIsActive,
   notificationsRemainingToday, pendingCount, proactiveRemainingToday,
-  setIdentityBindingLookup, setKernelLogEvent,
+  setIdentityBindingLookup, setKernelLogEvent, wiredActionCatalog,
 } from 'lykoi-kernel'
 import {
   outboundOrganResources, setMessengerLogEvent, setTransportLogEvent,
@@ -137,7 +137,16 @@ export interface HeartClaim {
 /** LLM 调用注入位（生产 = lykoi-llm 经插件接线；测试 = fake）。 */
 export type LlmFn = (
   messages: ChatMessage[],
-  meta: { runId: string; route: string; origin: string },
+  meta: {
+    runId: string
+    route: string
+    origin: string
+    /**
+     * WO-FIX-LOOP-01 D-3b：与对话信封同款的 JSON 模式旗标，由调用点显式传入——
+     * `LlmFn` 本身不替调用点决定要不要 JSON 模式。
+     */
+    responseFormat?: { type: 'json_object' }
+  },
 ) => Promise<{ content: string | null }>
 
 export interface WakeDeps {
@@ -161,6 +170,12 @@ export interface WakeDeps {
   focus?: (info: { runId: string }) => Promise<void>
   /** run_id 源（缺省 uuid4().hex 对应物；测试注定值）。 */
   runIdFn?: () => string
+  /**
+   * WO-FIX-LOOP-01 D-1c：真接得通的动作子集（`wiredActionCatalog(resources).knownActions`
+   * 的 Set 化）。喂给 `buildCandidates` 决定 explore 候不候选——不给 → 行为
+   * 逐字节不变（既有测试与生产以外的调用点零改动）。
+   */
+  wiredActions?: ReadonlySet<string>
 }
 
 export interface WakeOutcome {
@@ -241,17 +256,34 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     // 阶段 4：推演（纯读，G-9/SA-47 零写断言常驻本包测试）。
     const snap = read(deps.store, deps.snapshotDeps, m)
     const snapLike = snap as unknown as SnapshotLike
-    const candidates = buildCandidates(snapLike)
+    const candidates = buildCandidates(
+      snapLike, deps.wiredActions ? { wired: deps.wiredActions } : undefined,
+    )
     // 本拍注意力域（_perceive 对应物）：她在快照里真看到的 id 集（裁决 8）。
     const injectedThoughtIds = new Set(snap.念头.map((t) => t.id))
     const injectedConcernIds = new Set(snap.关切.map((c) => c.id))
     const injectedThreadIds = new Set(snap.叙事.线.map((t) => t.id))
     const messages = buildMessages(snapLike, candidates, deps.messageDeps)
     // 阶段 4b：一次 AUTONOMOUS_COGNITION 调用（SA-172：origin=autonomous_wake，
-    // runId 贯穿 budget 记账）。
-    const reply = await deps.llm(messages, {
+    // runId 贯穿 budget 记账）。D-3b：与对话信封同款 JSON 模式，只加在这一条
+    // `LlmFn` 上（整合/专注两处调用不解析 JSON，不加）。
+    const llmMeta = {
       runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_WAKE,
-    })
+      responseFormat: { type: 'json_object' as const },
+    }
+    let reply = await deps.llm(messages, llmMeta)
+    // D-3a：一次空/非 JSON 回包不该整拍报废——先用 decide 已导出的 extractJson
+    // 结构性探一次（不做异常文案匹配），坏了就再调一次 llm（同 runId/route/
+    // origin，budget 两笔照记），最多一次，不做循环。第二份仍坏 → 现行路径
+    // （下面的 evaluateMessage 再抛一次，落 autonomy_wake_failed）逐字节不变。
+    try {
+      extractJson(reply.content ?? '')
+    } catch {
+      deps.logEvent('autonomy_wake_retried', {
+        run_id: runId, reason: 'not_json', content_len: (reply.content ?? '').length,
+      })
+      reply = await deps.llm(messages, llmMeta)
+    }
     decision = evaluateMessage({ content: reply.content }, candidates, {
       injectedThoughtIds,
       injectedConcernIds,
@@ -420,10 +452,16 @@ export function apply(ctx: Context, config: Config) {
   // 共用一份内核；两处 personaToml 分叉时由 path 守卫启动即炸。
   const persona = getPersona(resolve(config.personaToml))
   const notifications: NotificationsView = emptyNotifications // M3-W3 接 kernel 通知队列
+  // WO-FIX-LOOP-01 D-1b：只调一次 outboundOrganResources()，同一实例既喂
+  // dispatch 又喂器官清单的动作轴——两处不再各摸各的资源注册表。
+  const resources = outboundOrganResources()
+  const wiredCatalog = wiredActionCatalog(resources)
   const organs = new OrganInventoryCache({
     bindings: () => store.identityBindingInventory(),
-    // M3-W1 接线：真 catalog —— kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated。
-    catalog: kernelActionCatalog,
+    // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
+    // 是 `kernelActionCatalog` 的 18 项全表——器官清单四条禁止全朝"往少了说"，
+    // 这一处此前反了方向。
+    catalog: wiredCatalog,
     logEvent,
   })
 
@@ -432,7 +470,7 @@ export function apply(ctx: Context, config: Config) {
   // immutable sink = lykoi-audit（pre-dispatch 审计门 fail closed 在 kernel 内，
   // 红线 #5：被门拦下以**结果**回到她身上）。资源注册表 = W1 显式替身（器官
   // 真身随 W3/M5 波；替身 handler 大声抛 → 正常失败观察，绝不静默成功）。
-  const kernelDispatch = createDispatch({ sink: ctx.audit, resources: outboundOrganResources() })
+  const kernelDispatch = createDispatch({ sink: ctx.audit, resources })
   const dispatchFn: DispatchFn = async (actionType, params, runId) => {
     const observation = await kernelDispatch(
       { type: actionType, params },
@@ -454,6 +492,9 @@ export function apply(ctx: Context, config: Config) {
       provider: config.route,
       model: config.model,
       ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
+      // D-3b：调用点显式给了 responseFormat 才带（阶段 4b 一条，整合/专注不带
+      // ——它们不解析 JSON）。
+      ...(meta.responseFormat ? { responseFormat: meta.responseFormat } : {}),
       messages: messages.slice(i).map((m) => createUserMessage({
         content: [{ type: 'text', text: m.content }],
         source: { kind: 'user' },
@@ -503,6 +544,9 @@ export function apply(ctx: Context, config: Config) {
       organBlock: () => organs.block(),
     },
     logEvent,
+    // D-1c 传参：wake 传 `new Set(catalog.knownActions)`——她若仍选 explore，
+    // 既有位点②（kind_not_in_candidates 降级 + capability_gap）接住，不另造。
+    wiredActions: new Set(wiredCatalog.knownActions),
     // SA-171 接真（W4）：整合与专注挂 lykoi-learn 的闸+周期。origin 分账
     // （SA-172）：同一 autonomous_cognition 路由上按 origin 记三本账，runId 用
     // 本拍的（一拍一个 run_id）。now 从 clock 取——学习环写面全显式传时刻（C-23）。
