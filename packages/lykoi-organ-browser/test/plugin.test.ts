@@ -15,7 +15,10 @@ import { isUnwiredHandler, wiredActionCatalog, BodySchemaRegistry, KNOWN_ACTION_
 import { clearOrganHandlers, outboundOrganResources } from 'lykoi-adapter-telegram/resources'
 import type { Server } from 'node:net'
 import { createHostServer, type HostDriverLike } from '../src/host.ts'
-import { HOST_ERRORS, ORGAN_ACTIONS, ORGAN_ID } from '../src/protocol.ts'
+import { ACTION_TO_OP, HOST_ERRORS, ORGAN_ACTIONS, ORGAN_ID } from '../src/protocol.ts'
+import { BrowserOrganDriver } from '../src/driver.ts'
+import { SsrfGuard } from '../src/ssrf.ts'
+import { FakeBackend } from './fake-backend.ts'
 import { BrowserHostClient, auditDomain, createOrganHandler, wireBrowserOrgan } from '../src/index.ts'
 
 const TMP = mkdtempSync(join(tmpdir(), 'lykoi-browser-plugin-'))
@@ -172,7 +175,7 @@ test('D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就�
   await host.close()
 })
 
-test('D-6：browser_action 摘要只有七个字段，不含正文、不含完整 URL', async () => {
+test('D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL', async () => {
   const host = await startHost(fakeDriver())
   const client = new BrowserHostClient({ socketPath: host.path })
   const events: { name: string; fields: Record<string, unknown> }[] = []
@@ -198,4 +201,33 @@ test('D-6：auditDomain 只到 eTLD+1，畸形 URL 落 unknown', () => {
   assert.equal(auditDomain('https://a.b.good.co.uk/x'), 'good.co.uk')
   assert.equal(auditDomain('不是个 URL'), 'unknown')
   assert.equal(auditDomain(undefined), 'unknown')
+})
+
+// ============ D-2：三个动作的返回形状（表里那三行就是契约） ============
+
+test('D-2：navigate / get_text / research_read_text 的 data 键集逐字对表', async () => {
+  const backend = new FakeBackend({
+    'https://good.example/a': { title: 'T', body: '正文' },
+    'https://good.example/doc': { title: 'D', body: '外部正文' },
+  })
+  const driver = new BrowserOrganDriver({
+    backend,
+    guard: new SsrfGuard({ resolve: async () => ['93.184.216.34'] }),
+    dataDir: '',
+    timeouts: { navigate: 5000, getText: 5000, research: 5000 },
+  })
+  const nav = await driver.navigate('https://good.example/a')
+  assert.deepEqual(Object.keys((nav as { ok: true; data: object }).data).sort(),
+    ['final_url', 'screenshot', 'title', 'url'])
+  const text = await driver.getText()
+  assert.deepEqual(Object.keys((text as { ok: true; data: object }).data).sort(),
+    ['chars', 'screenshot', 'text', 'title', 'truncated', 'untrusted', 'url'])
+  const research = await driver.researchReadText('https://good.example/doc')
+  assert.deepEqual(Object.keys((research as { ok: true; data: object }).data).sort(),
+    ['chars', 'final_url', 'screenshot', 'text', 'title', 'truncated', 'untrusted', 'url'])
+})
+
+test('D-2：其余六项刻意不接 —— research_browser.open 在 op 表里也没有对应项', () => {
+  assert.deepEqual(Object.keys(ACTION_TO_OP).sort(), [...ORGAN_ACTIONS].sort())
+  assert.equal(Object.hasOwn(ACTION_TO_OP, 'research_browser.open'), false)
 })
