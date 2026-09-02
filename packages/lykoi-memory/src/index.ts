@@ -23,12 +23,15 @@ import { resolve } from 'node:path'
  *
  * 16 = 15 + WO-MEM-SOURCE-01 的 `experiences.epistemic` 列（迁移件
  * `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`）。
+ * 17 = 16 + WO-MEM-DECAY-01 的 `focus_insight_state.status` 六态 CHECK（新增
+ * `dormant`；迁移件
+ * `governance/wo/WO-MEM-DECAY-01/migrations/017_focus_insight_dormant.up.sql`）。
  * 「拒开」判定本身逐字未动（仍是 `MAX(version) !== 期望值` 则抛）——本次只是
- * **登记一个新版本号**：加列而不升版会让两种物理 schema 同称 15，版本门就形同
- * 虚设（门放行之后才在 `no such column: epistemic` 上炸，正是这道门要防的事）。
- * 部署纪律因此是「停 → 施加 016 → 起新体」；回滚梯子见 `.down.sql`。
+ * **登记一个新版本号**：改 CHECK 而不升版会让两种物理 schema 同称 16，版本门就
+ * 形同虚设（门放行之后才在 `CHECK constraint failed` 上炸，正是这道门要防的事）。
+ * 部署纪律因此是「停 → 施加 017 → 起新体」；回滚梯子见 `.down.sql`。
  */
-export const EXPECTED_MIND_SCHEMA_VERSION = 16
+export const EXPECTED_MIND_SCHEMA_VERSION = 17
 
 // ============================== C-22 时间戳 ==============================
 
@@ -246,7 +249,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   }
 
   /**
-   * 打开即断言 mind_schema MAX(version) == `EXPECTED_MIND_SCHEMA_VERSION`（现 16）；
+   * 打开即断言 mind_schema MAX(version) == `EXPECTED_MIND_SCHEMA_VERSION`（现 17）；
    * 不等则抛明确错误（不读不认识的 schema）。
    */
   #assertSchemaVersion(): void {

@@ -11,7 +11,7 @@
  * 共用 `schema.ts` 那一份 DDL。
  *
  * DDL/索引/触发器逐字取自 WO-M0-STATE-CONTRACT §1（触发器消息是契约的一部分，
- * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=16、
+ * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=17、
  * regulation_field 四行 baseline、integration_state 单行、learning_layer_state
  * 两键），不含她的任何数据。
  *
@@ -38,6 +38,11 @@
  * （认识论第二轴，设计稿 §3.1）+ mind_schema 台账多一行 16。夹具描的是**迁移后**
  * 的物理 schema；对应迁移件在
  * `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`。
+ *
+ * WO-MEM-DECAY-01 增量（mind_schema 16 → 17）：focus_insight_state.status 的
+ * CHECK 扩到六态（加 `dormant`，设计稿 §3.3 / D-1）+ mind_schema 台账多一行 17。
+ * DDL 改点在 `schema.ts` 那一处，夹具随之；对应迁移件在
+ * `governance/wo/WO-MEM-DECAY-01/migrations/017_focus_insight_dormant.up.sql`。
  *
  * 生产纪律不变：本文件只被测试树 import；golden devstate 永远只读，写测试先
  * copy 进 os.tmpdir（各包夹具自持这半段）。
@@ -73,6 +78,7 @@ export const STATE_FIXTURE_DDL = STATE_SCHEMA_DDL + stateBaselineDdl({
   schemaLedger: [
     { version: 15, appliedAt: '2026-08-24T00:00:00.000Z' },
     { version: 16, appliedAt: '2026-09-01T00:00:00.000Z' },
+    { version: 17, appliedAt: '2026-09-02T00:00:00.000Z' },
   ],
   regulationUpdatedAt: '2026-08-20T00:00:00+00:00',
   learningSetAt: '2026-08-24T00:00:00+00:00',

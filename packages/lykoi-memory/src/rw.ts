@@ -268,9 +268,15 @@ const THREAD_STATUS_ENUM: readonly string[] = ['open', 'suspended', 'resolved', 
 /** focus_cycles.outcome 枚举（store.py:1714 逐字）。 */
 export const FOCUS_OUTCOME_ENUM: readonly string[]
   = ['idle', 'advanced', 'revised', 'no_progress', 'failed']
-/** SA-129 insight 状态机五态（store.py:1715 逐字）。 */
+/**
+ * SA-129 insight 状态机——WO-MEM-DECAY-01（D-1）起为**六态**：前五态
+ * （store.py:1715 逐字）+ `dormant`。`dormant` = 久未被 L4 再触达而退出装配的
+ * 转正结论：不销毁、可被重申点亮回 active（recordFocusInsight 的点亮分支）。
+ * 与 `withdrawn` 严格区分——那是被证据推翻，这只是久未重申。
+ * 本常量与 schema.ts 的 focus_insight_state CHECK 是同一份枚举的两个面。
+ */
 export const FOCUS_INSIGHT_STATUS_ENUM: readonly string[]
-  = ['shadow', 'active', 'contested', 'revised', 'withdrawn']
+  = ['shadow', 'active', 'contested', 'revised', 'withdrawn', 'dormant']
 
 // SA-131 血缘的产物/原料类型词汇（store.py:1706-1712 逐字）。**不是 CHECK 约束**
 // ——表是多态的，词汇钉死在 schema 里等于每加一类产物就要一次迁移。对齐面在此。
@@ -383,7 +389,7 @@ export class ReadWriteMemory {
   }
 
   /**
-   * 与只读入口同一道门：mind_schema != `EXPECTED_MIND_SCHEMA_VERSION`（现 16）
+   * 与只读入口同一道门：mind_schema != `EXPECTED_MIND_SCHEMA_VERSION`（现 17）
    * 拒开（不写不认识的 schema，更甚于不读）。
    */
   #assertSchemaVersion(): void {
@@ -2177,6 +2183,14 @@ export class ReadWriteMemory {
    * true = 这是**新结论**。重申（逐字相同结论 → 同一 insight_id）：状态行原样
    * 保留（影子期不因重申而重新计时），只追加一行历史，返回 false——调用方据此
    * 把本次周期判成"深挖无新结论"，重申如实喂进反刍计数，不伪装成进展。
+   *
+   * WO-MEM-DECAY-01（D-5）唯一的例外是**点亮**：重申一条 `dormant` 结论时状态行
+   * 改回 `active`（updated_cycle_id / updated_at 刷新、contested_since_cycle 清空，
+   * 与 setFocusInsightStatus 的 active 分支同规则），history 一行 reason `relit`，
+   * 并发 `focus_insight_status` from dormant to active。理由：她又想到了同一结论，
+   * 它就是现行的——衰减是"久未重申"的退场，不是判决。**其他状态的重申行为一个
+   * 字不动**（shadow 不因重申重新计时依旧成立），返回值也仍是 false：点亮不是新
+   * 结论，不该被记成进展。
    */
   recordFocusInsight(insightId: number, opts: {
     cycleId: number
@@ -2190,13 +2204,23 @@ export class ReadWriteMemory {
     }
     const moment = formatPyIso(opts.now)
     let toStatus = status
-    const reaffirmed = this.#tx(() => {
+    const outcome = this.#tx((): { reaffirmed: boolean; relit: boolean } => {
       const existing = this.#db.prepare(
         'SELECT status FROM focus_insight_state WHERE insight_id = ?',
       ).get(insightId) as { status: string } | undefined
       const snapshot = this.#insightContent(insightId)
       let fromStatus: string | null
-      if (existing) {
+      if (existing && existing.status === 'dormant') {
+        // D-5 点亮：休眠结论被重申 → 回到现行。
+        fromStatus = 'dormant'
+        toStatus = 'active'
+        this.#db.prepare(
+          `UPDATE focus_insight_state
+              SET status = 'active', updated_cycle_id = ?, contested_since_cycle = NULL,
+                  updated_at = ?
+            WHERE insight_id = ?`,
+        ).run(opts.cycleId, moment, insightId)
+      } else if (existing) {
         // 重申:状态行原样不动(影子期不重新计时),只留痕。
         fromStatus = existing.status
         toStatus = existing.status
@@ -2214,13 +2238,24 @@ export class ReadWriteMemory {
              (insight_id, cycle_id, from_status, to_status, content_snapshot, reason, at)
          VALUES (?,?,?,?,?,?,?)`,
       ).run(insightId, opts.cycleId, fromStatus, toStatus, snapshot,
-        opts.reason || (existing ? 'reaffirmed' : 'created'), moment)
-      return existing !== undefined
+        fromStatus === 'dormant'
+          ? 'relit'
+          : (opts.reason || (existing ? 'reaffirmed' : 'created')),
+        moment)
+      return { reaffirmed: existing !== undefined, relit: fromStatus === 'dormant' }
     })
     this.#log('focus_insight_recorded', {
-      insight_id: insightId, cycle_id: opts.cycleId, status: toStatus, reaffirmed,
+      insight_id: insightId, cycle_id: opts.cycleId,
+      status: toStatus, reaffirmed: outcome.reaffirmed,
     })
-    return !reaffirmed
+    if (outcome.relit) {
+      // D-6：因果出口走既有通道，不另造事件面。
+      this.#log('focus_insight_status', {
+        insight_id: insightId, cycle_id: opts.cycleId,
+        from: 'dormant', to: 'active', reason: 'relit',
+      })
+    }
+    return !outcome.reaffirmed
   }
 
   /**
@@ -2228,7 +2263,9 @@ export class ReadWriteMemory {
    * insight 没有影子状态行（层 2 之外写进 insights 的行不归这套门管）。
    * **历史永远保留**：撤回删的是"现行"资格，不是"她曾经这么认为过"。
    * contested_since_cycle 三条规则：迁进 contested 钉住首个起争周期号；迁回
-   * shadow/active 清空；迁到 revised/withdrawn 保留。
+   * shadow/active 清空；迁到 revised/withdrawn **及 dormant**（WO-MEM-DECAY-01
+   * D-5：dormant 与 revised/withdrawn 同属"不再现行"的落点，起争周期号是账，
+   * 留着）保留——下面的 else 分支已逐字覆盖 dormant，无需新增判定。
    */
   setFocusInsightStatus(insightId: number, status: string, opts: {
     cycleId: number

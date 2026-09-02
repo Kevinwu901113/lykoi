@@ -255,9 +255,15 @@ export const STATE_SCHEMA_DDL = `
     CREATE INDEX IF NOT EXISTS idx_product_lineage_product ON product_lineage(product_kind, product_id);
     CREATE INDEX IF NOT EXISTS idx_product_lineage_source ON product_lineage(source_kind, source_id);
 
+    -- WO-MEM-DECAY-01（mind_schema 17，D-1）：CHECK 由五态扩到**六态**，新增
+    -- 'dormant'（久未被 L4 再触达而退出装配的转正结论；不销毁、可点亮）。
+    -- 否决过的两条路：旁列 dormant_since（同一事实两处真值）、借 withdrawn
+    -- （语义错——withdrawn 是被证据推翻）。列/约束/REFERENCES 其余部分逐字不动，
+    -- 迁移件 017 的重建 DDL 与本段**逐字一致**（governance/wo/WO-MEM-DECAY-01/
+    -- migrations/017_focus_insight_dormant.up.sql）。
     CREATE TABLE IF NOT EXISTS focus_insight_state (
       insight_id INTEGER PRIMARY KEY,
-      status TEXT NOT NULL CHECK (status IN ('shadow','active','contested','revised','withdrawn')),
+      status TEXT NOT NULL CHECK (status IN ('shadow','active','contested','revised','withdrawn','dormant')),
       created_cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id),
       updated_cycle_id INTEGER NOT NULL REFERENCES focus_cycles(id),
       contested_since_cycle INTEGER, superseded_by INTEGER, updated_at TEXT NOT NULL
