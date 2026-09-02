@@ -497,6 +497,21 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   D-PERS-2（relationship overlay）之前** —— 先让她能出门，再给她第二张脸。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
+- **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS，待 Kevin 裁合（2026-09-02）**：
+  Kevin 15:22 在另一会话点名"那现在做 D-PERS-2"，晚于上条 15:12 的改序裁决，故按
+  更晚指示签发（章程头注记了时间线；两单并行、区段不重叠）。opus 执行，分支
+  `wo/pers-overlay` 尖 69ee4fc（父 23c65a0）。内容：L4 从 `relationship_thread`
+  关切得出的结论落 `insights.category=relationship`，键 = `memory_scopes('insights',
+  id, subject)`（**TS 体第一个 memory_scopes 运行期写者**；KEY = 关切实体轴 ??
+  owner，皆 null 退 focus + `relationship_overlay_unkeyed`）；读口两分
+  `promotedRelationshipInsights(subject)` / `promotedFocusInsights()` 排除 relationship，
+  `listFocusInsights` 不动（L4 状态机对 relationship 行一视同仁）；converse 人格块转正
+  段后加 `RELATIONSHIP_OVERLAY_HEADER` 段，空态零字节。**零 schema 零迁移零 env**，
+  落地 = 拉 main + 重启。测试 902/891/0/11（+22），devstate 注入 902/902/0/0，tsc 净；
+  与 `wo/fix-loop-01` merge-tree 无冲突。执行方一次停工上报（D-2 值导入撞 learn
+  import 面守卫，治理裁走 shared.ts 副本范式，章程同日修订 23c65a0）——**教训：签章程
+  前先跑一遍 boundary 类静态守卫**。契约增补件 `WO-M0-STATE-CONTRACT/amendment_017-1`。
+  对当前产线为空操作（无 relationship 行）；首月观察 `"type":"relationship_overlay_keyed"`。
 - **审计修复单 `wo/AUDIT-FIX-2026-09-02`（Kevin 2026-09-02 口头授权"其余按建议修"，
   token 轮换明示不做）**，Kevin 同日裁决并入 main（merge c00165a），分支已删。内容：
   ① **main 即生产装配**：`profile/cordis.prod.yml` 六器官位在 main 上启用，
