@@ -208,3 +208,193 @@ NXDOMAIN 然后 fail closed，那样测不到浏览器这一层）。
    的是 148。smoke 在 152 上绿说明 CDP 面向后兼容，但它**不是**对生产那一版的证明；
    LANDING-H 起宿主之后应当在服务器上跑一次同样的六步（手册 §2 第⑤步的 health 只验
    了活着）。
+
+---
+
+## 复核修订轮（2026-09-02）
+
+治理复核在服务器（Ubuntu 24.04 / systemd 255）取证后退回三条。本轮三个提交：
+`8646653`（R-1 + R-3）、`790a7ee`（R-2）、本段（report）。
+
+### R-1 隔离方向反了 —— 已修
+
+**问题**（治理侧实测）：`/home/lykoi` 是 `750 lykoi:lykoi`，但其下
+`.config/ .claude/ .codex/ reports/ runtime/browser-artifacts/ state/backups/` 等
+多为 `775/755` 组可读。原方案的 `usermod -aG lykoi lykoi-browser` +
+`SupplementaryGroups=lykoi` 让 Chrome 进程带上 lykoi 组，一路穿过去就能读到旧
+browser-artifacts 里的 cookie 与备份 —— 与 unit 自己那句"lykoi-browser 读不到
+/home/lykoi 的任何东西"直接矛盾。服务器没装 acl 包，`setfacl` 不可用。
+
+**改法**：不靠组，靠挂载命名空间。
+
+| | 修订前 | 修订后 |
+|---|---|---|
+| `ProtectHome` | `false` | `tmpfs`（宿主视野里 `/home` 是空 tmpfs） |
+| 家目录 | `ReadWritePaths=/home/lykoi-browser` | `BindPaths=/home/lykoi-browser`（tmpfs 只能由 BindPaths 打洞，ReadWritePaths 打不动，故删） |
+| 代码树 | 直接跑 `/home/lykoi/projects/lykoi-cordis/…` | `BindReadOnlyPaths=/home/lykoi/projects/lykoi-cordis:/opt/lykoi-browser/tree`，`ExecStart` 改指 `/opt/lykoi-browser/tree/…` |
+| 宿主附加组 | `SupplementaryGroups=lykoi` | **无** |
+| socket 组 | `lykoi`（宿主加入 lykoi 组） | `lykoi-browser`（**大脑**加入 lykoi-browser 组） |
+| `lykoi-browser` 家目录权限 | 默认 | `chmod 700`（同组也进不去 profile/） |
+
+于是宿主的 `/home` 里只有它自己家，`/home/lykoi` 根本不在它的挂载命名空间里 ——
+它带什么组都无所谓。反向，大脑靠 `usermod -aG lykoi-browser lykoi` 拿到连 socket
+的资格，而 700 的家目录让这个组只买到"连 socket"这一件事。
+`WorkingDirectory=/home/lykoi-browser` 不变。
+
+**沙箱前提**：治理侧实测 `setpriv --no-new-privs /usr/bin/google-chrome
+--headless=new --no-first-run --disable-gpu --user-data-dir=<tmp> --dump-dom
+about:blank` 在服务器上 exit 0、正常出 DOM（`/etc/apparmor.d/chrome` 给
+`/opt/google/chrome/chrome` 放行 `userns`，而
+`kernel.apparmor_restrict_unprivileged_userns=1`）。unit 于是**保留**
+`NoNewPrivileges=true` / `RestrictSUIDSGID=true`。这条探针写进了
+`docs/browser_organ.md` §2「前验」，并明写：探针失败**不许**改用 `--no-sandbox`，
+记录现象（exit code、stderr 全文、`aa-status | grep chrome`）并停下。
+
+**落地步骤新增**：`chmod 700 /home/lykoi-browser`、
+`install -d -o root -g root -m 755 /opt/lykoi-browser/tree`（bind 挂载点必须先存在）、
+第⑤步验 socket 期望改为 `srw-rw---- lykoi-browser lykoi-browser`，并加一条
+"树本身要 o+rx"的 `stat` 检查（bind 挂载不改权限；挂载点在 `/opt` 下，走不到
+`/home/lykoi`，所以 750 的家目录不挡路）。故障表加一行"树没挂上/不可读"。
+
+**同步的文档与测试**：`docs/browser_organ.md`（§0 新增"两侧互相看不见"、§2 全段、§8）、
+`deploy/lykoi-browser.service.template`（注释按事实重写）、
+`packages/lykoi-organ-browser/test/assembly.test.ts`（原断言里的
+`ReadWritePaths` / `SupplementaryGroups` 撤下，新增两条钉住修订后的 unit 与手册，
+含"手册里不许再有 `usermod -aG lykoi lykoi-browser` 这条可执行命令"与
+"不许有 `--no-sandbox` 逃生口"）。`docs/deploy.md`、
+`governance/reports/runbook_disaster_recovery.md` 里没有提到 lykoi 组 /
+`SupplementaryGroups` 的表述，无需改。
+
+### R-2 出域跳转要在请求层拦 —— 代码已做，**实证否定**
+
+**代码**（按派工单原样做完，保留在树上）：
+
+- `BackendContext.setRequestFilter` 的回调参数由裸 `url` 扩为
+  `RequestInfo{ url, isNavigation, redirectedFrom }`；`PlaywrightContext` 里取
+  `request.isNavigationRequest()` 与 `request.redirectedFrom()?.url() ?? null`。
+- `BrowserOrganDriver` 每次 navigate / research 前把本次请求 URL 记进
+  `#requestedUrl`；过滤器里
+  `isNavigation && redirectedFrom !== null && isOffDomain(requestedUrl, url)` → `abort`，
+  两端域名记进 `#blockedRedirect`，动作方法（goto 抛与不抛两条路径都）折成
+  `redirect_off_domain` —— **与既有错误同名、`detail` 同为 `from->to`**。
+  审计事件 `browser_redirect_off_domain` 加一个 `stage` 字段区分是哪一道拦的
+  （`request` / `final_url`）。
+- 导航后的 `final_url` 检查**保留**。
+
+**实证：否定。** `smoke.test.ts` 改成三个独立本机端口（A=`smoke.test`、
+B=`other.test`、P=`priv.test`），B 与 P 各自数自己收到的请求 —— "从未收到请求"
+于是是一句能证伪的话。实测 playwright-core **1.60.0** + 本机 Chrome **152**
+（headless=new）：
+
+> **Chromium 上 `context.route('**')` 不为重定向 hop 回调。**
+> 一次 `A -302-> B` 只产生**一次** route 回调（A 自己，`redirectedFrom` 为 null）；
+> B 只在只读的 `context.on('request')` 上出现（`redirectedFrom` = A），
+> 那里 `abort` 不了。子请求（fetch / image / xhr）**会**回调，
+> 它们各自的 302 目标**同样不会**。
+
+探针原始观测（`context.route` + `context.on('request')` 双记）：
+
+```
+{"EVENT":"request","url":"http://smoke.test/redir","redirectedFrom":null}
+{"url":"http://smoke.test/redir","isNav":true,"redirectedFrom":null,"type":"document"}
+{"EVENT":"request","url":"http://other.test/landing","redirectedFrom":"http://smoke.test/redir"}
+final url: http://other.test/landing      B hits: ["/landing"]
+```
+
+两条后果，都已在 smoke 里复现并钉成断言：
+
+1. **出域**：`redirect_off_domain` 实际由第二道（`final_url`）拦下，`stage=final_url`；
+   B 站计数为 **1**（`["/landing"]`）—— 跳转目标已经被持久 profile 请求过一次，
+   cookie 发出去了、页面 JS 跑过了。本轮想消除的正是这一次，没能消除。
+2. **SSRF（更锋利的一面）**：D-5① 写的"每一跳重定向同样判定"对**子请求**成立，
+   对**重定向 hop 不成立**。smoke ⑦：直接 `navigate('http://priv.test/…')` 被判定器
+   拒（`blocked_url`），但**经 302 抵达**的同一个地址不会 —— P 站实收
+   `["/latest/meta-data/"]`。她读不到响应（最终仍判出域），但那个打向内网的请求
+   确实发出去了。
+
+**处置**：
+
+- smoke ⑥⑦ 写成**倒挂断言**：钉死"现在还拦不住"（`stage === 'final_url'`、
+  `other.hits === ['/landing']`、`priv.hits === ['/latest/meta-data/']`）。
+  Playwright / Chromium 哪天改成逐跳回调，这三条会红 —— 那是好消息，
+  到时翻转断言并回治理侧记一笔。断言消息里写了这句话。
+- 请求层那道门**保留不删**：零成本，且是 backend 契约的一部分（假 backend 会回调，
+  驱动层"过滤器说不 → 落 `redirect_off_domain`"这段逻辑因此可测），行为改善即刻生效。
+- 现象与后果记进三处，免得日后有人把绿测读成"真浏览器上拦住了"：
+  `driver.ts` 的 `#arm`（大段实证注释）、`docs/browser_organ.md` 新增
+  **§4.1「已知缺口：重定向的那一跳拦不住」**、`test/fake-backend.ts` 与
+  `test/redirect.test.ts` 顶部各一句"这是 backend 契约，不是真 Chrome 今天的行为"。
+  §4 第 1 条的原文"每个子请求与每一跳重定向"已按实测改成"每个子请求"。
+- **唯一可行的堵法**（探过、未做）：`route.fetch({ maxRedirects: 0 })` + `route.fulfill`
+  自己跟重定向链。探针实测这条路走得通，但 `route.fetch` 跑在 Playwright 驱动进程
+  里、不走 Chrome 的网络栈（探针里它直接 `getaddrinfo ENOTFOUND smoke.test` ——
+  `--host-resolver-rules` 对它无效，这本身就说明它是另一套栈）。代理、TLS、HTTP/2、
+  cookie 语义全部换一套，属重架构，且新栈自己就是一个新的安全面。**归 M5 总盘另立单。**
+
+### R-3 日备份读不到 profile —— 已修（文档）
+
+服务器上的日备份是 `/usr/local/sbin/lykoi-cordis-backup.sh`，由
+`lykoi-cordis-backup.service` 以 `User=lykoi` 运行，而
+`/home/lykoi-browser/profile` 是 `700 lykoi-browser` —— 它读不到，现有定时器**不会**
+产出第 13 项。原稿"浏览器器官落地后为 13 项 / daily 下第 13 项"与事实不符，已改：
+
+- `governance/reports/runbook_disaster_recovery.md` §1.1：完整备份集回到"共 12 项"，
+  另起一段说明第 13 项是手工项、为什么定时器拿不到它、纳入日备份需要一个以 root
+  身份运行的独立定时器（留作 M5 后续，不在本单）。§2 表第 13 行改成先给打包三步
+  （`stop` → `tar` → `start`，root 手工）再给还原命令，行首标注"手工项，不在 `daily/` 里"。
+- `docs/deploy.md` 第 10 条同上。
+- `docs/browser_organ.md` §6 同上（这一处派工单没点名，但同一句事实在三个地方，
+  留一处旧的等于留一个陷阱）。
+
+### 改动文件表（`1c249d6..790a7ee` 加本段）
+
+| 文件 | 轮次 | 改动 |
+|---|---|---|
+| `deploy/lykoi-browser.service.template` | R-1 | `ProtectHome=tmpfs` / `BindPaths` / `BindReadOnlyPaths` / `ExecStart` 改指 `/opt/lykoi-browser/tree`；删 `SupplementaryGroups=lykoi`、`ReadWritePaths`；注释按事实重写（含沙箱探针结论） |
+| `docs/browser_organ.md` | R-1/R-2/R-3 | §0 新增"两侧互相看不见"；§2 新增「前验」探针 + 逐条命令全改；§4 第 1 条改写 + **新增 §4.1 已知缺口**；§6 标手工项；§8 故障表两行 |
+| `docs/deploy.md` | R-3 | 第 10 条改为手工项 |
+| `governance/reports/runbook_disaster_recovery.md` | R-3 | §1.1 回到 12 项 + 手工项说明；§2 表第 13 行重写 |
+| `packages/lykoi-organ-browser/src/driver.ts` | R-2 | `RequestInfo` 类型；`#requestedUrl` / `#blockedRedirect` / `#takeBlockedRedirect()`；`#arm` 请求层出域门 + 实证注释；navigate / researchReadText 两处接线；`PlaywrightContext.setRequestFilter` 传三字段；审计加 `stage` |
+| `packages/lykoi-organ-browser/test/assembly.test.ts` | R-1 | 原 D-7 断言撤下两项；新增 2 条（unit 隔离面、手册组方向与沙箱前验） |
+| `packages/lykoi-organ-browser/test/download.test.ts` | R-2 | 过滤器入参改结构；新增"跨域子请求放行" |
+| `packages/lykoi-organ-browser/test/fake-backend.ts` | R-2 | `redirectChain` 逐跳过过滤器、`FakePage.fetched`、契约警示注释 |
+| `packages/lykoi-organ-browser/test/redirect.test.ts` | R-2 | 新增 4 条 R-2 用例；既有审计断言加 `stage` |
+| `packages/lykoi-organ-browser/test/smoke.test.ts` | R-2 | 三个独立本机端口；新增 ⑥（出域实证，倒挂）与 ⑦（SSRF 经 302 实证，倒挂） |
+| `governance/wo/WO-M5-ORGAN-BROWSER/report.md` | — | 本段 |
+
+`src/index.ts` / `host.ts` / `protocol.ts` / `ssrf.ts` / `untrusted.ts`、
+`profile/cordis.prod.yml`、`package-lock.json`、`deploy/*.host.json.example` 本轮**未动**。
+D-10 不动清单本轮同样为空改动；未碰 manifest、未跑 `--write-manifest`。
+
+### 新的测试计数
+
+全仓 `npm test`：**tests 994 / pass 983 / fail 0 / skipped 11**
+（修订前 988/977/0/11；净 +6 = redirect +4、download +1、assembly +2、
+smoke 的 ⑥⑦ 并在既有那一条测试里不计数，assembly 原 D-7 那条保留故不减）。
+`npx tsc --noEmit` 净。skipped 的 11 项与基线同一批、位置未变。
+
+本包 `lykoi-organ-browser`：**65 / 65 / 0 / 0**（修订前 59）。分文件：
+`ssrf` 14、`assembly` 11、`plugin` 10、`redirect` 10、`untrusted` 8、`isolation` 6、
+`download` 5、`smoke` 1。
+
+**smoke：ran**（本机 Mac，Chrome 152，`/Applications/Google Chrome.app/…`）。
+服务器上是 Chrome 148，LANDING-H 起宿主之后应当在服务器上再跑一次同样这条 ——
+R-2 的两条倒挂断言在 148 上的结果尤其要看（若 148 上 route 反而会为 hop 回调，
+断言会红，那说明缺口只存在于新版 Chromium，结论要按服务器那一版重写）。
+
+### 新 tip sha
+
+`0ec340b`。分支 `wo/m5-organ-browser`。
+
+### 本轮新增的张力
+
+7. **假 backend 可以证伪策略，不能证实"真浏览器上拦住了"**。R-2 之前，
+   `redirect.test.ts` 全绿、`docs` §4 白纸黑字写着"每一跳重定向同样判定"，
+   而真 Chrome 上那句话是假的 —— 缺的不是测试数量，是**一条以外部可观测量为准的
+   断言**（B 站的请求计数）。本轮的三条倒挂断言是补上的那一条；同样的形状值得
+   套到别的硬化面上复查一遍（下载隔离那条 smoke ④ 现在也是"文件没落盘"这种
+   外部量，成立；SSRF 的子请求面则仍然只有假 backend 的证据）。
+
+8. **`browser_redirect_off_domain` 现在有 `stage` 字段**，`request` 那个值在生产里
+   （以本机 Chrome 152 计）永远不会出现。它是一个刻意留下的、恒为假的观测位 ——
+   哪天审计里真的出现 `stage=request`，说明 backend 行为变了，该复核这一整段。
