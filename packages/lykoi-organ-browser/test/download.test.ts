@@ -19,7 +19,19 @@ import { SsrfGuard } from '../src/ssrf.ts'
 import { FakeBackend, tableResolver } from './fake-backend.ts'
 
 const TIMEOUTS = { navigate: 5000, getText: 5000, research: 5000 }
-const RESOLVER = tableResolver({ 'good.example': ['93.184.216.34'] })
+const RESOLVER = tableResolver({
+  'good.example': ['93.184.216.34'],
+  'cdn.other.example': ['93.184.216.35'],
+})
+
+/** 过滤器的入参（R-2 之后是个结构，不再是裸 url）。缺省 = 普通子请求。 */
+function req(url: string, extra: { isNavigation?: boolean; redirectedFrom?: string } = {}) {
+  return {
+    url,
+    isNavigation: extra.isNavigation ?? false,
+    redirectedFrom: extra.redirectedFrom ?? null,
+  }
+}
 
 function makeDriver() {
   const backend = new FakeBackend({ 'https://good.example/dl': { body: '页面' } })
@@ -67,9 +79,11 @@ test('D-5②两个上下文都装了子请求判定钩子（每个子请求与�
   assert.notEqual(persistent.filter, null)
   assert.notEqual(ephemeral.filter, null)
   // 子请求打到内网 → false（abort）；打到公网 → true。
-  assert.equal(await persistent.filter!('http://169.254.169.254/latest/meta-data/'), false)
-  assert.equal(await persistent.filter!('https://good.example/style.css'), true)
-  assert.equal(await ephemeral.filter!('http://10.0.0.1/'), false)
+  assert.equal(await persistent.filter!(req('http://169.254.169.254/latest/meta-data/')), false)
+  assert.equal(await persistent.filter!(req('https://good.example/style.css')), true)
+  assert.equal(await ephemeral.filter!(req('http://10.0.0.1/')), false)
+  // R-2：跨域的**子请求**照旧放行（CDN 是网页常态，出域那一条只管导航跳转）。
+  assert.equal(await persistent.filter!(req('https://cdn.other.example/x.js')), true)
 })
 
 test('D-5②blob: / data: / file: / javascript: 顶层导航从动作口进来也拒', async () => {

@@ -34,10 +34,25 @@ export interface BackendPage {
   close(): Promise<void>
 }
 
+/**
+ * 请求层判定看到的一次请求（子请求或重定向的某一跳）。
+ *
+ * `isNavigation` / `redirectedFrom` 是复核修订（2026-09-02 R-2）加的：只看 url 判不出
+ * "这是不是一次跳转出域"，而出域必须在**请求发出之前**拦，不能等导航完成再看 final_url
+ * —— 那时目标页已经被持久 profile 加载过一次，cookie 已经发出去、页面 JS 已经跑过了。
+ */
+export interface RequestInfo {
+  url: string
+  /** 顶层/框架导航请求（`request.isNavigationRequest()`）。 */
+  isNavigation: boolean
+  /** 这一跳是被谁重定向来的；不是重定向就是 null（`request.redirectedFrom()?.url()`）。 */
+  redirectedFrom: string | null
+}
+
 export interface BackendContext {
   page(): Promise<BackendPage>
   /** 子请求与每一跳重定向的判定钩子：返回 false 即 abort。 */
-  setRequestFilter(filter: (url: string) => Promise<boolean>): Promise<void>
+  setRequestFilter(filter: (info: RequestInfo) => Promise<boolean>): Promise<void>
   /** 下载拦截钩子：一律 cancel，只留一条审计。 */
   setDownloadHandler(
     handler: (info: { url: string; suggestedName: string }) => void,
@@ -168,6 +183,17 @@ export class BrowserOrganDriver {
   #now: () => Date
   #persistentContext: BackendContext | null = null
   #persistentPage: BackendPage | null = null
+  /**
+   * 本次 navigate / research 请求的那个 URL（R-2）。请求过滤器要拿它跟每一跳
+   * 重定向的目标比 eTLD+1 —— 过滤器是在上下文装配时装一次的，之后每次动作只换
+   * 这个字段。宿主串行（协议纪律），所以"当前一次"永远只有一次，不会串。
+   */
+  #requestedUrl = ''
+  /**
+   * 请求层拦下的出域跳转（R-2）。过滤器只能 abort，说不出话；它把两端域名记在
+   * 这里，动作方法在 goto 之后（成功或失败都）读它，把结果落成 redirect_off_domain。
+   */
+  #blockedRedirect: { from: string; to: string } | null = null
 
   constructor(opts: BrowserOrganDriverOptions) {
     this.#backend = opts.backend
@@ -182,15 +208,56 @@ export class BrowserOrganDriver {
   // --- 上下文装配（两个上下文共用同一套钩子） ---
 
   async #arm(context: BackendContext, op: HostOp): Promise<void> {
-    // D-5①：判定不只在顶层导航 —— 每个子请求与每一跳重定向同样判定，不过就 abort。
-    await context.setRequestFilter(async (url) => {
-      const verdict = await this.#guard.check(url)
+    await context.setRequestFilter(async (info) => {
+      // D-5①：判定不只在顶层导航 —— 每个子请求与每一跳重定向同样判定，不过就 abort。
+      const verdict = await this.#guard.check(info.url)
       if (!verdict.allowed) {
         this.#emit('browser_subrequest_blocked', {
-          op, reason: verdict.reason, domain: domainOf(url),
+          op, reason: verdict.reason, domain: domainOf(info.url),
         })
+        return false
       }
-      return verdict.allowed
+      // D-4（R-2 复核修订）：跳转出域本该在**请求层**拦，不等导航完成。
+      //
+      // 想法：只在 goto 之后看 final_url 的话，跳转目标已经被这个持久 profile 完整
+      // 加载过一次 —— cookie 发出去了，页面 JS 跑过了，"不读文本"只挡住她的眼睛，
+      // 挡不住浏览器的动作。审批门批的是一个域，被 302 带去的那个域没被批过，
+      // 请求本身就不该出去。
+      //
+      // 只拦重定向来的导航请求：第一跳（redirectedFrom === null）是她自己要去的
+      // 那个地址，已经过审批与 SSRF 判定。子请求（图片/CSS/XHR）跨域是网页常态，
+      // 不在这条之内。iframe 的导航跳转也算导航请求，一并拦掉 —— v1 只读，宁严。
+      //
+      // ⚠ 实证否定（2026-09-02 复核修订，playwright-core 1.60.0 + Chrome 152
+      //   headless=new，见 test/smoke.test.ts 步骤 ⑥⑦）：
+      //   **Chromium 上 `context.route('**')` 不为重定向的那一跳回调。**
+      //   一次 `A -302-> B` 只产生一次 route 回调（A，redirectedFrom=null）；B 只在
+      //   只读的 `context.on('request')` 上冒出来（redirectedFrom=A），那里 abort
+      //   不了。子请求（fetch / image / xhr）**会**回调，重定向 hop **不会** ——
+      //   连子请求自己的 302 目标也不会。
+      //
+      //   后果，写清楚免得日后误读这段代码：
+      //   1. 下面这个分支在真 Chrome 上**永不触发**；出域实际仍由第二道
+      //      （navigate / researchReadText 里的 final_url 检查）拦下。
+      //   2. D-5① "每一跳重定向同样判定" 对**子请求**成立，对**重定向 hop 不成立**
+      //      —— 302 到私网地址那一跳绕过了 SSRF 判定器（smoke ⑦ 钉住了这个事实）。
+      //      她读不到响应，但那个请求确实发出去了。
+      //
+      //   分支保留不删：它零成本，且是 backend 契约的一部分（假 backend 会回调，
+      //   驱动层的行为因此可测）；Playwright / Chromium 哪天改成逐跳回调，它立刻生效，
+      //   smoke ⑥⑦ 的倒挂断言会同时变红提醒。
+      //   真要现在堵上，唯一路子是 `route.fetch({maxRedirects:0})` + `route.fulfill`
+      //   自己跟重定向链 —— 那把整条导航从 Chrome 的网络栈搬到 Playwright 驱动进程
+      //   （代理、TLS、cookie 语义全部换一套），属于重架构，归 M5 总盘另立单。
+      if (info.isNavigation && info.redirectedFrom !== null
+        && isOffDomain(this.#requestedUrl, info.url)) {
+        const from = domainOf(this.#requestedUrl)
+        const to = domainOf(info.url)
+        this.#blockedRedirect = { from, to }
+        this.#emit('browser_redirect_off_domain', { op, from, to, stage: 'request' })
+        return false
+      }
+      return true
     })
     // D-5②：下载一律取消，只留审计（不落文件名、只落长度）。
     await context.setDownloadHandler((info) => {
@@ -222,6 +289,21 @@ export class BrowserOrganDriver {
       await page.close()
     } catch {
       // 关不掉就算了：下一次 navigate 会开新页；这里绝不把自愈变成第二个故障源。
+    }
+  }
+
+  /**
+   * 取走请求层拦下的那条出域记录（R-2），有就折成 OpResult。
+   * 取走即清空：下一次动作从零开始，不许把上一次的拦截算到这一次头上。
+   */
+  #takeBlockedRedirect(): OpResult | null {
+    const blocked = this.#blockedRedirect
+    if (blocked === null) return null
+    this.#blockedRedirect = null
+    return {
+      ok: false,
+      error: HOST_ERRORS.redirectOffDomain,
+      detail: `${blocked.from}->${blocked.to}`,
     }
   }
 
@@ -261,18 +343,35 @@ export class BrowserOrganDriver {
     } catch (exc) {
       return { ok: false, error: HOST_ERRORS.internal, detail: errorText(exc) }
     }
+    this.#requestedUrl = rawUrl
+    this.#blockedRedirect = null
     try {
       await withDeadline(page.goto(rawUrl, this.#timeouts.navigate), this.#timeouts.navigate)
     } catch (exc) {
       await this.#dropPersistentPage()
+      // 第一道拦下的跳转会让 goto 以 ERR_BLOCKED_BY_CLIENT 之类失败：那不是导航
+      // 故障，是本器官按设计拦的，结果要落回 redirect_off_domain。
+      const blocked = this.#takeBlockedRedirect()
+      if (blocked !== null) return blocked
       if (exc instanceof DeadlineError) return { ok: false, error: HOST_ERRORS.timeout }
       return { ok: false, error: HOST_ERRORS.navigationFailed, detail: errorText(exc) }
     }
+    // 第一道拦下之后 goto 也可能不抛（浏览器把 abort 当作一次"到此为止"的加载）。
+    {
+      const blocked = this.#takeBlockedRedirect()
+      if (blocked !== null) {
+        await this.#dropPersistentPage()
+        return blocked
+      }
+    }
     const finalUrl = page.currentUrl()
+    // 第二道：请求层没拦住的形态 —— meta refresh、JS 的 location 赋值，以及
+    // **真 Chrome 上的 302 跳转**（route 不为 hop 回调，见 #arm 里的实证记录）。
+    // 今天它不是"兜底"，它就是唯一实际生效的那道门。
     if (isOffDomain(rawUrl, finalUrl)) {
       const from = domainOf(rawUrl)
       const to = domainOf(finalUrl)
-      this.#emit('browser_redirect_off_domain', { op: 'navigate', from, to })
+      this.#emit('browser_redirect_off_domain', { op: 'navigate', from, to, stage: 'final_url' })
       // 停止加载、不读文本：把页扔掉，`get_text` 随后落 no_page（她没有落地）。
       await this.#dropPersistentPage()
       return { ok: false, error: HOST_ERRORS.redirectOffDomain, detail: `${from}->${to}` }
@@ -338,17 +437,27 @@ export class BrowserOrganDriver {
       context = await this.#backend.ephemeral()
       await this.#arm(context, 'research_read_text')
       const page = await context.page()
+      this.#requestedUrl = rawUrl
+      this.#blockedRedirect = null
       try {
         await withDeadline(page.goto(rawUrl, this.#timeouts.research), this.#timeouts.research)
       } catch (exc) {
+        // 同 navigate：请求层拦下的跳转让 goto 失败，结果要落 redirect_off_domain。
+        const blocked = this.#takeBlockedRedirect()
+        if (blocked !== null) return blocked
         if (exc instanceof DeadlineError) return { ok: false, error: HOST_ERRORS.timeout }
         return { ok: false, error: HOST_ERRORS.navigationFailed, detail: errorText(exc) }
       }
+      const blocked = this.#takeBlockedRedirect()
+      if (blocked !== null) return blocked
       const finalUrl = page.currentUrl()
+      // 第二道：meta refresh / JS 跳转，以及真 Chrome 上的 302（route 不回调 hop）。
       if (isOffDomain(rawUrl, finalUrl)) {
         const from = domainOf(rawUrl)
         const to = domainOf(finalUrl)
-        this.#emit('browser_redirect_off_domain', { op: 'research_read_text', from, to })
+        this.#emit('browser_redirect_off_domain', {
+          op: 'research_read_text', from, to, stage: 'final_url',
+        })
         return { ok: false, error: HOST_ERRORS.redirectOffDomain, detail: `${from}->${to}` }
       }
       let raw: string
@@ -525,11 +634,18 @@ class PlaywrightContext implements BackendContext {
     return page
   }
 
-  async setRequestFilter(filter: (url: string) => Promise<boolean>): Promise<void> {
+  async setRequestFilter(filter: (info: RequestInfo) => Promise<boolean>): Promise<void> {
     await this.#context.route('**', async (route) => {
       let allowed = false
       try {
-        allowed = await filter(route.request().url())
+        const request = route.request()
+        allowed = await filter({
+          url: request.url(),
+          isNavigation: request.isNavigationRequest(),
+          // 重定向链的上一跳。Chromium 上每一跳都是独立的一次 route 回调，
+          // 跳转来的那一跳这里非 null（R-2 的判定就挂在这个位上）。
+          redirectedFrom: request.redirectedFrom()?.url() ?? null,
+        })
       } catch {
         allowed = false // 判定本身炸了 = 拒（fail closed）
       }

@@ -160,8 +160,10 @@ autonomous 起源直接放行 —— 她独处 explore 用 `research_browser.rea
    `*.local` `*.internal` `*.home.arpa` 与单标签主机名；`dns.lookup(host,{all:true})`
    的每一个地址逐个判私网/环回/链路本地/组播/保留段（IPv4-mapped、6to4、Teredo
    取内嵌 v4 再判）；解析失败或零地址 = 拒。判定不只在顶层导航 ——
-   `context.route('**')` 对**每个子请求与每一跳重定向**同样判，不过就 abort。
+   `context.route('**')` 对**每个子请求**同样判，不过就 abort。
    配了代理照样先判（代理不是豁免）。
+
+   **覆盖不到重定向那一跳**（2026-09-02 复核实测，见下）。
 2. **下载隔离**：`acceptDownloads:false`；`download` 事件一律 `cancel()` + 审计
    `browser_download_blocked{url_domain, suggested_name_len}`；`blob:` `data:`
    `file:` `javascript:` 顶层导航拒绝。v1 没有任何文件落到宿主之外。
@@ -170,6 +172,30 @@ autonomous 起源直接放行 —— 她独处 explore 用 `research_browser.rea
 4. **文本上限**：`max_chars` 缺省 20000、硬顶 60000（源码常量，配置改不动）；
    超出截断 + `truncated:true`。取 `document.body.innerText`（脚本/样式不入文）
    并折叠空白。
+
+### 4.1 已知缺口：重定向的那一跳拦不住（2026-09-02 复核实测）
+
+**现象**（playwright-core 1.60.0 + Chrome 152 headless=new，`test/smoke.test.ts` ⑥⑦
+把它钉成了断言）：Chromium 上 `context.route('**')` **不为重定向 hop 回调**。
+一次 `A -302-> B` 只产生一次 route 回调（A 自己，`redirectedFrom` 为 null）；B 只在
+只读的 `context.on('request')` 上出现（`redirectedFrom` = A），那里 abort 不了。
+子请求（fetch / image / xhr）会回调，它们各自的 302 目标同样不会。
+
+**后果**（两条，都已实测复现）：
+
+- **出域跳转**：`redirect_off_domain` 实际由导航后的 `final_url` 检查拦下，不是由
+  请求层。她读不到跳转目标的文本，但那个页面**已经被持久 profile 请求过一次** ——
+  cookie 发出去了，页面 JS 跑过了。
+- **SSRF**：直接导航到私网地址会被判定器拒；**经 302 抵达**的同一个地址不会 ——
+  那一跳到不了判定器。响应回不到她手里（最终仍判出域），但请求确实发出去了。
+
+**没有在本单堵上的原因**：唯一可行的堵法是 `route.fetch({maxRedirects:0})` +
+`route.fulfill` 自己跟重定向链，那等于把整条导航从 Chrome 的网络栈搬到 Playwright
+驱动进程里（代理、TLS、cookie 语义全换一套）。属重架构，归 M5 总盘另立单。
+
+**代码里保留了请求层那道门**（`driver.ts` 的 `#arm`）：零成本，且是 backend 契约的
+一部分；Playwright / Chromium 哪天改成逐跳回调，它立刻生效，smoke ⑥⑦ 的倒挂断言会
+同时变红提醒。
 
 ## 5 · 看她在看什么
 
