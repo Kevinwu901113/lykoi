@@ -77,15 +77,15 @@ function makeFixture(version: number): string {
 
 // ============================== schema 门（fixture） ==============================
 
-// WO-MEM-SOURCE-01：期望版本 15 → 16（016 迁移登记的新版本号）。判定逻辑逐字
+// WO-MEM-DECAY-01：期望版本 16 → 17（017 迁移登记的新版本号）。判定逻辑逐字
 // 未动（仍是"恰等于期望值，否则拒开"），双向拒开也照旧：低于（未施加迁移的旧库）
 // 与高于（比我新的 schema）都不许读。
-test('打开即断言 mind_schema==16：不等则抛明确错误（新体不得读不认识的 schema）', () => {
-  assert.throws(() => new ReadOnlyMemory(makeFixture(15)), (err: Error) => {
-    assert.match(err.message, /mind_schema version 15 != expected 16/)
+test('打开即断言 mind_schema==17：不等则抛明确错误（新体不得读不认识的 schema）', () => {
+  assert.throws(() => new ReadOnlyMemory(makeFixture(16)), (err: Error) => {
+    assert.match(err.message, /mind_schema version 16 != expected 17/)
     return true
   })
-  assert.throws(() => new ReadOnlyMemory(makeFixture(17)), /mind_schema version 17/)
+  assert.throws(() => new ReadOnlyMemory(makeFixture(18)), /mind_schema version 18/)
 })
 
 test('mind_schema 表缺席（不是 state 副本）：明确报错而非误读', () => {
@@ -137,9 +137,9 @@ test('cordis 插件面：装载提供 lykoiMemory 服务，fiber 卸载关连接
 
 // ============================== devstate（只读；零内容输出） ==============================
 
-// 注：devstate 副本要施加过 016 迁移才打得开（版本 15 的旧副本会被构造器拒开，
+// 注：devstate 副本要施加过 017 迁移才打得开（版本 16 的旧副本会被构造器拒开，
 // 这正是版本门的设计意图）。副本缺席时本组照旧 skip 不 fail。
-test('devstate：只读打开成功即 mind_schema==16（断言在构造器内完成）', { skip: devstateSkip }, () => {
+test('devstate：只读打开成功即 mind_schema==17（断言在构造器内完成）', { skip: devstateSkip }, () => {
   const memory = new ReadOnlyMemory(DEVSTATE!)
   assert.equal(memory.busyTimeoutMs, 10000)
   memory.close()

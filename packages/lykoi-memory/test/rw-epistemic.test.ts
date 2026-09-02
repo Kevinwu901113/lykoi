@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import {
   EPISTEMIC_STANCES,
-  EXPECTED_MIND_SCHEMA_VERSION,
   factualEpistemicClause,
   NON_FACTUAL_EPISTEMIC,
   type EpistemicStance,
@@ -312,9 +311,11 @@ test('迁移件 016 up：加列 + 渠道级回填 + 登记版本 16（不做内�
   assert.equal(applyScript(path, UP_SQL), null)
   const db = rawOpen(path)
 
+  // WO-MEM-DECAY-01：期望值不再等于 EXPECTED_MIND_SCHEMA_VERSION（那已经是 17）。
+  // 016 这个脚本登记的就是 16，本断言钉的是**脚本自己写下的版本号**，钉死字面量。
   assert.equal(
     (db.prepare('SELECT MAX(version) AS v FROM mind_schema').get() as { v: number }).v,
-    EXPECTED_MIND_SCHEMA_VERSION,
+    16,
   )
   // 回填逐渠道精确匹配设计稿 §3.1 —— 与写路径 deriveEpistemic 同一张表。
   const rows = db.prepare('SELECT source, epistemic FROM experiences ORDER BY id')

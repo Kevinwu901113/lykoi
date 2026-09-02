@@ -58,6 +58,18 @@ export const COOLDOWN_COUNT_SUGGEST_RELEASE = 2
 /** S：新 insight 存续这么多个周期未被 contested 才从 shadow 转 active。 */
 export const SHADOW_PERIOD_CYCLES = 2
 
+/**
+ * WO-MEM-DECAY-01（D-3）：一条 active 结论距上一次被 L4 触达**这么多个周期**未被
+ * 再触达 → 降 dormant（退出装配、不销毁、可点亮）。
+ *
+ * 单位是**周期序号**，与 SHADOW_PERIOD_CYCLES 同理（SA-130 例外条款）：她的思考
+ * 发生在周期里，停机三周不该让她"忘掉"什么。
+ *
+ * 30 是治理估值（现节律 ≈1 周期/天，30 周期 ≈ 一个月的持续思考），**不是配置项**
+ * （GK-6：不读 env、不进 profile）。要改由治理侧按产线读数校准后改这一行。
+ */
+export const INSIGHT_STALE_AFTER_CYCLES = 30
+
 // --- 检索与 prompt 预算 -------------------------------------------------------
 export const RETRIEVAL_LIMIT = 20 //          一次深挖最多调回多少条原料
 export const MATERIAL_CONTENT_CHARS = 600 //  每条原料喂进 prompt 的截断长度
@@ -102,6 +114,8 @@ export interface FocusStore extends RelevanceStore, SuggestStore {
   }): boolean
   getFocusInsightState(insightId: number): RawRow | null
   listFocusInsights(status: string | readonly string[] | null): RawRow[]
+  /** WO-MEM-DECAY-01（D-2）：衰减信号的取数口——最后一行的 cycle_id = 上次触达。 */
+  focusInsightHistory(insightId?: number | null): RawRow[]
 }
 
 // === 触发（SA-118） ==========================================================
@@ -369,6 +383,8 @@ export interface FocusSummary {
   contested: number[]
   revised: Record<string, unknown>[]
   promoted: number[]
+  /** WO-MEM-DECAY-01（D-6）：本周期因久未触达而降 dormant 的 insight_id。 */
+  retired: number[]
   derived_concern_id: number | null
   cooldown_started: boolean
   release_suggested: boolean
@@ -395,7 +411,7 @@ export async function runFocusCycle(deps: FocusDeps): Promise<FocusSummary> {
     cycle_id: null, outcome: 'idle', concern_id: null,
     selection_reason: null, retrieved: 0, llm_calls: 0,
     insight_id: null, insight_is_new: false, lineage_rows: 0,
-    contested: [], revised: [], promoted: [],
+    contested: [], revised: [], promoted: [], retired: [],
     derived_concern_id: null, cooldown_started: false,
     release_suggested: false, suggestion_id: null,
     permission_suggestion_id: null, note: '',
@@ -464,6 +480,7 @@ async function runCycleBody(
     summary.note = 'no selectable concern'
     logEvent('focus_cycle_idle', { cycle_id: cycleId, ...reason })
     promoteDueInsights(cycleId, summary, deps)
+    retireStaleInsights(cycleId, summary, deps)
     safeFinalize(cycleId, summary, deps)
     return summary
   }
@@ -490,6 +507,7 @@ async function runCycleBody(
     summary.note = 'empty recall'
     applyConcernProgress(concern, cycleId, summary, false, deps)
     promoteDueInsights(cycleId, summary, deps)
+    retireStaleInsights(cycleId, summary, deps)
     safeFinalize(cycleId, summary, deps, matchReasons)
     return summary
   }
@@ -513,6 +531,7 @@ async function runCycleBody(
     summary.note = cpSlice(errStr(exc), 500)
     recordCycleTouch(concern, cycleId, deps)
     promoteDueInsights(cycleId, summary, deps)
+    retireStaleInsights(cycleId, summary, deps)
     safeFinalize(cycleId, summary, deps, matchReasons)
     return summary
   }
@@ -523,6 +542,7 @@ async function runCycleBody(
     summary.note = 'parse_failed'
     recordCycleTouch(concern, cycleId, deps)
     promoteDueInsights(cycleId, summary, deps)
+    retireStaleInsights(cycleId, summary, deps)
     safeFinalize(cycleId, summary, deps, matchReasons)
     return summary
   }
@@ -540,9 +560,12 @@ async function runCycleBody(
   const madeProgress = applyConclusion(envelope, concern, materials, cycleId, summary, deps)
   applyNewConcern(envelope, concern, materials, cycleId, summary, deps)
 
-  // --- 6. 关切状态 + 影子期结算 -----------------------------------------
+  // --- 6. 关切状态 + 影子期结算 + 衰减结算 -------------------------------
+  // D-7：衰减排在 applyConclusion 之后——本周期刚重申/新建的结论其 history 最后
+  // 一行的 cycle_id 已是本周期，距离 0，自然不降。
   applyConcernProgress(concern, cycleId, summary, madeProgress, deps)
   promoteDueInsights(cycleId, summary, deps)
+  retireStaleInsights(cycleId, summary, deps)
   safeFinalize(cycleId, summary, deps, matchReasons)
   return summary
 }
@@ -551,9 +574,13 @@ async function runCycleBody(
  * SA-135：喂给她判冲突的既有结论——影子期的与已转正的都给（shadow/active/
  * contested 的**最后 20 条**），**已撤回/已被取代的不给**——那些是历史，留在
  * 库里供审计，但不该再参与今晚的推理。
+ *
+ * WO-MEM-DECAY-01（D-5）：喂入集加 `dormant`。休眠不是了结——一条久未重申的结论
+ * 仍然是"她认为过且没被推翻"的东西，新证据推翻它时应当**当场**如实落 withdrawn，
+ * 而不是等将来被点亮时带着已被推翻的内容复活。上限 20 不变。
  */
 function existingConclusions(store: FocusStore): RawRow[] {
-  const rows = store.listFocusInsights(['shadow', 'active', 'contested'])
+  const rows = store.listFocusInsights(['shadow', 'active', 'contested', 'dormant'])
   return rows.slice(-EXISTING_INSIGHT_LIMIT)
 }
 
@@ -834,6 +861,65 @@ function promoteDueInsights(cycleId: number, summary: FocusSummary, deps: FocusD
       cycleId, reason: `shadow period cleared (${SHADOW_PERIOD_CYCLES} cycles)`, now: deps.now,
     })) {
       summary.promoted.push(row.insight_id as number)
+    }
+  }
+}
+
+// --- 6c. 衰减结算（WO-MEM-DECAY-01 · D-PERS-3） --------------------------------
+
+/**
+ * 一条 active 结论上一次被 L4 触达的周期号 = 它 `focus_insight_history` 最后一行的
+ * `cycle_id`（D-2）。history 是追加式、永不更新的，所以"最后一行"就是最后一次
+ * 触达：创建、重申、每一次状态迁移都会在那里留一行。
+ *
+ * 兜底：状态行存在而 history 空（正常路径产不出这种行——recordFocusInsight 与
+ * setFocusInsightStatus 都在同一事务里追加 history）时退回 `updated_cycle_id`，
+ * 宁可少降一条也不拿一个凭空的 0 去当"上次触达"。
+ */
+function lastTouchedCycle(store: FocusStore, row: RawRow): number {
+  const history = store.focusInsightHistory(row.insight_id as number)
+  if (history.length === 0) return row.updated_cycle_id as number
+  return history[history.length - 1]!.cycle_id as number
+}
+
+/**
+ * 久未被 L4 再触达的 active 结论 → dormant（**退出装配，不销毁，可点亮**）。
+ *
+ * 调节场宪法要的"更新规则 + 衰减规则 + 因果出口"里缺的那一条：慢变层当年只建了
+ * 进的边（shadow → active）与被推翻的边（contested → revised/withdrawn），没有
+ * "久了就不再是现行意见"的出口，于是 active 集只进不出，而 converse 每一轮把
+ * **全部** active 行注入上下文——不补这条边，膨胀是必然的。
+ *
+ * 判据（D-2）：`cycleId - lastTouchedCycle >= INSIGHT_STALE_AFTER_CYCLES`，严格
+ * 用 `>=`。单位是**周期序号不是墙钟**（同 SA-130 例外条款）：她的思考发生在周期
+ * 里，一台停机三周的机器不该因为墙上的钟走了三周就退役她的结论。
+ *
+ * 设计稿 §3.3 原文写的信号是"长期未被装配引用"；现体里那个信号**无区分度**
+ * （promotedFocusInsights = 全部 active，每一轮都被引用，每条行的引用次数一样），
+ * 治理侧据此把信号改成"长期未被 L4 再触达"（D-2）。
+ *
+ * 单步，无 dimming 中间态（D-4）：装配是二值的（进/不进），中期层 concerns 的
+ * dimming 是为权重与点亮服务的，慢变层没有那两样。
+ *
+ * 因果出口（D-6）：走既有的 `setFocusInsightStatus`——history 一行 + 一条
+ * `focus_insight_status` 事件（from/to/reason），不另造事件面。reason 带上两个
+ * 周期号，"她为什么不再提这句话了"因此可回放。
+ *
+ * 节律（D-7）：与 `promoteDueInsights` 同调用位、同覆盖面（**每一种**周期结尾，
+ * 含空转与失败），且排在本周期 applyConclusion 之后——本周期刚重申或刚新建的
+ * 结论，其 history 最后一行的 cycle_id 已经是本周期，距离 0，自然不降。
+ */
+function retireStaleInsights(cycleId: number, summary: FocusSummary, deps: FocusDeps): void {
+  for (const row of deps.store.listFocusInsights('active')) {
+    const touched = lastTouchedCycle(deps.store, row)
+    if (cycleId - touched < INSIGHT_STALE_AFTER_CYCLES) continue
+    if (deps.store.setFocusInsightStatus(row.insight_id as number, 'dormant', {
+      cycleId,
+      reason: `stale: last touched cycle ${touched}, now cycle ${cycleId} `
+        + `(>= ${INSIGHT_STALE_AFTER_CYCLES})`,
+      now: deps.now,
+    })) {
+      summary.retired.push(row.insight_id as number)
     }
   }
 }
