@@ -5,8 +5,9 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { GAP_NOT_WIRED } from 'lykoi-decide'
 import {
-  composeSurfaceReply, CYCLE_CLOSING_NOTE, MAX_TOOL_STEPS,
+  composeSurfaceReply, CYCLE_CLOSING_NOTE, CYCLE_TOOL_UNWIRED_EVENT, MAX_TOOL_STEPS,
 } from '../src/index.ts'
 import {
   envelope, eventNames, lastEvent, makeConversation, T0,
@@ -131,7 +132,70 @@ test('unwired dispatch：合法工具名大声失败（绝不静默成功），�
   assert.ok(String(payload.error).includes('kernel dispatch 未接线(M3)'))
 })
 
-test('D-03：tool_call 被 grounded 闸降级 → 沉默 + u3_cycle_tool_demoted（她想动手 ≠ 她想沉默）+ 零 dispatch', async () => {
+/**
+ * WO-FIX-LOOP-01 D-1d 直接验收：给一份不含该动作的 wiredActions，`#buildAction`
+ * 在到达 dispatchFn 之前就把它挡下——大声落痕（CYCLE_TOOL_UNWIRED_EVENT +
+ * capability_gap{reason: not_wired, source: converse}）+ error 结果回填 + 周期
+ * 继续，dispatchFn 一次都不被调用。
+ */
+test('D-1d：wiredActions 不含该动作 → #buildAction 挡在 dispatch 之前，大声落痕、周期继续', async () => {
+  let dispatched = 0
+  const h = makeConversation({
+    dispatchFn: async () => {
+      dispatched += 1
+      return { success: true, data: {} }
+    },
+    wiredActions: new Set(['notify.owner']), // 真接得通的只有这一个——刻意不含 research_browser.read_text
+  })
+  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看不了', reason: '他问我在不在' } }) })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '看不了')
+  assert.equal(dispatched, 0, 'D-1d：dispatchFn 从未被调用')
+  const unwired = lastEvent(h.events, 'u3_cycle_tool_unwired')!
+  assert.deepEqual(unwired, { name: 'research_read_text', action_type: 'research_browser.read_text' })
+  const gap = lastEvent(h.events, 'capability_gap')!
+  // capabilityToken 隐私闸（WANTED_TOKEN_MAX=20）：这个动作名 27 字符，过闸时
+  // 被换成 `unrecognized:len<N>`——既有纪律，不是这条新用例引入的行为。
+  assert.equal(gap.wanted, 'unrecognized:len26')
+  assert.equal(gap.reason, GAP_NOT_WIRED)
+  assert.equal(gap.source, 'converse')
+  const toolResult = h.llm.calls[1]!.messages.find((m) => m.role === 'tool')!
+  const payload = JSON.parse(toolResult.content!)
+  assert.equal(payload.success, false)
+  assert.ok(String(payload.error).includes('organ not wired'))
+})
+
+/**
+ * WO-FIX-LOOP-01 D-1d 向后兼容：不给 wiredActions（缺省）→ 这道新闸整个不参与
+ * 判断，行为逐字节落回旧路——dispatchFn 照样被调用，不再是"挡在门外"。
+ */
+test('D-1d 向后兼容：不给 wiredActions → 新闸不触发，dispatchFn 照常被调用', async () => {
+  let dispatched = 0
+  const h = makeConversation({
+    dispatchFn: async () => {
+      dispatched += 1
+      return { success: true, data: {} }
+    },
+    // 故意不设 wiredActions。
+  })
+  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '看完了')
+  assert.equal(dispatched, 1, '缺省时 D-1d 闸不参与——旧行为不变')
+  assert.equal(eventNames(h.events).includes('u3_cycle_tool_unwired'), false)
+})
+
+/**
+ * WO-FIX-LOOP-01 D-2b 改口：这条用例原先钉的是"tool_call 理由未接地 → SA-20b
+ * 溯源闸（第③关）把它 demote 掉"。D-2b 让 tool_call 免这一关——一次工具调用
+ * 本身就是可核验的结构化动作，理由没有逐字落在 assessment 原文里不再是把它
+ * 按下去的理由。于是这份未接地的理由不再能 demote 它：决定被认真对待、工具
+ * 真的执行到底（这个用例里 dispatchFn 是喂进去的真替身，不受 wiredActions
+ * 影响——unit 级夹具默认不设 wiredActions，D-1d 闸不在这条路上）。
+ */
+test('D-03→D-2b改口：tool_call 免溯源门（第③关）——未接地的理由不再降级，工具照常执行到底', async () => {
   let dispatched = 0
   const h = makeConversation({
     dispatchFn: async () => {
@@ -144,21 +208,18 @@ test('D-03：tool_call 被 grounded 闸降级 → 沉默 + u3_cycle_tool_demoted
       decision: {
         kind: 'tool_call',
         tool: { name: 'research_read_text', arguments: { url: 'https://a' } },
-        reason: '我就是想看看', // 不引用任何评估条目 → demote
+        reason: '我就是想看看', // 不引用任何评估条目——D-2b 起对 tool_call 免溯源门，这不再是 demote 的理由
       },
     }),
   })
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
-  assert.equal(reply, '', '降级到 silence 一路走到底')
-  assert.equal(dispatched, 0, '工具不执行')
-  assert.deepEqual(lastEvent(h.events, 'u3_cycle_tool_demoted'), {
-    original_kind: 'tool_call',
-    tool_name: 'research_read_text',
-  })
-  const record = lastEvent(h.events, 'u3_cycle_envelope')!
-  assert.equal(record.demoted, true)
-  assert.equal(record.demote_why, 'reason_not_grounded')
-  assert.equal(record.original_kind, 'tool_call')
+  assert.equal(reply, '看完了')
+  assert.equal(dispatched, 1, 'D-2b：不再被溯源门挡下，工具真的执行了')
+  assert.equal(eventNames(h.events).includes('u3_cycle_tool_demoted'), false, 'demote 路径不再对 tool_call 触发')
+  const record = h.events.find(([n]) => n === 'u3_cycle_envelope')![1]
+  assert.equal(record.kind, 'tool_call')
+  assert.equal(record.demoted, false)
 })
 
 test('missing_tool / 工具预算烧完：安全侧收场（S-46 #7/#8）', async () => {

@@ -314,8 +314,16 @@ function selfReportedDispatches(events: AuditEvent[]): string[] {
     .map((name) => TOOL_TO_ACTION[name]!)
 }
 
-test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_dispatch 行（逐条同型同数）', async () => {
+test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_dispatch 行（逐条同型同数）', async (t) => {
   isolateKernelFiles()
+  // WO-FIX-LOOP-01 D-1d：`terminal.exec` 在注册表里仍是 D-1a 打了标记的替身
+  // （M5 才到）。以前"未接线"不影响这条用例——硬门检查在真身调用之前就发生，
+  // 撞门即得 needs_approval。现在 D-1d 的新闸在**到达 kernel 之前**先拦下未
+  // 接线的动作，若不给它一个真身，这个场景根本走不到审批那一步。用同一份
+  // `registerOrganHandler` 替身（本文件唯一的替身来源，见文件头）把它接上，
+  // 场景与断言逐字节不变——这条用例本来就不测"未接线大声失败"，测的是审批门。
+  fakeTerminal()
+  t.after(() => clearOrganHandlers())
   const { audit, transport, telegram } = await assemble(
     toolEnvelope('terminal_exec', { command: 'ls' }),
   )
@@ -341,23 +349,36 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
   assert.ok(claimed.length > 0, '这个夹具必须真的自称过一次，否则正断言是空转')
 })
 
-test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（demote 路）', async () => {
+/**
+ * WO-FIX-LOOP-01 改口：原场景是"未接地的 tool_call 被溯源门 demote 成沉默"。
+ * D-2b 让 tool_call 免溯源门（第③关）——同一份未接地的理由不再能把它降级，
+ * 这个场景在 D-2b 之后已经不能用来造"零自称"了。
+ *
+ * 换成 D-02 的词表外工具名场景：kind 仍是 tool_call（不降级、不豁免任何东西），
+ * 但 `web_search` 从不在 TOOL_TO_ACTION 里——`selfReportedDispatches` 的过滤器
+ * （`name in TOOL_TO_ACTION`）天然把它筛掉，claimed 仍是 []。这其实比原场景
+ * 更贴合 GK-14 本来要测的东西：负断言测的是"自称"的真假，不是"降级"本身。
+ *
+ * 附注（供 report §5）：D-1d 让"自称 dispatched 但从未到达 kernel"多了一条新
+ * 路——一个**在词表里、注册表里却仍是替身**的动作，若理由是接地的（不落入
+ * demote），cycleRecord 在 `#buildAction` 的 D-1d 闸判断之前就已经把
+ * `dispatched` 记成了该工具名（`isToolCall` 只看 kind+tool 是否存在，不看
+ * 是否真接线）。这种场景下 selfReportedDispatches 会非空，而 action_dispatch
+ * 行数为零——GK-14"自称 ⟹ 有行"的字面不变量出现新的例外。这不属于本工单
+ * D-1..D-5 的改动范围（改 cycleRecord 的 dispatched 语义属于动 envelope
+ * 契约，D-5 明确排除），本用例改用不触碰这条新例外的场景来验证 GK-14 的负向
+ * 判据，新例外本身留给治理层另行判断是否需要新工单。
+ */
+test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（词表外工具名路）', async () => {
   isolateKernelFiles()
-  // 未接地的 tool_call 被护栏 demote 成沉默 —— 她想动手却被闸掉，工具零执行。
-  const { audit, transport, telegram } = await assemble(envelope({
-    decision: {
-      kind: 'tool_call',
-      tool: { name: 'terminal_exec', arguments: { command: 'ls' } },
-      reason: '我自己想跑一下', // 不引用 assessment.item → 未接地
-    },
-  }))
+  const { audit, transport, telegram } = await assemble(toolEnvelope('web_search', { q: 'x' }))
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 800, chatId: '1001', senderId: '1001', text: '在吗' },
   })
   assert.equal(await telegram.pollOnce(), 1)
 
-  assert.ok(audit.events.some((e) => e.type === 'u3_cycle_tool_demoted'))
+  assert.ok(audit.events.some((e) => e.type === 'cycle_unknown_tool'))
   assert.deepEqual(selfReportedDispatches(audit.events), [])
   assert.equal(audit.events.filter((e) => e.type === 'action_dispatch').length, 0)
   assert.equal(audit.events.filter((e) => e.type === 'action_result').length, 0)

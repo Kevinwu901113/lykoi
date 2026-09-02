@@ -3,12 +3,17 @@
  * dispatch（origin=interactive 由接线方盖章）—— 信封点名的工具经**真三层门**：
  * ① 默认 ask → needs_approval → S-57 deferred + **SK-77 四项载荷**（W2 换真身）
  *   + 沉默收场，audit 上 action_dispatch(decision=ask)+action_result 对；
- * ② live always_allow 放行 → W1 替身器官大声失败 → error 结果回填、周期继续，
- *   audit 上 decision=allow 的 intent/result 对。
- * 全链：fake 入站 → 盖章 → 装配 → fake LLM 信封 → 真 kernel 门 → audit。
+ * ② live always_allow 也没用：**WO-FIX-LOOP-01 D-1d 改口**——未接线的动作在
+ *   到达 kernel（也就是能咨询 live 规则的那一层）之前就已经被
+ *   `#buildAction` 的新闸拦下，零 action_dispatch、零 action_result，只留
+ *   `u3_cycle_tool_unwired` + `capability_gap` 的痕迹，工具预算烧完收场。
+ * 全链：fake 入站 → 盖章 → 装配 → fake LLM 信封 → 真 kernel 门 / D-1d 新闸 →
+ * audit。
  *
  * **GK-14 e2e（DK-07 / 蓝图定案，W2 必立）**：信封自称 dispatched ⟺ audit 有
- * action_dispatch 行 —— 正反两断言都在这里。
+ * action_dispatch 行 —— 正反两断言都在这里。①用真身器官（`registerOrganHandler`
+ * 注入，M5 才到）保证场景能走到审批门；②刻意保留未接线状态，验证 D-1d 的闸
+ * 先于 kernel 生效。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -26,6 +31,7 @@ import { createStateFixture } from 'lykoi-memory/testing'
 import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
+import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
 import { MAX_TOOL_STEPS } from '../src/index.ts'
 import * as converse from '../src/index.ts'
 import { envelope, seedBinding } from './fixture.ts'
@@ -121,6 +127,17 @@ async function assemble(replyText: string) {
   return { audit, transport, telegram, converse: service, dir }
 }
 
+/**
+ * WO-FIX-LOOP-01 D-1d：`browser.navigate` 在注册表里仍是 D-1a 打了标记的
+ * 替身（M5 才到）。以下①用例本来就不测"未接线大声失败"，测的是撞审批门
+ * 那一段——需要它先是**接得通**的动作才轮得到 kernel 的三层门说话。用同一套
+ * `registerOrganHandler` 替身把它接上（这个 handler 在①的场景里从不会真的
+ * 被调用：needs_approval 在调用它之前就把周期收场了）。
+ */
+function fakeBrowserNavigate(): void {
+  registerOrganHandler('browser.navigate', async () => ({ ok: true }))
+}
+
 function toolEnvelope(name: string, args: Record<string, unknown>): string {
   return envelope({
     decision: {
@@ -131,8 +148,10 @@ function toolEnvelope(name: string, args: Record<string, unknown>): string {
   })
 }
 
-test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷 + 沉默收场；audit 上 ask 的 intent/result 对', async () => {
+test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷 + 沉默收场；audit 上 ask 的 intent/result 对', async (t) => {
   isolateKernelFiles()
+  fakeBrowserNavigate()
+  t.after(() => clearOrganHandlers())
   const { audit, transport, telegram, converse: service } = await assemble(
     toolEnvelope('browser_navigate', { url: 'https://example.com/page' }),
   )
@@ -187,10 +206,20 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   assert.equal(results[0]!.error, 'needs_approval')
 })
 
-test('②live always_allow 放行：真门 allow → W1 替身器官大声失败 → error 回填周期继续（工具预算收场）', async () => {
+/**
+ * WO-FIX-LOOP-01 改口：原用例测的是"kernel 放行之后，W1 替身器官大声失败"——
+ * 这个中间态正是 D-1 这张工单要消灭的：一个**真的没接线**的动作，不该先被
+ * kernel 放行、再在器官那一层才炸。D-1d 的新闸在 `#buildAction` 阶段（早于
+ * dispatchFn/kernel）就把它拦下——不论 live 规则怎么写，未接线的动作根本
+ * 问不到 kernel，live 规则形同虚设。这正是 D-1d 要验的行为，用同一个动作
+ * （`research_browser.read_text`，M5 才到、D-5 明确排除真实接线）保留原场景
+ * 的"Kevin 手写 always_allow"这个动作，只是把断言换成新的、真实发生的事。
+ */
+test('②live always_allow 放行也没用：D-1d 闸先到，未接线动作从不问 kernel（工具预算收场）', async () => {
   const dir = isolateKernelFiles()
   // Kevin 的笔：往 live 规则写一行 always_allow（她自己没有写路径 —— 测试站在
-  // owner 侧铺规则文件）。
+  // owner 侧铺规则文件）。D-1d 之后，这份规则从未被咨询——动作在到达 kernel
+  // 之前就已经被挡下。
   writeFileSync(join(dir, 'approval_rules.json'), JSON.stringify({
     always_allow: ['research_browser.read_text'], always_deny: [], ask: [],
   }))
@@ -208,16 +237,17 @@ test('②live always_allow 放行：真门 allow → W1 替身器官大声失败
   assert.ok(types.includes('u3_cycle_tool_budget_exhausted'))
   assert.ok(!types.includes('cycle_approval_gate_unwired'))
 
-  // 每一步都是真门放行 + 替身器官大声失败：intent(allow)/result(失败) 成对。
-  const intents = audit.events.filter((e) => e.type === 'action_dispatch')
-  const results = audit.events.filter((e) => e.type === 'action_result')
-  assert.equal(intents.length, MAX_TOOL_STEPS)
-  assert.equal(results.length, MAX_TOOL_STEPS)
-  for (const [i, intent] of intents.entries()) {
-    assert.equal(intent.action_type, 'research_browser.read_text')
-    assert.equal(intent.origin, 'interactive')
-    assert.equal(intent.decision, 'allow') // live 文件放的行（⑥），不是能力面
-    assert.equal(results[i]!.success, false)
-    assert.match(String(results[i]!.error), /器官未接线/)
+  // D-1d：每一步都被 #buildAction 拦在 kernel 门之前——零 action_dispatch、
+  // 零 action_result（live 规则从未被问到，因为动作从没到达能咨询它的那一层）。
+  assert.equal(audit.events.filter((e) => e.type === 'action_dispatch').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'action_result').length, 0)
+  const unwired = audit.events.filter((e) => e.type === 'u3_cycle_tool_unwired')
+  assert.equal(unwired.length, MAX_TOOL_STEPS)
+  for (const e of unwired) {
+    assert.equal(e.action_type, 'research_browser.read_text')
+    assert.equal(e.name, 'research_read_text')
   }
+  const gaps = audit.events.filter((e) => e.type === 'capability_gap' && e.source === 'converse')
+  assert.equal(gaps.length, MAX_TOOL_STEPS)
+  for (const g of gaps) assert.equal(g.reason, 'not_wired')
 })

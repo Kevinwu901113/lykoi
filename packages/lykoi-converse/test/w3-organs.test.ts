@@ -28,6 +28,7 @@ import {
   appendOutbox, loadOutboxCursor, saveOutboxCursor, type TelegramAdapterService,
 } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
+import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
 import {
   bootstrapOwnerPreauthorization, getNotification, pendingCount, sendNotification,
 } from 'lykoi-kernel'
@@ -50,6 +51,18 @@ function isolateAll(): string {
 function fakeAudit(): AuditService & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
   return { events, async record(event) { events.push(event) } }
+}
+
+/**
+ * WO-FIX-LOOP-01 D-1d：`terminal.exec` 在注册表里仍是 D-1a 打了标记的替身
+ * （M5 才到）。以下②④两个用例本来就不测"未接线大声失败"，测的是撞审批门
+ * 之后的读数面（预算边界 / pendingCount 权威源）——需要它先是**接得通**的
+ * 动作才轮得到 kernel 的三层门说话、才有一条真的悬置动作可读。用同一套
+ * `registerOrganHandler` 替身把它接上（这个 handler 在这两个场景里从不会真
+ * 的被调用：needs_approval 在调用它之前就把周期收场了）。
+ */
+function fakeTerminal(): void {
+  registerOrganHandler('terminal.exec', async () => ({ stdout: '', exit_code: 0 }))
 }
 
 function fakeMemory(): LykoiMemoryService {
@@ -264,8 +277,10 @@ test('① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳
 
 // ============================== 出口判据②：预算边界回归 ==============================
 
-test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的问句仍被拒**，而设备层的问句照发', async () => {
+test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的问句仍被拒**，而设备层的问句照发', async (t) => {
   isolateAll()
+  fakeTerminal()
+  t.after(() => clearOrganHandlers())
   const { audit, transport, telegram, service } = await assemble(
     envelope({
       decision: {
@@ -310,8 +325,10 @@ test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的�
 
 // ============================== ④ D-04 横幅权威源 ==============================
 
-test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"有 N 条待批准操作"', async () => {
+test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"有 N 条待批准操作"', async (t) => {
   isolateAll()
+  fakeTerminal()
+  t.after(() => clearOrganHandlers())
   const { audit, transport, telegram } = await assemble(
     envelope({
       decision: {
