@@ -7,7 +7,13 @@
  * **W3 换装**：`autonomy.initiate_chat` / `autonomy.queue_notification` 已是真身
  * （出站器官那一批），所以这两路现在**真的落到账本上**（proactive_chat 原子强制
  * / 通知队列节流）；`research_browser.read_text` 仍是 W1 显式替身（感知器官归
- * M5，大声失败 → 她拿到失败经验）。三道门与审计闭合先于器官成立这一条不变。
+ * M5）。三道门与审计闭合先于器官成立这一条不变。
+ *
+ * **WO-FIX-LOOP-01 D-1c 改口**：`research_browser.read_text` 未接线，wake 现在
+ * 把 `wiredActionCatalog(resources)` 喂给 `buildCandidates` —— explore 根本不
+ * 再候选，模型仍选它 → 既有位点②（kind_not_in_candidates）降级为 rest，**不再
+ * 走到 dispatch 替身**。第一拍的期望因此从"explore 大声失败"改为"降级 rest
+ * 平安 completed"；这正是 D-1 这张工单要在 e2e 层验的行为。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -115,53 +121,78 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     pendingBeats = 1
     outcomes.push(await service.beat())
   }
-  // W3：三拍的决定不变；第一拍的器官（research_browser）仍未接线 → failed
-  // **决策结果**（不是拍级崩溃 —— 门与账在先）；后两拍的器官已换真身 → completed。
-  assert.deepEqual(outcomes.map((o) => o.decision), ['explore', 'initiate_chat', 'queue_notification'])
-  assert.deepEqual(outcomes.map((o) => o.status), ['failed', 'completed', 'completed'])
+  // D-1c：第一拍模型选 explore，但 research_browser.read_text 未接线 → wake 喂
+  // 给 buildCandidates 的 wiredActions 里没有它，explore 不候选 → 既有位点②
+  // （kind_not_in_candidates）降级为 rest，平安 completed（不再走到 dispatch
+  // 替身、不再大声失败）。后两拍的器官已换真身 → 原样 completed。
+  assert.deepEqual(outcomes.map((o) => o.decision), ['rest', 'initiate_chat', 'queue_notification'])
+  assert.deepEqual(outcomes.map((o) => o.status), ['completed', 'completed', 'completed'])
+  // 降级走既有位点②：decision_ungrounded（why=kind_not_in_candidates）打头，
+  // capability_gap（reason=kind_not_in_candidates,source=wake）随后补一笔 ——
+  // 两条账都是既有安全网，D-1c 不新造、只是让 explore 真的走到这条既有路上。
+  const ungrounded = audit.events.filter((e) => e.type === 'decision_ungrounded')
+  assert.equal(ungrounded.length, 1)
+  assert.equal(ungrounded[0]!.why, 'kind_not_in_candidates')
+  assert.equal(ungrounded[0]!.original_kind, 'explore')
+  const gaps = audit.events.filter((e) => e.type === 'capability_gap')
+  assert.equal(gaps.length, 1)
+  assert.equal(gaps[0]!.wanted, 'explore')
+  assert.equal(gaps[0]!.reason, 'kind_not_in_candidates')
+  assert.equal(gaps[0]!.source, 'wake')
 
-  // 三对 intent/result 落在 immutable sink（同一 lykoi-audit 服务）。
+  // 两对 intent/result 落在 immutable sink（同一 lykoi-audit 服务）—— rest 那拍
+  // 从不调 dispatchFn，audit 上不留 action_dispatch/action_result。
   const intents = audit.events.filter((e) => e.type === 'action_dispatch')
   const results = audit.events.filter((e) => e.type === 'action_result')
   assert.deepEqual(intents.map((e) => e.action_type), [
-    'research_browser.read_text', 'autonomy.initiate_chat', 'autonomy.queue_notification',
+    'autonomy.initiate_chat', 'autonomy.queue_notification',
   ])
-  assert.equal(results.length, 3)
-  const runIds = new Set<string>()
+  assert.equal(results.length, 2)
+  const dispatchedRunIds = new Set<string>()
   for (const [i, intent] of intents.entries()) {
     assert.equal(intent.origin, 'autonomous') // 接线方盖章，永不由模型给
-    assert.equal(intent.decision, 'allow') // 能力面④：三动作都在 AUTONOMOUS_ALLOWED
+    assert.equal(intent.decision, 'allow') // 能力面④：两动作都在 AUTONOMOUS_ALLOWED
     assert.equal(intent.pre_approved, false)
     assert.equal(intent.exemption, null)
     assert.equal(typeof intent.run_id, 'string')
-    runIds.add(intent.run_id as string)
+    dispatchedRunIds.add(intent.run_id as string)
     const result = results[i]!
     assert.equal(result.correlation_id, intent.correlation_id)
     assert.equal(result.run_id, intent.run_id)
   }
-  // 第一路：M5 才到的器官仍是显式替身 —— 大声失败，她拿到失败经验。
-  assert.equal(results[0]!.success, false)
-  assert.match(String(results[0]!.error), /器官未接线/)
-  // 后两路：W3 换装的真身 —— 落到真账本上。
+  // 两路都是 W3 换装的真身 —— 落到真账本上。
+  assert.equal(results[0]!.success, true)
   assert.equal(results[1]!.success, true)
-  assert.equal(results[2]!.success, true)
   const outbox = readOutboxAfter(0, 10)
   assert.equal(outbox.count, 1)
   assert.equal(outbox.messages[0]!.kind, 'proactive') // initiate_chat 交给投递线
   const notifications = getNotifications(false)
   assert.equal(notifications.length, 1)
   assert.equal(notifications[0]!.origin, 'autonomous') // queue_notification 走节流那条政策
-  assert.equal(runIds.size, 3) // 一拍一个 run_id 贯穿
+  assert.equal(dispatchedRunIds.size, 2) // 两路各自的 run_id 贯穿
 
-  // params 是 redacted 副本形态（explore 的 url 原样可见 —— 无密钥即无遮蔽）。
-  assert.deepEqual(intents[0]!.params, { url: 'https://example.com/read' })
+  // params 是 redacted 副本形态（initiate_chat 的 content 原样可见 —— 无密钥即
+  // 无遮蔽，run_id 贯穿本拍）；explore 那一拍从未到 dispatch，params 断言随之
+  // 取消。
+  assert.deepEqual(intents[0]!.params, {
+    content: '想跟你说件事', run_id: intents[0]!.run_id,
+  })
 
-  // runId 与 autonomy_runs 台账对上（audit 链 ↔ 她的拍账同键）。
+  // 三拍各有一个 run_id（含降级的第一拍——run_id 在 dispatch 之前就分配），
+  // 但只有后两拍的 run_id 落进 audit 的 action_dispatch。
+  const allRunIds = new Set(outcomes.map((o) => o.run_id))
+  assert.equal(allRunIds.size, 3)
+  for (const id of dispatchedRunIds) assert.ok(allRunIds.has(id))
+
+  // runId 与 autonomy_runs 台账对上（audit 链 ↔ 她的拍账同键——三拍都建 run，
+  // 不论该拍是否真的走到 dispatch）。
   const db = new DatabaseSync(path, { readOnly: true })
   try {
     const rows = db.prepare('SELECT id FROM autonomy_runs ORDER BY started_at').all() as { id: string }[]
-    assert.deepEqual(new Set(rows.map((r) => r.id)), runIds)
-    // 她的失败经验落账（没有结果也是结果）：三拍各 wake_action + action_result。
+    assert.deepEqual(new Set(rows.map((r) => r.id)), allRunIds)
+    // 她的经验落账（没有结果也是结果）：三拍各 wake_action + action_result，
+    // 与该拍是否走到 dispatch 无关（executeAndReflow 两处 recordExperience
+    // 都是拍级无条件调用）。
     const n = (db.prepare('SELECT COUNT(*) AS n FROM experiences').get() as { n: number }).n
     assert.equal(n, 6)
   } finally {
