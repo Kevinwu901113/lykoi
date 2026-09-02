@@ -1,0 +1,25 @@
+{
+  "name": "lykoi-organ-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "浏览器器官 v1（WO-M5-ORGAN-BROWSER）：大脑侧 Cordis 插件（三个只读动作）+ 独立 OS 用户宿主进程（持久 Chrome + 一次性调研上下文），本地 Unix socket NDJSON 协议，SSRF/下载/出域/不可信四道 fail closed",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./host": "./src/host.ts",
+    "./protocol": "./src/protocol.ts",
+    "./ssrf": "./src/ssrf.ts",
+    "./driver": "./src/driver.ts",
+    "./untrusted": "./src/untrusted.ts"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-adapter-telegram": "0.1.0",
+    "lykoi-audit": "0.1.0",
+    "lykoi-kernel": "0.1.0"
+  }
+}
