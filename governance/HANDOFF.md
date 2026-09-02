@@ -512,7 +512,15 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
   改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
   日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
-  现行队列：**`WO-M5-ORGAN-BROWSER` 开工**；GK-14 小单待立。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 已派工（同日 21 时后）**；GK-14 小单待立。
+- **WO-M5-ORGAN-BROWSER 派工（2026-09-02，Kevin"开 M5 browser 的单"）**：spec 四决断
+  Kevin 拍板——空白名单+逐域首次审批（kernel 既有 domain scope）；只读两项
+  `browser.navigate/get_text` + 一次性 `research_browser.read_text`；独立 OS 用户
+  `lykoi-browser` + systemd 单元 + playwright-core 驱动系统 Chrome 148 + 本地 socket；
+  CDP screencast + 截图留 7 天。派工单 `wo/WO-M5-ORGAN-BROWSER/order.md`（D-1..D-10），
+  opus 执行（安全面），分支 `wo/m5-organ-browser`，基线 main@17bfbb7 929/918/0/11。
+  报备后果：`research_browser.*` 在 AUTONOMOUS_ALLOWED，独处上网不逐域问（policy-core
+  另单）。落地 = LANDING-H（root 建用户/单元/配置 + npm ci + 重签；service 改 stop）。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落

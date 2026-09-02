@@ -1,6 +1,6 @@
 # WO-M5-ORGAN-BROWSER · 浏览器器官 · 立项书
 
-- 状态：**已立项**（Kevin 2026-08-31 批准；M5 首个器官）
+- 状态：**已派工**（Kevin 2026-08-31 批准；2026-09-02 spec 四决断落定，派工单 `order.md`）
 - 前置：M4 切换完成（m4_handoff 11 硬前置全绿）；本工单在 M4 收口前不动工
 - 队列位置（2026-09-02）：人格分层三单（D-PERS-1/3/2）当日全部并入，**本单为下一单**；前置补一条：`wo/WO-FIX-LOOP-01` 并入（清单只列接得通的动作、`not_wired` gap 发射点、
   explore 候选按接线闸——本单接上 `research_browser.*` 真 handler 后这三处自动跟着变真）
@@ -54,7 +54,10 @@
 下载隔离红测；拔插后本体记忆无伤（兴趣仍在、登录态确实消失）；审计链每动作
 intent/result 成对。
 
-## 待 spec 决断
+## spec 决断（Kevin 2026-09-02）
 
-域名白名单初值与放宽流程；browser.* 词汇最小集；器官宿主资源上限（CPU/内存/磁盘）；
-screencast 留存期限。
+- 域名：空白名单 + 逐域首次审批（走 kernel 既有 domain scope + 对话式审批；器官只管跳转出域中止）。
+- 词汇 v1：只读两项 `browser.navigate` + `browser.get_text`，加一次性 `research_browser.read_text`（explore 那只手）；不点不输不下载。
+- 宿主：独立 OS 用户 `lykoi-browser` + systemd 单元（CPU 2 核 / 内存 2G），playwright-core 驱动系统 Chrome，本地 socket。
+- 观察面：CDP screencast 实时画面（只绑 127.0.0.1）+ 逐步截图留 7 天。
+- 报备后果：`research_browser.*` 在 AUTONOMOUS_ALLOWED，她独处上网不逐域问；改它属 policy-core 单独立单。
