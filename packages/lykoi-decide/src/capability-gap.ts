@@ -31,6 +31,15 @@
  *     `BodySchemaRegistry`（`registryActionCatalog` 尚未接线，归 M5 编排），
  *     凭空造一个判定点等于凭空造一条语义。等注册表真的接进 catalog 那一刻，
  *     发射点跟着长出来，reason 常量在这里已经预留。
+ *
+ *     **WO-FIX-LOOP-01 补记**：`not_registered` 仍然无发射点——上面这条纪律
+ *     不因本单而改变。本单新增的 `not_wired` 是另一个判定：「这个动作在
+ *     `KNOWN_ACTIONS` 词汇表里、也在 `wiredActionCatalog` 的可派发全集里，
+ *     但资源注册表里对应的 handler 是 `lykoi-kernel` 的替身」——判定源是
+ *     kernel D-1a 打的结构性标记（`isUnwiredHandler`），**不是**异常文案匹配，
+ *     发射点在 converse 的 `#buildAction`（D-1d）。`not_registered` 问的是
+ *     "图式里有没有这个器官"，`not_wired` 问的是"这个器官的资源真身接了没"——
+ *     两个不同的判定源，字面值刻意不同形，别合并。
  */
 
 /**
@@ -54,6 +63,12 @@ export const GAP_NO_EXECUTION_BRANCH = 'no_execution_branch'
  * 见文件头纪律 3。常量在此是为了 reason 值域从一开始就是一张表而不是散字符串。
  */
 export const GAP_NOT_REGISTERED = 'not_registered'
+/**
+ * 在 `KNOWN_ACTIONS` 词汇表里、也在可派发全集里，但资源注册表里对应 handler
+ * 是 kernel 的替身（D-1a 的 `isUnwiredHandler` 标记）——WO-FIX-LOOP-01 D-1e。
+ * 发射点：converse `#buildAction`（D-1d）。判定源永远是结构标记，不是异常文案。
+ */
+export const GAP_NOT_WIRED = 'not_wired'
 
 export const GAP_REASONS = [
   GAP_UNKNOWN_ACTION,
@@ -61,6 +76,7 @@ export const GAP_REASONS = [
   GAP_KIND_NOT_IN_CANDIDATES,
   GAP_NO_EXECUTION_BRANCH,
   GAP_NOT_REGISTERED,
+  GAP_NOT_WIRED,
 ] as const
 
 export type CapabilityGapReason = (typeof GAP_REASONS)[number]

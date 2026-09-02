@@ -176,6 +176,48 @@ test('G-6：预算读数直读不再另乘（快照侧已折算）——同读�
   assert.ok(buildCandidates(snap({ hourly: 1 })).some((c) => c.kind === 'explore'))
 })
 
+// --- WO-FIX-LOOP-01 D-1c：器官清单如实 → explore 候选看 wired -----------------
+
+test('D-1c：不传 opts.wired → 行为逐字节不变（三分支均照旧允许 explore）', () => {
+  // 正常分支
+  assert.ok(buildCandidates(snap()).some((c) => c.kind === 'explore'))
+  // force_inner_tending 分支本就不含 explore（SA-07），不受影响
+  assert.ok(!buildCandidates(snap({ coherence: 0.3 })).some((c) => c.kind === 'explore'))
+  // prefer_rest + 饥饿棘轮全立 → 仍候选 explore
+  const base = { load: 0.8, hunger: 0.7, hourly: 2, explore: { 断粮小时: 30 } }
+  assert.ok(buildCandidates(snap(base)).some((c) => c.kind === 'explore'))
+})
+
+test('D-1c：wired 不含 research_browser.read_text → 正常分支不再候选 explore', () => {
+  const wired = new Set(['messenger.send', 'notify.owner'])
+  const cands = buildCandidates(snap(), { wired })
+  assert.ok(!cands.some((c) => c.kind === 'explore'))
+  // 其余候选不受影响
+  assert.deepEqual(cands.map((c) => c.kind), [
+    'record_note', 'queue_notification', 'initiate_chat', 'tend_inner', 'rest', 'contemplate',
+  ])
+})
+
+test('D-1c：wired 不含 read_text → prefer_rest 分支的饥饿棘轮出口也被摘掉（不许摆假泄压口）', () => {
+  const wired = new Set(['messenger.send'])
+  const base = { load: 0.8, hunger: 0.7, hourly: 2, explore: { 断粮小时: 30 } }
+  // 不传 wired：三条件全立，棘轮应当把 explore 放回来（基线行为）
+  assert.ok(buildCandidates(snap(base)).some((c) => c.kind === 'explore'))
+  // 传了 wired 且不含 read_text：即便棘轮三条件全立，explore 仍不许出现
+  assert.ok(!buildCandidates(snap(base), { wired }).some((c) => c.kind === 'explore'))
+})
+
+test('D-1c：wired 含 research_browser.read_text → explore 候选不受影响', () => {
+  const wired = new Set(['research_browser.read_text', 'messenger.send'])
+  assert.ok(buildCandidates(snap(), { wired }).some((c) => c.kind === 'explore'))
+})
+
+test('D-1c：force_inner_tending 分支下 wired 缺 read_text 不改变其余两个候选', () => {
+  const wired = new Set(['messenger.send'])
+  const cands = buildCandidates(snap({ coherence: 0.3 }), { wired })
+  assert.deepEqual(cands.map((c) => c.kind), ['tend_inner', 'rest', 'contemplate'])
+})
+
 test('契约破坏读点：缺预算键/缺调节场变量直接抛（SA-12 直取不 fail-closed）', () => {
   const s = snap()
   delete ((s.环境 as Record<string, unknown>).预算 as Record<string, unknown>)['本小时剩余行动数']

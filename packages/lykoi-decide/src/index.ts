@@ -280,7 +280,10 @@ function requireNumber(block: Record<string, unknown>, key: string): number {
  * floor(HOURLY_ACTION_CAP × budget_multiplier) 折算过（lykoi-snapshot
  * environment 块），本层**直读、不再另乘** —— 折算点全体系恰一处。
  */
-export function buildCandidates(snap: SnapshotLike): Candidate[] {
+export function buildCandidates(
+  snap: SnapshotLike,
+  opts?: { wired?: ReadonlySet<string> },
+): Candidate[] {
   const values = snapshotValues(snap)
   const effects = cognitiveEffects(values as unknown as RegulationValues)
   const env = snap['环境']
@@ -332,6 +335,15 @@ export function buildCandidates(snap: SnapshotLike): Candidate[] {
     }
     if (notifsLeft <= 0) allowed.delete('queue_notification')
     if (proactiveLeft <= 0) allowed.delete('initiate_chat')
+  }
+
+  // WO-FIX-LOOP-01 D-1c：器官清单如实——explore 唯一依赖的动作真身是
+  // research_browser.read_text（`research_open` 走这条 dispatch）；给了 `wired`
+  // 且它不在里面，三个分支（含上面的 SA-09 饥饿棘轮）一律不许候选 explore ——
+  // 泄压出口不存在时不许摆一个假的。不给 `wired`（省略该 opts）→ 本函数行为
+  // 逐字节不变，既有调用点与测试零改动。
+  if (opts?.wired && !opts.wired.has('research_browser.read_text')) {
+    allowed.delete('explore')
   }
 
   // SA-14：contact_note 基串 + 条件后缀。
@@ -609,22 +621,80 @@ export function sanitizeAssessment(
 }
 
 /**
- * SA-20：reason 逐字引用的评估条目 —— 选择出自评估而非绕过评估的确定性证明。
- * item/meaning strip 后长度（码点）≥ GROUND_MIN_CHARS 且为 reason 的子串才算。
+ * WO-FIX-LOOP-01 D-2（SA-20b）：溯源判定第 2/3 路的规范化——NFKC → 去全部空白
+ * （含全角空格，`\s` 覆盖 U+3000）→ 去引号与常见中英文标点。逐码点处理（不用
+ * `.length`，CJK 下会与实际字数脱节）。**不动 DECIDE_SYSTEM_PROMPT**：提示词
+ * 继续要求"逐字引用(原样复制)"，这里只是放宽判她死刑的标点/空白差异。
+ */
+const GROUNDING_STRIP_PUNCT = new Set([
+  ...'『』「」“”‘’""\'\'—–-…,.;:!?、，。；：！？（）()[]【】',
+])
+
+export function normalizeForGrounding(text: string): string {
+  const nfkc = text.normalize('NFKC')
+  const out: string[] = []
+  for (const ch of nfkc) {
+    if (/\s/.test(ch)) continue
+    if (GROUNDING_STRIP_PUNCT.has(ch)) continue
+    out.push(ch)
+  }
+  return out.join('')
+}
+
+/** SA-20b 路径 3：片段引用的滑窗长度（码点）。 */
+export const GROUND_FRAGMENT_CHARS = 10
+
+/** 规范化后的 `needle` 是否以任一长度 = `size` 的连续子串出现在 `haystack` 里。 */
+function hasFragmentMatch(haystack: string, needle: string, size: number): boolean {
+  const cps = [...needle]
+  if (cps.length < size) return false
+  for (let i = 0; i + size <= cps.length; i += 1) {
+    const window = cps.slice(i, i + size).join('')
+    if (haystack.includes(window)) return true
+  }
+  return false
+}
+
+/**
+ * SA-20 → SA-20b（WO-FIX-LOOP-01 D-2）：reason 引用某评估条目的确定性证明，
+ * 四路任一命中即算——"选择出自评估而非绕过评估"这条语义本身不变，逐字包含只是
+ * 这条证明的**一种**实现，不是证明本身：
+ *
+ *  1. 现行逐字包含（原样保留，先跑，最快路径）；
+ *  2. 规范化包含：条目文本与 reason 各过 `normalizeForGrounding` 后按
+ *     ≥ `GROUND_MIN_CHARS` 逐字包含（覆盖『』/全角标点/空白差异）；
+ *  3. 片段引用：规范化条目文本任一长度 ≥ `GROUND_FRAGMENT_CHARS`(10) 码点的
+ *     连续子串出现在规范化 reason 中（覆盖"引了前半句"——数学上等价于检查
+ *     所有恰 10 码点的滑窗，因为任何更长的合格子串必然包含一个合格的 10 码点
+ *     窗口）；
+ *  4. 结构引用：`decisionConcernId` 非 null 且等于该条目的 `concern_id`
+ *     （concern_id 已过 `allowedConcerns` 闸，SA-23 不变）。
  */
 export function groundedEntries(
   assessment: readonly AssessmentEntry[],
   reason: string,
+  decisionConcernId?: number | null,
 ): AssessmentEntry[] {
+  const normalizedReason = normalizeForGrounding(reason)
   const matches: AssessmentEntry[] = []
   for (const entry of assessment) {
+    let hit = false
     for (const key of ['item', 'meaning'] as const) {
       const text = (entry[key] ?? '').trim()
-      if ([...text].length >= GROUND_MIN_CHARS && reason.includes(text)) {
-        matches.push(entry)
-        break
+      if ([...text].length < GROUND_MIN_CHARS) continue
+      if (reason.includes(text)) { hit = true; break } // 路径 1
+      const normalizedText = normalizeForGrounding(text)
+      if (normalizedText.length >= GROUND_MIN_CHARS && normalizedReason.includes(normalizedText)) {
+        hit = true; break // 路径 2
+      }
+      if (hasFragmentMatch(normalizedReason, normalizedText, GROUND_FRAGMENT_CHARS)) {
+        hit = true; break // 路径 3
       }
     }
+    if (!hit && decisionConcernId != null && entry.concern_id === decisionConcernId) {
+      hit = true // 路径 4
+    }
+    if (hit) matches.push(entry)
   }
   return matches
 }
@@ -834,6 +904,12 @@ export interface EvaluateOptions {
    * 「不知道是谁问的」与「是 wake 问的」必须分得开。
    */
   gap?: CapabilityGapContext
+  /**
+   * WO-FIX-LOOP-01 D-2b：kind 在此集合内 → 跳过第 3 道门（溯源），第 2 道
+   * （候选表）照过。converse 传 `new Set(['tool_call'])`——工具调用不是终局，
+   * 结果回到下一周期、回复仍过门；wake 不传（独处的她四路够用）。
+   */
+  groundingExempt?: ReadonlySet<string>
 }
 
 /**
@@ -921,7 +997,7 @@ export function evaluateMessage(
     }
   }
 
-  const cited = groundedEntries(assessment, reason)
+  const cited = groundedEntries(assessment, reason, decision.concern_id)
   decision.grounded_concern_ids = cited
     .filter((e) => Object.hasOwn(e, 'concern_id'))
     .map((e) => e.concern_id!)
@@ -944,7 +1020,10 @@ export function evaluateMessage(
     })
     return demoted
   }
-  if (cited.length === 0) {
+  // D-2b：豁免集合内的 kind（converse 的 tool_call）跳过第 3 道溯源门——
+  // 工具调用不是终局，结果回到下一周期、回复仍要过门。
+  const groundingExempt = opts.groundingExempt?.has(kind) === true
+  if (!groundingExempt && cited.length === 0) {
     return demote(decision, 'reason_not_grounded', { safeKind, logEvent })
   }
   return decision

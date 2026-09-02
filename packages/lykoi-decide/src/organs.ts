@@ -27,15 +27,21 @@
  * lykoi-memory/rw 的 identityBindingInventory（identity_binding_inventory
  * 对应物，channel_key 在返回形状上物理不存在）；动作轴的权威源是 kernel
  * dispatch 的 KNOWN_ACTIONS + 不可变治理核的 is_hard_gated —— M2 本波用空动作面
- * 替身占位。**M3-W1 起生产两处（wake/converse）已换真 catalog**
- * （`kernelActionCatalog`）；那个替身 M3-W4 改名为 `testDoubleActionCatalog`，
- * 只剩测试夹具一个身份（W1 TODO#5 清理）。
+ * 替身占位。那个替身 M3-W4 改名为 `testDoubleActionCatalog`，只剩测试夹具一个
+ * 身份（W1 TODO#5 清理）。
+ *
+ * **WO-FIX-LOOP-01 改口**：生产两处（wake/converse）已换
+ * `wiredActionCatalog(resources)`（`lykoi-kernel/dispatch.ts`，D-1a/D-1b）——
+ * 只列**真接得通**的动作子集，不再是 `kernelActionCatalog` 的 18 项全表。
+ * `kernelActionCatalog` 本身保留（合法动作全集语境下的旧引用与测试仍用它），
+ * 但不再是清单渲染的输入。
  *
  * **M3-W4 补记（GK-11/DK-15）**：动作轴的权威源自此还有第三层 —— 图式注册表
  * （`lykoi-kernel/schema-registry.ts`）说「哪个器官此刻真的在位」，
- * `KNOWN_ACTIONS` 只说「这个动作类型合法」。本渲染器不变，接线方 M5 把
- * `catalog:` 换成 `registryActionCatalog(...)` 即可（设计小节
- * docs/m3_schema_registry.md §6/§7）。
+ * `KNOWN_ACTIONS` 只说「这个动作类型合法」。本渲染器不变；接线方把
+ * `catalog:` 换成 `registryActionCatalog(...)`（而非 `wiredActionCatalog`）
+ * 仍归 M5（设计小节 docs/m3_schema_registry.md §6/§7）——两条机制不是同一件事，
+ * 本单只做前者（D-5 边界）。
  */
 
 export const BLOCK_HEADER = '[器官清单(只读)]'
