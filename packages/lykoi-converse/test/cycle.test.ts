@@ -155,9 +155,9 @@ test('D-1d：wiredActions 不含该动作 → #buildAction 挡在 dispatch 之�
   const unwired = lastEvent(h.events, 'u3_cycle_tool_unwired')!
   assert.deepEqual(unwired, { name: 'research_read_text', action_type: 'research_browser.read_text' })
   const gap = lastEvent(h.events, 'capability_gap')!
-  // capabilityToken 隐私闸（WANTED_TOKEN_MAX=20）：这个动作名 27 字符，过闸时
-  // 被换成 `unrecognized:len<N>`——既有纪律，不是这条新用例引入的行为。
-  assert.equal(gap.wanted, 'unrecognized:len26')
+  // 治理复核改口：wanted 记工具名（18 字，≤ WANTED_TOKEN_MAX=20 原样落），
+  // 与位点④同口径；记动作类型（26 字）只会落长度，标签就丢了。
+  assert.equal(gap.wanted, 'research_read_text')
   assert.equal(gap.reason, GAP_NOT_WIRED)
   assert.equal(gap.source, 'converse')
   const toolResult = h.llm.calls[1]!.messages.find((m) => m.role === 'tool')!

@@ -1116,7 +1116,9 @@ export class Conversation {
     if (this.#deps.wiredActions !== undefined && !this.#deps.wiredActions.has(actionType)) {
       this.#log(CYCLE_TOOL_UNWIRED_EVENT, { name, action_type: actionType })
       emitCapabilityGap(this.#deps.logEvent, {
-        wanted: actionType,
+        // 治理复核改口：记工具名（≤20 字，过 capabilityToken 标签闸原样落）而非
+        // 动作类型（`research_browser.read_text` 26 字只会落长度）——与位点④同口径。
+        wanted: name,
         reason: GAP_NOT_WIRED,
         source: 'converse',
         runId: this.#lastRunId || null,

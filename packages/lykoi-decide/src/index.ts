@@ -998,9 +998,10 @@ export function evaluateMessage(
   }
 
   const cited = groundedEntries(assessment, reason, decision.concern_id)
-  decision.grounded_concern_ids = cited
+  // D-2：四路并集 —— 同一 concern 被多条评估条目引用只记一次，升序（审计可复现）。
+  decision.grounded_concern_ids = [...new Set(cited
     .filter((e) => Object.hasOwn(e, 'concern_id'))
-    .map((e) => e.concern_id!)
+    .map((e) => e.concern_id!))].sort((a, b) => a - b)
 
   // SA-21：三条终局判定，顺序即优先级。
   if (kind === safeKind) {
