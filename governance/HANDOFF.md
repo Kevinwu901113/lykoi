@@ -512,7 +512,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
   改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
   日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
-  现行队列：**`WO-M5-ORGAN-BROWSER` 复核 PASS（经一轮修订）→ 待 Kevin 裁合 → LANDING-H**；GK-14 小单待立。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644）**；10b 探针待补两条；GK-14 小单待立。
 - **WO-M5-ORGAN-BROWSER 派工（2026-09-02，Kevin"开 M5 browser 的单"）**：spec 四决断
   Kevin 拍板——空白名单+逐域首次审批（kernel 既有 domain scope）；只读两项
   `browser.navigate/get_text` + 一次性 `research_browser.read_text`；独立 OS 用户
@@ -532,6 +532,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   独立复跑 995/984/0/11、tsc 净。服务器实核：NoNewPrivileges 下 Chrome 沙箱可用
   （AppArmor chrome profile 带 userns），无 setfacl，产线树全 other 可读。
   `wo/WO-M5-ORGAN-BROWSER/review.md`。
+- **LANDING-H 已落（2026-09-03 00:21）**：Kevin 裁合（「动手」）→ main@**482d644** → v1 在 §6 因
+  `init-state.ts` 盘上 755/索引 644 模式漂移 FATAL（G 时已有，stat 缓存掩盖）→ v2 修 npm Node 24 PATH +
+  按钉点恢复模式 → 完成。manifest 113，gate OK，宿主 active（Allow 两环回、Deny 22 段、NNP、socket
+  lykoi-browser:lykoi-browser 660、health alive），assembly up，`browser_organ_wired` 三动作，
+  **deploy_event downtime "12 分钟"（G 修的线索首次非空）**，NRestarts 0，服务器 Chrome 148 smoke
+  1/1。10b 302→私网得 `timeout`：IPAddressDeny 是 skb 丢包不是拒绝（§1 curl rc=28 同签名），
+  与拦住一致但要补直连 httpbin 对照。记录 `wo/LANDING-H-20260903/record.md`。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落
