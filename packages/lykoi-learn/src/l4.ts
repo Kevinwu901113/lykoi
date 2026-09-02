@@ -27,6 +27,7 @@ import {
   cpSlice, errStr, extractJsonOrNull, isInt, parseWeight,
   LINEAGE_PRODUCT_CONCERN, LINEAGE_PRODUCT_INSIGHT,
   LINEAGE_SOURCE_CONCERN, LINEAGE_SOURCE_EXPERIENCE, LINEAGE_SOURCE_INSIGHT,
+  RELATIONSHIP_INSIGHT_CATEGORY,
   type ChatMessage, type CompletionFn, type LogEvent, type PersonaLike, type RawRow,
 } from './shared.ts'
 import { INTEGRATION_EVERY_HOURS } from './l2.ts'
@@ -83,6 +84,18 @@ export const EXISTING_INSIGHT_LIMIT = 20 //   给她看多少条既有结论(判
  */
 export const FOCUS_INSIGHT_CATEGORY = 'focus'
 
+/**
+ * WO-PERS-OVERLAY-01（D-1）：判别式 = **关切的 kind**，不由她自陈、不加信封字段。
+ *
+ * "一条 `relationship_thread` 关切被深挖出的结论，就是相处方式层面的结论"——这是
+ * 本单立的**结构性**约定。它不完美（她可能在一条关系关切里想明白一件与那个人无关
+ * 的事），但三条替代路都更坏：给 FOCUS 信封加字段要动 SA-138 逐字钉死的提示词；
+ * 让 L2 产 relationship insights 等于新造一条生产线；owner 手写 overlay 条目撞
+ * P-D2/P-D3 的运行期人格可写面。判据放在代码里、放在**已有的**关切类型上，是唯一
+ * 不需要新造任何东西的路。
+ */
+export const RELATIONSHIP_CONCERN_KIND = 'relationship_thread'
+
 export const FOCUS_OUTCOMES = ['advanced', 'revised', 'no_progress'] as const
 
 /** L4 的 store 面（结构化接口；**刻意不含**调节场/叙事/messenger 的任何方法）。 */
@@ -116,6 +129,10 @@ export interface FocusStore extends RelevanceStore, SuggestStore {
   listFocusInsights(status: string | readonly string[] | null): RawRow[]
   /** WO-MEM-DECAY-01（D-2）：衰减信号的取数口——最后一行的 cycle_id = 上次触达。 */
   focusInsightHistory(insightId?: number | null): RawRow[]
+  /** WO-PERS-OVERLAY-01（D-3）：KEY 推导的兜底源——现体能与她对话的只有 owner。 */
+  ownerPrimaryUserId(): string | null
+  /** WO-PERS-OVERLAY-01（D-3）：给一条 relationship 结论登记"这是关于谁的"。 */
+  scopeInsightSubject(insightId: number, subjectUserId: string): boolean
 }
 
 // === 触发（SA-118） ==========================================================
@@ -385,6 +402,12 @@ export interface FocusSummary {
   promoted: number[]
   /** WO-MEM-DECAY-01（D-6）：本周期因久未触达而降 dormant 的 insight_id。 */
   retired: number[]
+  /**
+   * WO-PERS-OVERLAY-01（D-9）：本周期的结论若键控到了某个人，这里是那个人的
+   * user id；否则 null（普通 focus 结论、或 D-3 兜底路的 unkeyed）。与 `retired`
+   * 同为账面字段——让周期摘要能回答"这条结论是关于谁的"。
+   */
+  overlay_subject_user_id: string | null
   derived_concern_id: number | null
   cooldown_started: boolean
   release_suggested: boolean
@@ -412,6 +435,7 @@ export async function runFocusCycle(deps: FocusDeps): Promise<FocusSummary> {
     selection_reason: null, retrieved: 0, llm_calls: 0,
     insight_id: null, insight_is_new: false, lineage_rows: 0,
     contested: [], revised: [], promoted: [], retired: [],
+    overlay_subject_user_id: null,
     derived_concern_id: null, cooldown_started: false,
     release_suggested: false, suggestion_id: null,
     permission_suggestion_id: null, note: '',
@@ -647,13 +671,43 @@ function applyConclusion(
     return false
   }
 
-  const insightId = store.upsertInsight(FOCUS_INSIGHT_CATEGORY, envelope.conclusion, { now })
+  // WO-PERS-OVERLAY-01（D-1）：类别由关切的 kind 决定，不由她自陈。
+  const isRelationship = concern.kind === RELATIONSHIP_CONCERN_KIND
+  // D-3 的 KEY 推导序，两步且**只有**两步：关切自带的实体轴优先（那是这条关切
+  // 本来就登记好的"关于谁"），缺席时退到 owner_primary（现体能与她对话的只有
+  // owner）。两者皆 null 时不猜——见下面的 unkeyed 兜底。
+  const subjectUserId = isRelationship
+    ? ((concern.subject_user_id as string | null | undefined) ?? store.ownerPrimaryUserId())
+    : null
+  // 关键的一步：**没有键就不当 relationship 落**。宁可少一条 overlay，也不凭空
+  // 指一个人——一条没有"对谁"的相处方式结论，装配到谁头上都是错的。
+  const keyed = isRelationship && subjectUserId !== null
+  const category = keyed ? RELATIONSHIP_INSIGHT_CATEGORY : FOCUS_INSIGHT_CATEGORY
+
+  const insightId = store.upsertInsight(category, envelope.conclusion, { now })
   summary.insight_id = insightId
   const isNew = store.recordFocusInsight(insightId, {
     cycleId, status: 'shadow',
     reason: `cycle ${cycleId} / concern ${concern.id}`, now,
   })
   summary.insight_is_new = isNew
+
+  if (keyed) {
+    // 登记实体轴。**成功写入或已存在都发事件**（D-6）：重申一条已键控的结论时
+    // scope 是空操作，但"这一周期又落了一条关于这个人的结论"仍然是发生了的事。
+    store.scopeInsightSubject(insightId, subjectUserId)
+    summary.overlay_subject_user_id = subjectUserId
+    deps.logEvent('relationship_overlay_keyed', {
+      insight_id: insightId, concern_id: concern.id as number,
+      cycle_id: cycleId, subject_user_id: subjectUserId,
+    })
+  } else if (isRelationship) {
+    // D-3 兜底路：是关系关切，但既没有关切实体轴也没有 owner_primary（例如 owner
+    // 那行被归档）。结论照落，只是落成普通 focus 结论，不进任何人的 overlay。
+    deps.logEvent('relationship_overlay_unkeyed', {
+      insight_id: insightId, concern_id: concern.id as number, cycle_id: cycleId,
+    })
+  }
 
   const sources: [string, string | number][] = [[LINEAGE_SOURCE_CONCERN, concern.id as number]]
   for (const m of materials) {
