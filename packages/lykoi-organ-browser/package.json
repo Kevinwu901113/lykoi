@@ -20,6 +20,7 @@
     "@deepseek-ai/schemastery": "3.18.1",
     "lykoi-adapter-telegram": "0.1.0",
     "lykoi-audit": "0.1.0",
-    "lykoi-kernel": "0.1.0"
+    "lykoi-kernel": "0.1.0",
+    "playwright-core": "1.60.0"
   }
 }
