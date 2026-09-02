@@ -112,3 +112,11 @@ export const LINEAGE_PRODUCT_SUGGESTION = 'rule_suggestion'
 export const LINEAGE_SOURCE_EXPERIENCE = 'experience'
 export const LINEAGE_SOURCE_CONCERN = 'concern'
 export const LINEAGE_SOURCE_INSIGHT = 'insight'
+
+/**
+ * WO-PERS-OVERLAY-01（D-2 修订版）：按对话者键控的相处方式结论的 insights 类别。
+ * **正本在 `lykoi-memory/src/rw.ts`**；本包持副本的理由与上面六个血缘常量完全相同
+ * ——守住 learn 的 import 面（boundary.test.ts:44-53："learn 的 store 面只能是注入
+ * 的结构化接口"）。两处逐字相等由 boundary.test.ts 的副本对拍段断言，漂移不可能沉默。
+ */
+export const RELATIONSHIP_INSIGHT_CATEGORY = 'relationship'

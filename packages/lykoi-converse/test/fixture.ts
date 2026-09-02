@@ -97,6 +97,46 @@ export function seedPromotedInsight(path: string, content: string, status = 'act
   }
 }
 
+/**
+ * WO-PERS-OVERLAY-01：一条**键控到某个人**的相处方式结论（insights category
+ * relationship + focus_insight_state + memory_scopes 实体轴）。
+ * 第二个人须是 group_member —— owner_primary 有部分唯一索引，只能有一行。
+ */
+export function seedRelationshipInsight(
+  path: string, content: string,
+  opts: { subject?: string; status?: string } = {},
+): number {
+  const subject = opts.subject ?? 'user_001'
+  const db = rawOpen(path)
+  try {
+    const ts = formatPyIso(T0)
+    if (subject !== 'user_001') {
+      db.prepare(
+        "INSERT OR IGNORE INTO users (id, display_name, role, created_at) "
+        + "VALUES (?, ?, 'group_member', ?)",
+      ).run(subject, subject, ts)
+    }
+    const info = db.prepare(
+      "INSERT INTO insights (created, updated, category, content) "
+      + "VALUES (?, ?, 'relationship', ?)",
+    ).run(ts, ts, content)
+    const id = Number(info.lastInsertRowid)
+    const cycle = db.prepare('INSERT INTO focus_cycles (started_at) VALUES (?)').run(ts)
+    db.prepare(
+      `INSERT INTO focus_insight_state (insight_id, status, created_cycle_id, updated_cycle_id, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(id, opts.status ?? 'active',
+      Number(cycle.lastInsertRowid), Number(cycle.lastInsertRowid), ts)
+    db.prepare(
+      "INSERT INTO memory_scopes (table_name, row_id, subject_user_id, origin_context, visibility, sensitivity) "
+      + "VALUES ('insights', ?, ?, NULL, 'private', 'content')",
+    ).run(id, subject)
+    return id
+  } finally {
+    db.close()
+  }
+}
+
 /** 播一段可召回的档案经验（experiences + experience_class + memory_scopes）。 */
 export function seedArchivedExperience(path: string, content: string, ts: Date): void {
   const db = rawOpen(path)

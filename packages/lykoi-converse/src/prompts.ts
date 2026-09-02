@@ -63,6 +63,15 @@ export const CYCLE_CLOSING_NOTE
 /** 转正结论小标题（conversation.py:585；含尾 \n；chars=27 sha=48ddd6b8…）。 */
 export const PROMOTED_INSIGHTS_HEADER = '你自己想明白的事(专注思考里得出、已经站住的结论):\n'
 
+/**
+ * WO-PERS-OVERLAY-01（D-5）：relationship overlay 小标题（含尾 \n；chars=38
+ * sha=a0553be7…）。与上一条的分工是"对谁"：上一条是她对世界的结论，这一条是她和
+ * **眼前这个人**相处的方式——只有键到当前对话者的那些进得来。
+ * 位置在转正结论段之后，同属人格块的慢变段位（随夜间印记重建，不进每轮易变尾部）。
+ */
+export const RELATIONSHIP_OVERLAY_HEADER
+  = '你和眼前这个人相处的方式(专注思考里得出、已经站住、只关于这个人的结论):\n'
+
 /** BLOCK_BACKFILL header（conversation.py:611；chars=35 sha=fbd7132d…）。 */
 export const BACKFILL_HEADER = '[重启回灌：以下是重启前最近的对话记录（自旧到新），帮助你接续记忆。]'
 

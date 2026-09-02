@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import {
   LINEAGE_PRODUCT_CONCERN, LINEAGE_PRODUCT_INSIGHT, LINEAGE_PRODUCT_SUGGESTION,
   LINEAGE_SOURCE_CONCERN, LINEAGE_SOURCE_EXPERIENCE, LINEAGE_SOURCE_INSIGHT,
-  pyIso,
+  RELATIONSHIP_INSIGHT_CATEGORY, pyIso,
 } from '../src/shared.ts'
 import * as rw from 'lykoi-memory/rw'
 
@@ -110,6 +110,8 @@ test('副本对拍：shared 的血缘词汇与 pyIso 格式与 lykoi-memory 导�
   assert.equal(LINEAGE_SOURCE_EXPERIENCE, rw.LINEAGE_SOURCE_EXPERIENCE)
   assert.equal(LINEAGE_SOURCE_CONCERN, rw.LINEAGE_SOURCE_CONCERN)
   assert.equal(LINEAGE_SOURCE_INSIGHT, rw.LINEAGE_SOURCE_INSIGHT)
+  // WO-PERS-OVERLAY-01（D-2 修订版）：overlay 类别常量同一范式（正本在 rw.ts）。
+  assert.equal(RELATIONSHIP_INSIGHT_CATEGORY, rw.RELATIONSHIP_INSIGHT_CATEGORY)
   for (const d of [
     new Date('2026-08-24T10:00:00Z'),
     new Date('2026-08-24T10:00:00.007Z'),

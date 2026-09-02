@@ -10,11 +10,13 @@ import { join } from 'node:path'
 import { formatPyIso } from 'lykoi-memory/rw'
 import {
   BACKFILL_HEADER, CONCERNS_HEADER, ContextBudgetError, MEMORIES_HEADER,
+  PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
   THOUGHTS_HEADER, UNDELIVERED_HEADER, estimateTokens, stripMarkup,
 } from '../src/index.ts'
 import {
   envelope, eventNames, lastEvent, makeConversation, makeStore, MemoryUndelivered,
-  rawOpen, seedArchivedExperience, seedBinding, seedPromotedInsight, T0,
+  rawOpen, seedArchivedExperience, seedBinding, seedPromotedInsight,
+  seedRelationshipInsight, T0,
 } from './fixture.ts'
 
 test('空态零字节（S-26）：干净 fixture → 只有 persona / history / time 三块', () => {
@@ -67,6 +69,100 @@ test('persona 头分层：内核(1f5960b7 的那份)→重启叙事→纪律→a
   assert.ok(content.includes('你自己想明白的事(专注思考里得出、已经站住的结论):\n- 我在深夜想事情更清楚'))
   assert.equal(content.includes('还没站住的结论'), false, 'S-34：shadow 一条都不进上下文')
   assert.equal(lastEvent(h.events, 'promoted_insights_injected')?.count, 1)
+})
+
+// --- WO-PERS-OVERLAY-01（D-5/D-6）：relationship overlay 段 ---------------------
+
+test('⑨ overlay 段：顺序在转正结论**之后**；只有键到眼前这个人的 active 行进得来', async () => {
+  const prepared = makeStore()
+  seedPromotedInsight(prepared.path, '我在深夜想事情更清楚')
+  seedRelationshipInsight(prepared.path, '他忙起来就不爱说话，那不是针对我')
+  seedRelationshipInsight(prepared.path, '和他说话不用铺垫')
+  // 影子期未过的 overlay 行：一条都不进（与 S-34 同一道影子门）。
+  seedRelationshipInsight(prepared.path, '还没站住的相处结论', { status: 'shadow' })
+  // 键到第二个人的 active 行：不是眼前这个人的脸。
+  seedRelationshipInsight(prepared.path, '和另一个人的相处方式', { subject: 'user_002' })
+
+  const h = makeConversation({ prepared })
+  h.llm.push({ content: envelope() })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const content = h.llm.calls[0]!.messages[0]!.content!
+
+  const promotedAt = content.indexOf(PROMOTED_INSIGHTS_HEADER)
+  const overlayAt = content.indexOf(RELATIONSHIP_OVERLAY_HEADER)
+  assert.ok(promotedAt > 0, '转正结论段在')
+  assert.ok(overlayAt > promotedAt, 'overlay 段接在转正结论段之后')
+
+  assert.equal(
+    content.slice(overlayAt),
+    RELATIONSHIP_OVERLAY_HEADER
+    + '- 他忙起来就不爱说话，那不是针对我\n- 和他说话不用铺垫',
+    'overlay 段逐字节：头部 + 每行 `- {content}`，按 insight_id 升序',
+  )
+  assert.equal(content.includes('还没站住的相处结论'), false, 'shadow 的 overlay 行不进')
+  assert.equal(content.includes('和另一个人的相处方式'), false, '别人的脸不进')
+
+  const injected = lastEvent(h.events, 'relationship_overlay_injected')!
+  assert.deepEqual(
+    { count: injected.count, subject_user_id: injected.subject_user_id },
+    { count: 2, subject_user_id: 'user_001' },
+  )
+})
+
+test('⑩ 空态零字节：无 overlay 行时人格块逐字节不含头部，promoted 段行为不变', async () => {
+  const prepared = makeStore()
+  seedPromotedInsight(prepared.path, '我在深夜想事情更清楚')
+  // 只有别人的行 + 自己的影子行 —— 对眼前这个人而言就是"没有"。
+  seedRelationshipInsight(prepared.path, '和另一个人的相处方式', { subject: 'user_002' })
+  seedRelationshipInsight(prepared.path, '还没站住的相处结论', { status: 'shadow' })
+
+  const h = makeConversation({ prepared })
+  h.llm.push({ content: envelope() })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const content = h.llm.calls[0]!.messages[0]!.content!
+
+  assert.equal(content.includes(RELATIONSHIP_OVERLAY_HEADER), false, '连标题都不出现')
+  assert.ok(
+    content.endsWith(PROMOTED_INSIGHTS_HEADER + '- 我在深夜想事情更清楚'),
+    '人格块仍以转正结论段收尾——逐字节回到本单之前的形态，没有多出任何分隔',
+  )
+  assert.equal(lastEvent(h.events, 'promoted_insights_injected')?.count, 1, 'promoted 段不变')
+  assert.equal(eventNames(h.events).includes('relationship_overlay_injected'), false)
+})
+
+test('D-5 失败口径：promotedRelationshipInsights 抛 → 一条事件 + 零字节，不毁整轮', async () => {
+  const prepared = makeStore()
+  seedPromotedInsight(prepared.path, '我在深夜想事情更清楚')
+  // 在实例上挂一个同名自有属性遮蔽原型方法——Proxy 会让别的方法读不到 #db 私有域。
+  Object.defineProperty(prepared.store, 'promotedRelationshipInsights', {
+    configurable: true,
+    value: () => { throw new TypeError('overlay 读挂了') },
+  })
+  const h = makeConversation({ prepared })
+  h.llm.push({ content: envelope() })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const content = h.llm.calls[0]!.messages[0]!.content!
+
+  assert.equal(content.includes(RELATIONSHIP_OVERLAY_HEADER), false, '读不到就是今天不叠')
+  assert.equal(lastEvent(h.events, 'relationship_overlay_read_failed')?.error_type, 'TypeError')
+  assert.ok(content.endsWith(PROMOTED_INSIGHTS_HEADER + '- 我在深夜想事情更清楚'))
+})
+
+test('D-5：owner 未登记（subject 为 null）→ 零字节且零读库', async () => {
+  const prepared = makeStore()
+  const db = rawOpen(prepared.path)
+  db.prepare("UPDATE users SET status = 'archived' WHERE role = 'owner_primary'").run()
+  db.close()
+  seedPromotedInsight(prepared.path, '我在深夜想事情更清楚')
+
+  const h = makeConversation({ prepared })
+  h.llm.push({ content: envelope() })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const content = h.llm.calls[0]!.messages[0]!.content!
+
+  assert.equal(content.includes(RELATIONSHIP_OVERLAY_HEADER), false)
+  assert.equal(eventNames(h.events).includes('relationship_overlay_injected'), false)
+  assert.equal(eventNames(h.events).includes('relationship_overlay_read_failed'), false)
 })
 
 test('concerns 块：weight DESC 前 5、描述折叠空白裁 60 字、lit_count 不进渲染', async () => {

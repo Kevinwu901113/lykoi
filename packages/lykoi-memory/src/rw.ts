@@ -278,6 +278,26 @@ export const FOCUS_OUTCOME_ENUM: readonly string[]
 export const FOCUS_INSIGHT_STATUS_ENUM: readonly string[]
   = ['shadow', 'active', 'contested', 'revised', 'withdrawn', 'dormant']
 
+/**
+ * WO-PERS-OVERLAY-01（D-2）：`insights.category` 的第四个值——**按对话者键控**的
+ * 相处方式结论（L4 从 `relationship_thread` 关切深挖出来的那些）。
+ *
+ * 它与 `focus` 的区别只有一条：`focus` 是"她自己想明白的事"，对谁都成立；
+ * `relationship` 是"她和**这个人**相处的方式"，脱开那个人就没有意义——所以它必须
+ * 带一个键（`memory_scopes` 实体轴，见 scopeInsightSubject），而 `focus` 不带。
+ * 两者共用同一套状态机（`focus_insight_state` 六态、影子门、衰减、点亮）：多一个
+ * 维度不该多一套骨架。分流只发生在**读口**（promotedFocusInsights /
+ * promotedRelationshipInsights），因此零 schema 变更。
+ *
+ * 与 `FOCUS_INSIGHT_CATEGORY` 同样**由代码钉死、不由 LLM 选**（判别式是关切的
+ * kind）。`PERSONA_PROJECTION_CATEGORIES`（persona/preference）不含它：overlay
+ * 不进 decide 共用投影，只进对话路径——与转正结论同一口径。
+ *
+ * 正本在此。`lykoi-learn/src/shared.ts` 持一份副本以守住 learn 的 import 面
+ * （与 `LINEAGE_*` 六常量同一范式），逐字相等由 boundary.test.ts 断言。
+ */
+export const RELATIONSHIP_INSIGHT_CATEGORY = 'relationship'
+
 // SA-131 血缘的产物/原料类型词汇（store.py:1706-1712 逐字）。**不是 CHECK 约束**
 // ——表是多态的，词汇钉死在 schema 里等于每加一类产物就要一次迁移。对齐面在此。
 export const LINEAGE_PRODUCT_INSIGHT = 'insight'
@@ -1839,6 +1859,37 @@ export class ReadWriteMemory {
   }
 
   /**
+   * WO-PERS-OVERLAY-01（D-3）：给一条 insight 登记实体轴——"这一行是关于谁的"。
+   * 返回 true = 这一次真写进去了；false = 主键 (table_name,row_id) 已存在，原样不动。
+   *
+   * **这是 TS 体第一个 `memory_scopes` 的运行期写者。** 在此之前该表只有 Python 期
+   * 的回填数据与四处读（检索实体轴、focusCandidates 联查），STATE-CONTRACT 报告
+   * 原注"只回填，无运行时写者"到此为止。写面**只限 insights 行**：其余表的实体轴
+   * 谁来写、按什么口径写，是另外的问题，不在这一单里顺手决定。
+   *
+   * `INSERT OR IGNORE` 而不是 upsert，语义是**键在首次落地时钉死**：同一条结论被
+   * 重申、被降 dormant 又被点亮，键都不动。一条相处方式结论中途改认对象，那不是
+   * 同一条结论，该是新的一条——让它悄悄改键，等于允许历史被重写。
+   *
+   * 形状按 P2-01：`origin_context` NULL（结论不属于任何一次具体对话，它是跨对话
+   * 沉淀出来的）、`visibility` private、`sensitivity` content。
+   *
+   * FK `subject_user_id REFERENCES users(id)` 在 `PRAGMA foreign_keys = ON` 下真的
+   * 生效：传一个不存在的 user id 会抛，而不是静默落一行指向空气的键。调用方要么
+   * 给一个真实的键，要么走"不键控"的那条路（见 L4 的 unkeyed 分支），没有第三条。
+   */
+  scopeInsightSubject(insightId: number, subjectUserId: string): boolean {
+    return this.#tx(() => {
+      const info = this.#db.prepare(
+        `INSERT OR IGNORE INTO memory_scopes
+           (table_name, row_id, subject_user_id, origin_context, visibility, sensitivity)
+         VALUES ('insights', ?, ?, NULL, 'private', 'content')`,
+      ).run(insightId, subjectUserId)
+      return Number(info.changes) > 0
+    })
+  }
+
+  /**
    * L3 检索的唯一 SQL（relevance._candidate_rows 对应物，relevance.py:327-390 逐字）：
    * 硬过滤（实体/时间）+ 关键词 OR 预筛，拉回候选行。**只读，一条 SELECT。**
    * "怎么算相关"不在这里——SQL 只负责把全表缩到候选集（预筛比打分宽），命中
@@ -2173,9 +2224,44 @@ export class ReadWriteMemory {
    * SA-134（store.py:2064-2071 逐字）：转正的结论——**这是层 2 产物唯一的对外
    * 消费口**。将来接下游时接的是这个函数，而不是 listFocusInsights 的全集——
    * 那样影子期就成了摆设。
+   *
+   * WO-PERS-OVERLAY-01（D-4）语义收窄：**排除 relationship 类**——那些是按对话者
+   * 键控的相处方式条目，走 promotedRelationshipInsights 的另一口。两个读口互斥、
+   * 并集 = 本函数收窄前的结果集（同为 status active 的全部行）。
+   *
+   * LEFT JOIN 下 `i.category` 可能为 NULL（状态行存在而 insights 那行不见了的
+   * 孤儿——正常路径产不出，但读口不该因此漏行），`COALESCE(i.category,'')` 让这类
+   * 行**仍归通用层**：宁可多给一条来历不明的，也不要让它两个口都掉出去。
    */
   promotedFocusInsights(): RawRow[] {
-    return this.listFocusInsights('active')
+    return this.#db.prepare(
+      `SELECT s.*, i.content AS content, i.category AS category
+         FROM focus_insight_state AS s
+         LEFT JOIN insights AS i ON i.id = s.insight_id
+        WHERE s.status = 'active' AND COALESCE(i.category, '') <> ?
+        ORDER BY s.insight_id`,
+    ).all(RELATIONSHIP_INSIGHT_CATEGORY) as RawRow[]
+  }
+
+  /**
+   * WO-PERS-OVERLAY-01（D-4）：**眼前这个人**的相处方式条目——status `active`
+   * ∧ category `relationship` ∧ 实体轴键 = subjectUserId。
+   *
+   * 三个条件缺一不可，而第三个正是这一单的全部意义："不同的人不同的脸"在这里是
+   * 一条 JOIN 而不是一句约定——键到别人的行**查不出来**，不是查出来再过滤。
+   * 内联 JOIN（不是 LEFT）：没登记实体轴的 relationship 行不属于任何人，两个读口
+   * 都不给——一条没有"对谁"的相处方式条目是坏数据，不该被装配进任何人的上下文。
+   */
+  promotedRelationshipInsights(subjectUserId: string): RawRow[] {
+    return this.#db.prepare(
+      `SELECT s.*, i.content AS content, i.category AS category
+         FROM focus_insight_state AS s
+         JOIN insights AS i ON i.id = s.insight_id
+         JOIN memory_scopes AS ms
+           ON ms.table_name = 'insights' AND ms.row_id = s.insight_id
+        WHERE s.status = 'active' AND i.category = ? AND ms.subject_user_id = ?
+        ORDER BY s.insight_id`,
+    ).all(RELATIONSHIP_INSIGHT_CATEGORY, subjectUserId) as RawRow[]
   }
 
   /**
