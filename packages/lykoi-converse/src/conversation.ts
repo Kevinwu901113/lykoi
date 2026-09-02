@@ -62,7 +62,8 @@ import {
 } from './hygiene.ts'
 import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
-  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER, SUMMARIZE_SYSTEM_PROMPT,
+  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
+  SUMMARIZE_SYSTEM_PROMPT,
   SUMMARY_SKELETON, SYSTEM_PROMPT, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt,
 } from './prompts.ts'
 
@@ -133,6 +134,8 @@ export interface ConverseStore {
   getInsights(category: string | null): { content: string }[]
   /** S-34/W4#2：转正结论唯一消费口 —— 不是 listFocusInsights 全集。 */
   promotedFocusInsights(): RawRowLike[]
+  /** WO-PERS-OVERLAY-01（D-4/D-5）：键到**这个人**的相处方式条目。 */
+  promotedRelationshipInsights(subjectUserId: string): RawRowLike[]
   getIntegrationState(): RawRowLike
   currentFocusCycleId(): number
   ownerPrimaryUserId(): string | null
@@ -402,6 +405,8 @@ export class Conversation {
     if (acquired) parts.push(acquired)
     const promoted = this.#promotedInsightsSection()
     if (promoted) parts.push(promoted)
+    const overlay = this.#relationshipOverlaySection()
+    if (overlay) parts.push(overlay)
     return { role: 'system', content: parts.join('\n\n') }
   }
 
@@ -429,6 +434,44 @@ export class Conversation {
     if (lines.length === 0) return '' // 判据⑧a：空态零字节
     this.#log('promoted_insights_injected', { count: lines.length })
     return PROMOTED_INSIGHTS_HEADER + lines.join('\n')
+  }
+
+  /**
+   * WO-PERS-OVERLAY-01（D-5）：慢变层的"对谁"维度——她和**眼前这个人**相处的方式。
+   *
+   * 与上一段的分工不是重要性而是作用域：转正结论对谁都成立，overlay 条目脱开那个人
+   * 就没有意义。所以这里多一个 subject 参数，而那里没有。
+   *
+   * subject = `store.ownerPrimaryUserId()`：`Conversation` 是**单实例单对话者**
+   * （converse 对所有绑定发信人走同一个实例的 send，本身不知道本轮是谁），而现体
+   * 能与她对话的只有 owner。给 send 加对话者参数是多对话者那一单的结构改动，不在
+   * 这里顺手做——真做了也只会是一个永远等于 owner 的参数。
+   *
+   * subject 为 null（owner 未登记）或读回为空 → **零字节**，与转正结论段同口径：
+   * 没有内容时连标题都不出现，人格块逐字节回到本单之前的形态。
+   * 读失败 → 一条事件 + 零字节：读不到就是这一层今天不叠，不是整轮对话失败。
+   */
+  #relationshipOverlaySection(): string {
+    const subject = this.#deps.store.ownerPrimaryUserId()
+    if (subject === null) return ''
+    let rows: RawRowLike[]
+    try {
+      rows = this.#deps.store.promotedRelationshipInsights(subject)
+    } catch (exc) {
+      this.#log('relationship_overlay_read_failed', {
+        error_type: exc instanceof Error ? exc.name : 'Error',
+      })
+      return ''
+    }
+    const lines = rows
+      .map((row) => String(row.content ?? '').trim())
+      .filter((content) => content.length > 0)
+      .map((content) => `- ${content}`)
+    if (lines.length === 0) return ''
+    this.#log('relationship_overlay_injected', {
+      count: lines.length, subject_user_id: subject,
+    })
+    return RELATIONSHIP_OVERLAY_HEADER + lines.join('\n')
   }
 
   /** 重启回灌：最近的 history(conversation) 行（自旧到新），每侧裁 400 字。 */

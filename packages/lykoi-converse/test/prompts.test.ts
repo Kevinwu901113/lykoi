@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto'
 import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
   ENVELOPE_SYSTEM_PROMPT, MEMORIES_HEADER, MEMORIES_LINE_SKELETON, NARRATIVE_HEADER,
-  PROMOTED_INSIGHTS_HEADER, SUMMARIZE_SYSTEM_PROMPT, SUMMARY_SKELETON, SYSTEM_PROMPT,
+  PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
+  SUMMARIZE_SYSTEM_PROMPT, SUMMARY_SKELETON, SYSTEM_PROMPT,
   THOUGHTS_HEADER, THOUGHTS_LINE_SKELETON, TIME_SKELETON, UNDELIVERED_HEADER,
   UNDELIVERED_LINE_SKELETON, envelopeSystemPrompt, envelopeToolNames,
   ASK_FALLBACK, DELEGATED_ASK_FIELDS,
@@ -32,7 +33,7 @@ test('§3.2 A 表：系统提示词逐字（chars + sha256 全等）', () => {
   assert.equal(sha(CYCLE_CLOSING_NOTE), '575ffe30c167b2e111789deee1a4702ffe93bc0384e381ff9d78b35eaf06a36a')
 })
 
-test('§3.2 B 表：装配块头部/骨架字面量逐字（13 条 sha 全等）', () => {
+test('§3.2 B 表：装配块头部/骨架字面量逐字（14 条 sha 全等）', () => {
   const table: [string, number, string][] = [
     [PROMOTED_INSIGHTS_HEADER, 27, '48ddd6b81fdb4d597f65cdd658202667b1d7ef052945f6e20f20ced6df76ab29'],
     [BACKFILL_HEADER, 35, 'fbd7132d2046bca9c4f2f12fb33dc59347ef21876782e4de01a6ad23e6bf4777'],
@@ -47,6 +48,9 @@ test('§3.2 B 表：装配块头部/骨架字面量逐字（13 条 sha 全等）
     [UNDELIVERED_HEADER, 68, '658c95ff5e9b49d65e43a54b4ae37e60bbdccfe0ad60b1b215d1233edd55c360'],
     [UNDELIVERED_LINE_SKELETON, 11, '80e0c2ec4f0cbc683f3cf139290de769010b731fb6d4aca193cb56750a1dbf5a'],
     [CONTEXT_BUDGET_SKELETON, 33, '584ca3b4ec76336911cd041626bf185889dcc27c820fb4a2b8941e7f2b2f2ead'],
+    // WO-PERS-OVERLAY-01（D-5）：本单唯一新增的提示词面。
+    [RELATIONSHIP_OVERLAY_HEADER, 38,
+      'a0553be7100bd34013ac54ac67b11e3628beb5d0b3e48c3f5f9ac2b2b674c22e'],
   ]
   for (const [text, chars, expected] of table) {
     assert.equal(cps(text), chars, `chars mismatch for ${expected.slice(0, 8)}`)
