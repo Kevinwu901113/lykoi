@@ -552,13 +552,26 @@ journal 里起来的样子（出处：`profile/index.prod.ts` 末尾两行）：
    `api.telegram.org` 直连不通就要一个自己的 http/https 代理（`§11`）。
 7. **感知侧的 sidecar 没有**：`heart.salienceDb` 留空 = 纯基线节律。
    `/home/lykoi/state/salience_shadow.db` 由一个本仓库之外的显著性 sidecar 写。
-8. **器官真身是显式替身**：`browser` / `terminal` / `research_browser` 现在是
-   「大声抛」的占位实现，真身排在 M5（`m4_handoff.md` §E）。
+8. **器官真身多数仍是显式替身**：`terminal.exec`、`browser.click/type/screenshot`、
+   `research_browser.open/extract_links/screenshot` 是「大声抛」的占位实现。
+   已接真身的是浏览器器官 v1 的三项 —— `browser.navigate`、`browser.get_text`、
+   `research_browser.read_text`（WO-M5-ORGAN-BROWSER），它们需要独立 OS 用户
+   `lykoi-browser` 与 `lykoi-browser.service` 的 root 供给，落地见
+   `docs/browser_organ.md`；供给没到位时这三项返回 `browser_host_unreachable`，
+   大脑照常起。其余真身排在 M5 后续（`m4_handoff.md` §E）。
 9. **备份与灾备**：本仓库不提供备份脚本。参考做法见
    `governance/reports/runbook_disaster_recovery.md`；最小形态是**停服务之后**
    （停稳 = 一致快照）打包 `/home/lykoi/state`：
    `tar -C /home/lykoi -czf backup-$(date +%Y%m%dT%H%M%S).tar.gz state`
    （出处：`WO-M4-W2/paste-2-switch.sh` §2）。
+10. **浏览器器官的 profile 另算一项备份**（WO-M5-ORGAN-BROWSER D-8）：
+   `/home/lykoi-browser/profile` 存的是她那双手的登录态，不在 `/home/lykoi/state`
+   里。同样**先停服务再打包**，且停的是浏览器宿主那个单元：
+   `systemctl stop lykoi-browser.service`（保持 enabled，不要 disable）→
+   `tar -C /home/lykoi-browser -czf browser-profile-$(date +%Y%m%dT%H%M%SZ).tar.gz profile`
+   → `systemctl start lykoi-browser.service`。运行中的 profile 不是一致快照。
+   大脑从不读这个目录；截图目录 `data/` 不备份（可再生，7 天自清）。
+   落地手册见 `docs/browser_organ.md` §6。
 
 ---
 

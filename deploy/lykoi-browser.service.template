@@ -1,0 +1,62 @@
+# Lykoi 浏览器器官宿主 · 模板（占位符形式，不含任何真值）
+#
+# 用法：
+#   install -o root -g root -m 644 deploy/lykoi-browser.service.template \
+#           /etc/systemd/system/lykoi-browser.service
+#   把 <NODE_BIN> 换成 Node 24 绝对路径（例：/opt/node-v24.18.0/bin/node）
+#   systemctl daemon-reload && systemctl enable --now lykoi-browser.service
+#
+# 逐条落地命令见 docs/browser_organ.md §2。
+#
+# 为什么是独立 unit + 独立 OS 用户（WO-M5-ORGAN-BROWSER D-7）：
+#   Chrome 是本装配里唯一执行外部代码的进程。它与她的 state 库、审计链、
+#   secrets 之间**必须隔一层 OS 边界** —— 不是"最好隔"，是 v1 的准入条件。
+#   lykoi-browser 用户读不到 /home/lykoi 的任何东西；大脑读不到
+#   /home/lykoi-browser/profile（她的登录态在里面，那是 Kevin 的东西不是她的记忆）。
+#   两个进程之间只有一条 socket，上面只跑四个 op。
+#
+# env 面（GK-6）：本 unit **一个 Environment= 都没有**，宿主自己也零 env 读取。
+#   全部配置经 argv 的 --config 指到 /etc/lykoi-browser/host.json（root:root 644）。
+#
+# 停机纪律（D-8 / LANDING-H）：备份 /home/lykoi-browser/profile 之前必须
+#   `systemctl stop lykoi-browser.service`（**保持 enabled** —— disable 会卸载单元、
+#   丢掉 InactiveEnterTimestamp，LANDING-G 实证）。运行中的 profile 不是一致快照。
+
+[Unit]
+Description=Lykoi browser organ host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lykoi-browser
+Group=lykoi-browser
+WorkingDirectory=/home/lykoi-browser
+ExecStart=<NODE_BIN> /home/lykoi/projects/lykoi-cordis/packages/lykoi-organ-browser/src/host.ts --config /etc/lykoi-browser/host.json
+Restart=on-failure
+RestartSec=5
+
+# socket 落在 /run/lykoi-browser（systemd 建、按需清）。组给 lykoi：大脑那一侧
+# 以 lykoi 身份连它，0660 于是刚好够"能连"而不够"能进家目录"。
+RuntimeDirectory=lykoi-browser
+RuntimeDirectoryMode=0750
+SupplementaryGroups=lykoi
+
+# 资源闸：一个失控的页面不许把整机拖垮。
+CPUQuota=200%
+MemoryMax=2G
+TasksMax=512
+
+# 隔离面。ReadWritePaths 只开家目录（profile + 截图）与 socket 目录。
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/lykoi-browser
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+
+[Install]
+WantedBy=multi-user.target

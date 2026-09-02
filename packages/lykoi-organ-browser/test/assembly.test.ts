@@ -18,6 +18,7 @@ import test from 'node:test'
 import { BodySchemaRegistry, KNOWN_ACTION_LIST, wiredActionCatalog } from 'lykoi-kernel'
 import { OrganInventoryCache } from 'lykoi-decide'
 import { clearOrganHandlers, outboundOrganResources } from 'lykoi-adapter-telegram/resources'
+import { loadHostConfig } from '../src/host.ts'
 import { BrowserHostClient, wireBrowserOrgan } from '../src/index.ts'
 import { ORGAN_ACTIONS } from '../src/protocol.ts'
 
@@ -103,5 +104,50 @@ test('D-9：宿主不可达时接线事实不变 —— 清单照列三项', asy
   } finally {
     unwire()
     clearOrganHandlers()
+  }
+})
+
+// ============ 部署模板（D-7/D-8：模板是落地的唯一出处，得能被载入） ============
+
+test('D-7：host.json 范例能被 loadHostConfig 原样吃下，值与定案一致', () => {
+  const raw = JSON.parse(
+    readFileSync(join(REPO, 'deploy', 'lykoi-browser.host.json.example'), 'utf8')) as unknown
+  const config = loadHostConfig(raw)
+  assert.equal(config.socketPath, '/run/lykoi-browser/host.sock')
+  assert.equal(config.executablePath, '/usr/bin/google-chrome')
+  assert.equal(config.userDataDir, '/home/lykoi-browser/profile')
+  assert.equal(config.maxChars, 20_000)
+  assert.equal(config.screenshotRetentionDays, 7)
+  assert.equal(config.screencast.enabled, true)
+  // D-6：画面只绑环回。
+  assert.match(config.screencast.listen, /^127\.0\.0\.1:\d+$/)
+  assert.deepEqual(config.timeouts, { navigate: 30_000, getText: 15_000, research: 45_000 })
+  // 空 proxy = 直连（null），不是空串。
+  assert.equal(config.proxy, null)
+})
+
+test('D-7：unit 模板带齐隔离与资源闸，且一个 Environment= 都没有', () => {
+  const unit = readFileSync(join(REPO, 'deploy', 'lykoi-browser.service.template'), 'utf8')
+  for (const line of [
+    'User=lykoi-browser', 'CPUQuota=200%', 'MemoryMax=2G', 'TasksMax=512',
+    'ProtectSystem=strict', 'ReadWritePaths=/home/lykoi-browser', 'PrivateTmp=true',
+    'NoNewPrivileges=true', 'Restart=on-failure',
+    'RuntimeDirectory=lykoi-browser', 'SupplementaryGroups=lykoi',
+  ]) {
+    assert.ok(unit.includes(line), `unit 模板缺 ${line}`)
+  }
+  assert.ok(unit.includes('--config /etc/lykoi-browser/host.json'))
+  // GK-6：宿主零 env —— 单元里不许出现 Environment= / EnvironmentFile=。
+  assert.equal(/^Environment(File)?=/m.test(unit), false)
+})
+
+test('D-8：两份备份文档都写了 /home/lykoi-browser/profile 与"先停服务"', () => {
+  for (const rel of [
+    ['docs', 'deploy.md'],
+    ['governance', 'reports', 'runbook_disaster_recovery.md'],
+  ]) {
+    const text = readFileSync(join(REPO, ...rel), 'utf8')
+    assert.ok(text.includes('/home/lykoi-browser/profile'), `${rel.join('/')} 缺备份路径`)
+    assert.ok(text.includes('systemctl stop lykoi-browser.service'), `${rel.join('/')} 缺停服务`)
   }
 })

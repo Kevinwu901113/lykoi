@@ -18,8 +18,10 @@ persona TOML 内容、以及 `build_persona_prompt()` 功能性调用。演练�
 1. **服务器本地**：`/home/lykoi/state/backups/daily/`（如果服务器磁盘还在、只是服务挂了，优先用这份，最新最全）。
 2. **Mac 异地副本**：`~/lykoi/backups/server-state/daily/`（服务器彻底丢失时用这份；已验证与服务器逐字节一致 sha256）。
 
-同一时间戳 `<STAMP>`（形如 `20260807T030001Z`）下的一组文件算一份完整备份集，共 12 项。
-`daily/` 下每类文件滚动保留最近 7 份，选一个所有 12 项都存在的时间戳。
+同一时间戳 `<STAMP>`（形如 `20260807T030001Z`）下的一组文件算一份完整备份集，共 12 项
+（浏览器器官落地后为 13 项，第 13 项见 §2 表；它是 2026-09 新增，早于此的备份组里没有，
+缺它不影响前 12 项的还原）。
+`daily/` 下每类文件滚动保留最近 7 份，选一个所有项都存在的时间戳。
 
 ### 1.2 依赖
 
@@ -51,6 +53,7 @@ persona TOML 内容、以及 `build_persona_prompt()` 功能性调用。演练�
 | 10 | `core_artifacts.<STAMP>.tar.gz` | `tar xzf core_artifacts.<STAMP>.tar.gz -C /home/lykoi/state/` | `/home/lykoi/state/core_artifacts/` | `lykoi:lykoi`，目录内原权限随 tar 还原 |
 | 11 | `lykoi_base_persona.<STAMP>.toml` | 直接 `cp` | `/home/lykoi/runtime/persona/lykoi_base.toml` | **`root:lykoi` 0440**（需 root；2026-08-09 按活体实测修订，旧版手册误写 0640） |
 | 12 | `governance_flags.<STAMP>.txt` | **不是可还原资产**，见下 | `/home/lykoi/runtime/governance/*.on` | 见下 |
+| 13 | `browser-profile.<STAMP>.tar.gz` | `tar xzf browser-profile.<STAMP>.tar.gz -C /home/lykoi-browser/`。**打包前必须 `systemctl stop lykoi-browser.service`**（保持 enabled，不要 disable —— LANDING-G 实证 disable 会卸载单元、丢 InactiveEnterTimestamp）；运行中的 profile 不是一致快照。还原后 `systemctl start lykoi-browser.service`。缺这一项不影响大脑起动，只是她那双手的登录态要重新登一遍 | `/home/lykoi-browser/profile/` | `lykoi-browser:lykoi-browser` 0700（目录内原权限随 tar 还原） |
 
 **关于 `governance_flags.<STAMP>.txt`**：这份文件只是 `ls -la` 存在性快照（因为 lykoi 对
 `runtime/governance/` 目录本身无读权限），不含内容，不能直接"还原"出治理开关文件。
