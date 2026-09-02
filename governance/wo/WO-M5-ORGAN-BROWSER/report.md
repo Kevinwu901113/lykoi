@@ -331,6 +331,87 @@ final url: http://other.test/landing      B hits: ["/landing"]
   `--host-resolver-rules` 对它无效，这本身就说明它是另一套栈）。代理、TLS、HTTP/2、
   cookie 语义全部换一套，属重架构，且新栈自己就是一个新的安全面。**归 M5 总盘另立单。**
 
+### R-4 用内核层封住 R-2 实证出来的缺口 —— 已做（**服务器实证待 LANDING-H**）
+
+R-2 证明了用户态那两道拦不住重定向 hop。R-4 不再跟 Playwright 较劲，改在 cgroup 上加
+一张 eBPF 出网表：**判定发生在 `connect()` 那一刻，与这个 URL 是怎么来的无关** ——
+重定向 hop、WebSocket、Service Worker、Chrome 的后台连接、任何子进程一视同仁；
+DNS rebinding 在这一层自动失效（判的是最终那个 IP，不是名字）。
+
+**写法（已按 systemd.resource-control(5) 核对）**：
+
+    IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 \
+                  172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 \
+                  ::1/128 fc00::/7 fe80::/10 ff00::/8
+    IPAddressAllow=127.0.0.53/32 127.0.0.1/32
+    # IPAddressAllow=192.168.0.202/32   ← host.json 开代理时才放开（现为注释）
+
+语义核对结论：**命中 Allow → 放行；否则命中 Deny → 拒；都没命中 → 放行**，即
+Allow 优先于 Deny。所以派工单草稿里的 `IPAddressAllow=0.0.0.0/0 ::/0` **已按你的
+指示删掉** —— 它会命中所有地址、把整张 Deny 表废掉，等于没装。同理 `IPAddressDeny=any`
+也不需要：要的是"公网默认可去、私网一律不可去"，不是"默认全禁再逐条开"。
+（规则还会与父 slice 的表叠加、每层都得放行；`system.slice` 缺省无表，不影响。）
+
+两个环回放行的代价，已按服务器实核写进 unit 注释：
+`127.0.0.53/32` 是 `/etc/resolv.conf` 指的 resolved 存根（上游 223.5.5.5/223.6.6.6 由
+resolved 自己的进程去查，不在本 cgroup 里）；`127.0.0.1/32` 是 screencast 的 ssh 隧道
+入口（`IPAddressAllow=` 不分方向，收包也过表）。代价是 Chrome 也能碰到 `127.0.0.1:22`
+与 screencast 自己那个口 —— 本机监听只有 sshd 与两个 resolved 存根，两者都无害。
+`127.0.0.54` 没放行（resolv.conf 用不到）。
+
+**三道的分工**（写进 docs §4.1 的表）：① SSRF 判定器（用户态，顶层 URL + 子请求，
+拒得早、拒得便宜、给得出 `reason`）→ ② 出域检查（用户态，导航后看 `final_url`）→
+③ 出网闸（内核，`connect()` 时判最终 IP）。③ 不取代 ①：③ 只会让连接失败，她看到的是
+`navigation_failed`，没有语义；①能告诉她撞的是 `private_address`。两道都要。
+
+**smoke ⑦ 在生产下的预期**（写进 §4.1）：本机实测那一次"经 302 打到私网、P 站真的
+收到请求"，在服务器的生产 unit 下应当是**内核拒掉那次 `connect()`**，Chrome 报
+`net::ERR_…`，动作落 `navigation_failed`（不是 `blocked_url` —— 拦它的不是判定器）。
+
+> **这条预期本轮没有实证**：Mac 没有 systemd / cgroup v2，smoke 跑不到内核这一层，
+> 倒挂断言钉的仍旧是"用户态拦不住"。**归 LANDING-H 在服务器上实证。**
+
+**fail-open 风险已写明**：`IPAddressDeny=` 装不上时 systemd 只记一条警告、单元照常
+启动。所以模板里写了不算数，`docs/browser_organ.md` §2 新增「前验二」两条探针必须都跑：
+
+    # ① 带 Deny：期望连不上（rc 非 0）
+    systemd-run --wait -p IPAddressDeny=any -p IPAddressAllow=127.0.0.53/32 --quiet \
+      curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "带 Deny rc=$?"
+    # ② 对照，不带 Deny：期望连得上
+    systemd-run --wait --quiet \
+      curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "无 Deny rc=$?"
+
+只有"①失败、②成功"这一对结果才说明过滤在生效；只跑①证明不了任何事。①也返回 0 就
+**停下**，不要按"反正还有 SSRF 判定器"继续 —— 判定器正是拦不住 hop 的那一道。
+起服务后还要 `journalctl -u lykoi-browser -b | grep -i "ip firewall"` 确认没有失败行。
+
+**目标地址的偏离**：你给的探针用 `192.168.0.1`。我改成 `192.168.0.202:7890`（大脑的
+Telegram 代理，**已知在听**）。理由：对照组②需要一个确实会应答的目标，否则①②都失败，
+这对探针什么都证明不了。段落里写清了这个理由。
+
+**落地步骤另加一条**：第④步 `systemd-analyze verify /etc/systemd/system/lykoi-browser.service`
+—— 地址前缀写错时它当场就说，不用等起服务才发现。故障表加两行（出网闸误挡、出网闸没装上）。
+
+**配套改动**：`assembly.test.ts` 新增 1 条，断言模板含 `IPAddressDeny=`、Deny 段含上列
+13 个前缀（含 `169.254.0.0/16` / `192.168.0.0/16` / `127.0.0.0/8`）、`IPAddressAllow`
+**只含** `127.0.0.53/32` 与 `127.0.0.1/32`、且不含 `0.0.0.0/0` `::/0` `any` 这三种自废
+写法、代理那行仍是注释。断言只看行首为指令的行，注释里的样例不算数。
+
+### R-4 的一处主动加码（需你裁）
+
+Deny 表里我**多加了一行 v4-mapped v6**：
+
+    IPAddressDeny=::ffff:0.0.0.0/104 ::ffff:10.0.0.0/104 ::ffff:100.64.0.0/106 \
+                  ::ffff:127.0.0.0/104 ::ffff:169.254.0.0/112 ::ffff:172.16.0.0/108 \
+                  ::ffff:192.168.0.0/112 ::ffff:224.0.0.0/100 ::ffff:240.0.0.0/100
+
+理由：BPF 表按 socket 的地址族查，v6 socket 上的 `::ffff:10.0.0.1` 不会命中 v4 那些段。
+Chromium 走 v4 目标时用 AF_INET，落不到这里 —— 但"实践中不会发生"正是本轮 R-2 里
+栽跟头的那种推理，而 D-5① 的判定器早就为同一类形态写了分支，这里跟上不留形状差。
+代价：若 systemd 不认这个写法，单元起不来 —— 所以同时加了第④步的
+`systemd-analyze verify`。**要撤掉的话删这一行即可**，`assembly.test.ts` 的断言用的是
+"包含"语义，删掉不会红。
+
 ### R-3 日备份读不到 profile —— 已修（文档）
 
 服务器上的日备份是 `/usr/local/sbin/lykoi-cordis-backup.sh`，由
@@ -350,12 +431,12 @@ final url: http://other.test/landing      B hits: ["/landing"]
 
 | 文件 | 轮次 | 改动 |
 |---|---|---|
-| `deploy/lykoi-browser.service.template` | R-1 | `ProtectHome=tmpfs` / `BindPaths` / `BindReadOnlyPaths` / `ExecStart` 改指 `/opt/lykoi-browser/tree`；删 `SupplementaryGroups=lykoi`、`ReadWritePaths`；注释按事实重写（含沙箱探针结论） |
-| `docs/browser_organ.md` | R-1/R-2/R-3 | §0 新增"两侧互相看不见"；§2 新增「前验」探针 + 逐条命令全改；§4 第 1 条改写 + **新增 §4.1 已知缺口**；§6 标手工项；§8 故障表两行 |
+| `deploy/lykoi-browser.service.template` | R-1/R-4 | `ProtectHome=tmpfs` / `BindPaths` / `BindReadOnlyPaths` / `ExecStart` 改指 `/opt/lykoi-browser/tree`；删 `SupplementaryGroups=lykoi`、`ReadWritePaths`；注释按事实重写（含沙箱探针结论）；**R-4**：加 cgroup BPF 出网闸 `IPAddressDeny=`/`IPAddressAllow=`（含 v4-mapped 一行）+ 语义与代价注释 |
+| `docs/browser_organ.md` | R-1/R-2/R-3/R-4 | §0 新增"两侧互相看不见"；§2 新增「前验」探针 + 逐条命令全改；§4 第 1 条改写 + §4.1 **改写为「用户态拦不住，封口在内核」**；§2 新增「前验二」IP 过滤探针 + 第④步 `systemd-analyze verify`；§4 引子指向出网闸；§6 标手工项；§8 故障表四行 |
 | `docs/deploy.md` | R-3 | 第 10 条改为手工项 |
 | `governance/reports/runbook_disaster_recovery.md` | R-3 | §1.1 回到 12 项 + 手工项说明；§2 表第 13 行重写 |
 | `packages/lykoi-organ-browser/src/driver.ts` | R-2 | `RequestInfo` 类型；`#requestedUrl` / `#blockedRedirect` / `#takeBlockedRedirect()`；`#arm` 请求层出域门 + 实证注释；navigate / researchReadText 两处接线；`PlaywrightContext.setRequestFilter` 传三字段；审计加 `stage` |
-| `packages/lykoi-organ-browser/test/assembly.test.ts` | R-1 | 原 D-7 断言撤下两项；新增 2 条（unit 隔离面、手册组方向与沙箱前验） |
+| `packages/lykoi-organ-browser/test/assembly.test.ts` | R-1/R-4 | 原 D-7 断言撤下两项；新增 3 条（unit 隔离面、手册组方向与沙箱前验、出网闸 Allow/Deny 表） |
 | `packages/lykoi-organ-browser/test/download.test.ts` | R-2 | 过滤器入参改结构；新增"跨域子请求放行" |
 | `packages/lykoi-organ-browser/test/fake-backend.ts` | R-2 | `redirectChain` 逐跳过过滤器、`FakePage.fetched`、契约警示注释 |
 | `packages/lykoi-organ-browser/test/redirect.test.ts` | R-2 | 新增 4 条 R-2 用例；既有审计断言加 `stage` |
@@ -368,13 +449,13 @@ D-10 不动清单本轮同样为空改动；未碰 manifest、未跑 `--write-ma
 
 ### 新的测试计数
 
-全仓 `npm test`：**tests 994 / pass 983 / fail 0 / skipped 11**
-（修订前 988/977/0/11；净 +6 = redirect +4、download +1、assembly +2、
-smoke 的 ⑥⑦ 并在既有那一条测试里不计数，assembly 原 D-7 那条保留故不减）。
+全仓 `npm test`：**tests 995 / pass 984 / fail 0 / skipped 11**
+（本单交付时 988/977/0/11；净 +7 = redirect +4、download +1、assembly +3
+〔R-1 两条、R-4 一条〕、smoke 的 ⑥⑦ 并在既有那一条测试里不计数）。
 `npx tsc --noEmit` 净。skipped 的 11 项与基线同一批、位置未变。
 
-本包 `lykoi-organ-browser`：**65 / 65 / 0 / 0**（修订前 59）。分文件：
-`ssrf` 14、`assembly` 11、`plugin` 10、`redirect` 10、`untrusted` 8、`isolation` 6、
+本包 `lykoi-organ-browser`：**66 / 66 / 0 / 0**（本单交付时 59）。分文件：
+`ssrf` 14、`assembly` 12、`plugin` 10、`redirect` 10、`untrusted` 8、`isolation` 6、
 `download` 5、`smoke` 1。
 
 **smoke：ran**（本机 Mac，Chrome 152，`/Applications/Google Chrome.app/…`）。

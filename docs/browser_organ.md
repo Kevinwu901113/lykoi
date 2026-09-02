@@ -72,6 +72,37 @@ rm -rf "$tmp"
 前提作废。记录现象（exit code、stderr 全文、`aa-status | grep chrome`）并停下，回治理侧
 重新定隔离形态。
 
+### 前验二：本机的 systemd IP 过滤真的在生效吗
+
+unit 的出网闸（`IPAddressDeny=` / `IPAddressAllow=`）是 cgroup 上的 eBPF。它**装不上时
+systemd 只记一条警告、单元照常启动** —— 也就是说，"模板里写了"不等于"生产里拦得住"。
+落地前用 `systemd-run` 单独验一次，root 执行：
+
+```sh
+# ① 带 Deny：期望连不上（rc 非 0）。目标要挑一个**确实有人在听**的私网地址，
+#    否则连不上也可能只是没人应答，证明不了任何事。这里用大脑的代理（已知在听）。
+systemd-run --wait -p IPAddressDeny=any -p IPAddressAllow=127.0.0.53/32 --quiet \
+  curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "带 Deny rc=$?"
+
+# ② 对照，不带 Deny：期望连得上（rc 为 0，或至少是"代理拒绝了这个请求"这类
+#    应用层错误，而不是网络不可达）。
+systemd-run --wait --quiet \
+  curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "无 Deny rc=$?"
+```
+
+**两条都要跑。** 只跑①证明不了过滤在生效（可能它本来就连不上）；只有"①失败、②成功"
+这一对结果才说明本机的 cgroup BPF 过滤确实起作用。
+
+若①也返回 0（即带着 Deny 还是连上了），说明本机 eBPF 防火墙没生效 —— **停下**，
+不要按"反正还有 SSRF 判定器"继续：判定器拦不住重定向 hop（§4.1），出网闸是那条缺口
+在 v1 的唯一封口。
+
+起服务之后再看一次日志，确认表真的装上了：
+
+```sh
+journalctl -u lykoi-browser.service -b | grep -i "ip firewall"   # 期望没有失败行
+```
+
 ### 逐条命令
 
 以下全部以 root 执行，`<NODE_BIN>` = Node 24 绝对路径。
@@ -107,6 +138,9 @@ install -o root -g root -m 644 \
         /etc/systemd/system/lykoi-browser.service
 sed -i "s#<NODE_BIN>#<NODE_BIN>#" /etc/systemd/system/lykoi-browser.service
 systemctl daemon-reload
+#    起之前先让 systemd 自己把这份单元读一遍（IPAddress* 那两行地址前缀写错的话，
+#    这里就会说，不用等到起服务才发现）。
+systemd-analyze verify /etc/systemd/system/lykoi-browser.service
 
 # ⑤ 起宿主，先只验 health（这一步不需要大脑在跑，但需要第⑥步的 npm ci 已经做过
 #    —— host.ts import playwright-core；树里没有 node_modules 时宿主起不来）。
@@ -156,6 +190,10 @@ autonomous 起源直接放行 —— 她独处 explore 用 `research_browser.rea
 
 ## 4 · 四道硬化（全部 fail closed）
 
+这四道全在**用户态**。它们之外还有一道在内核：unit 上的 cgroup BPF 出网闸
+（`IPAddressDeny=` / `IPAddressAllow=`），在 `connect()` 那一刻判最终 IP。
+为什么需要它、它补的是哪一段，见 §4.1。
+
 1. **SSRF**：只许 `http:`/`https:`、端口 80/443、拒 IP 字面量、拒 `localhost`
    `*.local` `*.internal` `*.home.arpa` 与单标签主机名；`dns.lookup(host,{all:true})`
    的每一个地址逐个判私网/环回/链路本地/组播/保留段（IPv4-mapped、6to4、Teredo
@@ -173,29 +211,59 @@ autonomous 起源直接放行 —— 她独处 explore 用 `research_browser.rea
    超出截断 + `truncated:true`。取 `document.body.innerText`（脚本/样式不入文）
    并折叠空白。
 
-### 4.1 已知缺口：重定向的那一跳拦不住（2026-09-02 复核实测）
+### 4.1 重定向那一跳：用户态拦不住，封口在内核（2026-09-02 复核实测）
 
-**现象**（playwright-core 1.60.0 + Chrome 152 headless=new，`test/smoke.test.ts` ⑥⑦
-把它钉成了断言）：Chromium 上 `context.route('**')` **不为重定向 hop 回调**。
-一次 `A -302-> B` 只产生一次 route 回调（A 自己，`redirectedFrom` 为 null）；B 只在
-只读的 `context.on('request')` 上出现（`redirectedFrom` = A），那里 abort 不了。
-子请求（fetch / image / xhr）会回调，它们各自的 302 目标同样不会。
+**用户态的事实**（playwright-core 1.60.0 + Chrome 152 headless=new，
+`test/smoke.test.ts` ⑥⑦ 把它钉成了断言）：Chromium 上 `context.route('**')`
+**不为重定向 hop 回调**。一次 `A -302-> B` 只产生一次 route 回调（A 自己，
+`redirectedFrom` 为 null）；B 只在只读的 `context.on('request')` 上出现
+（`redirectedFrom` = A），那里 abort 不了。子请求（fetch / image / xhr）会回调，
+它们各自的 302 目标同样不会。
 
-**后果**（两条，都已实测复现）：
+所以第 1 条里的 SSRF 判定器与第 3 节的出域检查都够不着那一跳：一个 302 就能把
+Chrome 领到判定器没看过的地址上。
 
-- **出域跳转**：`redirect_off_domain` 实际由导航后的 `final_url` 检查拦下，不是由
-  请求层。她读不到跳转目标的文本，但那个页面**已经被持久 profile 请求过一次** ——
-  cookie 发出去了，页面 JS 跑过了。
-- **SSRF**：直接导航到私网地址会被判定器拒；**经 302 抵达**的同一个地址不会 ——
-  那一跳到不了判定器。响应回不到她手里（最终仍判出域），但请求确实发出去了。
+**v1 的封口：cgroup BPF 防火墙**（unit 里的 `IPAddressDeny=` / `IPAddressAllow=`）。
 
-**没有在本单堵上的原因**：唯一可行的堵法是 `route.fetch({maxRedirects:0})` +
+三道各司其职，别混淆：
+
+| 层 | 位置 | 拦什么 | 拦不住什么 |
+|---|---|---|---|
+| ① SSRF 判定器 | 用户态，动作入口 + 子请求 | 顶层 URL 与每个子请求 | 重定向 hop |
+| ② 出域检查 | 用户态，导航后看 `final_url` | 跳转落到别的注册域 | 拦不住"请求已经发出去了"这件事 |
+| ③ cgroup BPF 出网闸 | **内核**，`connect()` 那一刻 | **一切去私网的连接**，与 URL 怎么来的无关 | 去公网的出域跳转（那是 ②的活） |
+
+③ 之所以补得上 ①②：它判的是**最终那个 IP**，在 socket 层。重定向 hop、WebSocket、
+Service Worker、Chrome 自己的后台连接、任何子进程，全部一视同仁；DNS rebinding 在这
+一层自动失效（判的不是名字）。
+
+**判定顺序与分工**：① 仍是第一道 —— 它拒得早、拒得便宜，而且能给出 `reason`
+（`blocked_url` + `private_address`），她因此知道自己撞了什么墙；③ 只会让连接失败，
+她看到的是 `navigation_failed`，没有语义。所以两道都要，不是二选一。
+
+**smoke ⑦ 那个案例在生产下的预期**：本机（Mac，无 systemd）实测 —— 直接
+`navigate('http://priv.test/…')` 被 ① 拒（`blocked_url`），而**经 302 抵达**的同一个
+地址被真的请求到了（P 站实收 `/latest/meta-data/`）。**在服务器的生产 unit 下，
+这一次 `connect()` 会被内核拒**，Chrome 报 `net::ERR_…`，动作落
+`navigation_failed`（而不是 `blocked_url` —— 拦它的不是判定器）。
+
+> ⚠ **这条预期尚未实证**：Mac 上没有 systemd / cgroup，smoke 跑不到内核这一层，
+> 倒挂断言钉的仍是"用户态拦不住"。**LANDING-H 必须在服务器上实证**：
+> §2 前验的第二条探针（证 IP 过滤在本机生效）+ 起服务后跑一次
+> `research_browser.read_text` 打向一个 302 到私网的地址，确认落 `navigation_failed`
+> 且 `journalctl -u lykoi-browser` 里没有 ip firewall 安装失败行。
+
+**为什么不在 Playwright 层堵**：唯一路子是 `route.fetch({ maxRedirects: 0 })` +
 `route.fulfill` 自己跟重定向链，那等于把整条导航从 Chrome 的网络栈搬到 Playwright
-驱动进程里（代理、TLS、cookie 语义全换一套）。属重架构，归 M5 总盘另立单。
+驱动进程（代理、TLS、cookie 语义全换一套，新栈本身又是一个新的安全面）。属重架构，
+归 M5 总盘另立单。内核这一层便宜得多，也牢固得多。
 
 **代码里保留了请求层那道门**（`driver.ts` 的 `#arm`）：零成本，且是 backend 契约的
 一部分；Playwright / Chromium 哪天改成逐跳回调，它立刻生效，smoke ⑥⑦ 的倒挂断言会
 同时变红提醒。
+
+**出网闸的 fail-open 风险**：`IPAddressDeny=` 装不上时 systemd 只记一条警告、单元
+照常启动。所以它不能只写在模板里就算数，必须按 §2 前验验一次、起服务后再看一次日志。
 
 ## 5 · 看她在看什么
 
@@ -259,4 +327,6 @@ systemctl start lykoi-browser.service
 | `timeout` | 页面加载超过预算 | `host.json` 的 `timeouts`；宿主已自愈（关页/关上下文），不会留僵尸 |
 | `no_page` | 还没 navigate 就 get_text，或上一次导航被拦 | 先 navigate |
 | 宿主起不来，日志 `ENOENT ... google-chrome` | `executablePath` 不对 | `which google-chrome` 后改 `host.json` |
+| 所有外网页面都 `navigation_failed`，私网也一样 | 出网闸把该放的也挡了 —— 多半是 `IPAddressAllow` 写了全网前缀把 Deny 废掉后又改错，或 DNS 存根没放行 | `systemctl show -p IPAddressAllow -p IPAddressDeny lykoi-browser`；`IPAddressAllow` 应当只有 `127.0.0.53/32` 与 `127.0.0.1/32`；开了代理要另加代理那一条 |
+| 私网地址经 302 还是连得上 | 出网闸没装上（systemd 只警告不拦，fail open） | `journalctl -u lykoi-browser -b \| grep -i "ip firewall"`；再跑一遍 §2 前验二的两条探针 |
 | Chrome 起来就崩 | 家目录权限 / profile 被别的进程占 | 确认 `/home/lykoi-browser/profile` 属主是 `lykoi-browser`；同一 profile 不许两个 Chrome |

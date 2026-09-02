@@ -78,5 +78,42 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 RemoveIPC=true
 
+# ---- 出网闸：cgroup BPF 防火墙（R-4 复核修订，2026-09-02）----
+#
+# 为什么在这一层：SSRF 判定器与 Playwright 的 route 都在**用户态**，而实测
+# （见 docs/browser_organ.md §4.1）Chromium 的 route 不为重定向 hop 回调 ——
+# 一个 302 就能把 Chrome 领到判定器没看过的地址上去。systemd 的 IP 过滤是
+# cgroup 上的 eBPF，**判定发生在 connect() 那一刻，与这个 URL 是怎么来的无关**：
+# 重定向 hop、WebSocket、Service Worker、Chrome 自己的后台连接、任何子进程，
+# 全部一视同仁。DNS rebinding 在这一层也自动失效 —— 它管的是最终那个 IP。
+#
+# systemd 语义（systemd.resource-control(5)，**别写反**）：
+#   命中 IPAddressAllow= → 放行；否则命中 IPAddressDeny= → 拒；都没命中 → 放行。
+#   即 **Allow 优先于 Deny**。所以绝不能写 `IPAddressAllow=0.0.0.0/0 ::/0` ——
+#   那会命中所有地址、把整张 Deny 表废掉，等于没装。同理不需要 `IPAddressDeny=any`：
+#   我们要的是"公网默认可去、私网一律不可去"，不是"默认全禁再逐条开"。
+#   规则还会与父 slice 的表叠加（每一层都得放行），system.slice 缺省无表，不影响。
+#
+# 放行两个环回地址的代价（服务器实核：本机监听只有 sshd 0.0.0.0:22、
+# systemd-resolved 存根 127.0.0.53:53 与 127.0.0.54:53）：
+#   127.0.0.53/32 —— /etc/resolv.conf 指着它，Chrome 得能查 DNS。上游
+#     223.5.5.5/223.6.6.6 由 resolved 自己的进程去查，不在本 cgroup 里，不受本表约束。
+#   127.0.0.1/32  —— screencast 绑 127.0.0.1:<port>，ssh 隧道从那头连进来；
+#     IPAddressAllow= 不分方向，收包也要过这张表。代价是 Chrome 也就能碰到
+#     127.0.0.1:22（sshd）与 screencast 自己那个口，两个都无害。
+#     127.0.0.54 没放行：resolv.conf 用不到它。
+IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 ::1/128 fc00::/7 fe80::/10 ff00::/8
+# v4-mapped v6（`::ffff:10.0.0.1` 这种形）另算一条：BPF 表按socket 的地址族查，
+# v6 socket 上的 v4-mapped 地址不会命中上面那些 v4 段。Chromium 走 v4 目标时用的是
+# AF_INET，落不到这里，但 D-5① 的判定器已经为同一类形态写过分支，这里跟上，别留形状。
+IPAddressDeny=::ffff:0.0.0.0/104 ::ffff:10.0.0.0/104 ::ffff:100.64.0.0/106 ::ffff:127.0.0.0/104 ::ffff:169.254.0.0/112 ::ffff:172.16.0.0/108 ::ffff:192.168.0.0/112 ::ffff:224.0.0.0/100 ::ffff:240.0.0.0/100
+IPAddressAllow=127.0.0.53/32 127.0.0.1/32
+# host.json 里开了 proxy 就再加一行（Allow 优先于 Deny，所以它压得过 192.168/16）：
+# IPAddressAllow=192.168.0.202/32
+#
+# ⚠ 这张表**装不上时 systemd 只记一条警告、单元照常启动**（fail open）。
+#   落地必须眼见为实：docs/browser_organ.md §2「前验」第二条探针 + 起服务后
+#   `journalctl -u lykoi-browser -b | grep -i "ip firewall"` 应当**没有**失败行。
+
 [Install]
 WantedBy=multi-user.target

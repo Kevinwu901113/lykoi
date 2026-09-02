@@ -183,6 +183,40 @@ test('D-7 复核修订：手册把组的方向写成"大脑加入 lykoi-browser 
   assert.ok(doc.includes('不要加 `--no-sandbox`'), '缺"探针失败不许 --no-sandbox"')
 })
 
+test('R-4：unit 带 cgroup BPF 出网闸，且没写成 Allow 全网那种自废写法', () => {
+  const unit = readFileSync(join(REPO, 'deploy', 'lykoi-browser.service.template'), 'utf8')
+  // 只看生效指令行，注释里的样例（代理那行）不算数。
+  const directives = unit.split('\n').filter((l) => /^[A-Za-z]+=/.test(l))
+  const denyLines = directives.filter((l) => l.startsWith('IPAddressDeny='))
+  const allowLines = directives.filter((l) => l.startsWith('IPAddressAllow='))
+
+  assert.ok(denyLines.length > 0, 'unit 必须有 IPAddressDeny=')
+  const denied = denyLines.flatMap((l) => l.slice('IPAddressDeny='.length).trim().split(/\s+/))
+
+  // 私网/环回/链路本地各段（169.254 是云元数据那一段，最要紧）。
+  for (const cidr of [
+    '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
+    '172.16.0.0/12', '192.168.0.0/16', '224.0.0.0/4', '240.0.0.0/4',
+    '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8',
+  ]) {
+    assert.ok(denied.includes(cidr), `IPAddressDeny 缺 ${cidr}`)
+  }
+
+  // Allow 只有两个环回 /32：DNS 存根与 screencast 隧道入口。多一个都要过复核。
+  const allowed = allowLines.flatMap((l) => l.slice('IPAddressAllow='.length).trim().split(/\s+/))
+  assert.deepEqual(allowed.sort(), ['127.0.0.1/32', '127.0.0.53/32'],
+    'IPAddressAllow 只许 127.0.0.53/32（resolved 存根）与 127.0.0.1/32（screencast）')
+
+  // 自废写法：Allow 优先于 Deny，命中全网的 Allow 会把整张 Deny 表废掉。
+  for (const trap of ['0.0.0.0/0', '::/0', 'any']) {
+    assert.equal(allowed.includes(trap), false,
+      `IPAddressAllow 不许含 ${trap} —— Allow 优先于 Deny，那等于没装防火墙`)
+  }
+  // 代理那行必须还是注释（缺省 host.json 不开代理）。
+  assert.ok(unit.includes('# IPAddressAllow=192.168.0.202/32'), '代理放行应保持注释形态')
+  assert.equal(allowed.includes('192.168.0.202/32'), false)
+})
+
 test('D-8：两份备份文档都写了 /home/lykoi-browser/profile 与"先停服务"', () => {
   for (const rel of [
     ['docs', 'deploy.md'],
