@@ -6,14 +6,30 @@
 #   把 <NODE_BIN> 换成 Node 24 绝对路径（例：/opt/node-v24.18.0/bin/node）
 #   systemctl daemon-reload && systemctl enable --now lykoi-browser.service
 #
-# 逐条落地命令见 docs/browser_organ.md §2。
+# 逐条落地命令见 docs/browser_organ.md §2（含落地前的 Chrome 沙箱探针）。
 #
 # 为什么是独立 unit + 独立 OS 用户（WO-M5-ORGAN-BROWSER D-7）：
 #   Chrome 是本装配里唯一执行外部代码的进程。它与她的 state 库、审计链、
 #   secrets 之间**必须隔一层 OS 边界** —— 不是"最好隔"，是 v1 的准入条件。
-#   lykoi-browser 用户读不到 /home/lykoi 的任何东西；大脑读不到
-#   /home/lykoi-browser/profile（她的登录态在里面，那是 Kevin 的东西不是她的记忆）。
-#   两个进程之间只有一条 socket，上面只跑四个 op。
+#
+# 隔离靠的是挂载命名空间，不是组（2026-09-02 复核修订）：
+#   ProtectHome=tmpfs 让宿主视野里的 /home 是一张空 tmpfs，再用 BindPaths 把
+#   /home/lykoi-browser 一个目录挂回来。于是宿主进程的 /home 里**只有它自己家**
+#   —— /home/lykoi 根本不存在于它的视野，它带什么组都无所谓。
+#   （服务器实测：/home/lykoi 是 750 lykoi:lykoi，但其下 .config/ .claude/ .codex/
+#   reports/ runtime/ state/backups/ 多为 755/775 组可读；靠"不给组"来隔离等于
+#   把边界押在每一个子目录的权限位上，靠 tmpfs 则一次性把整棵树移出视野。）
+#   代码树经 BindReadOnlyPaths 只读挂到 /opt/lykoi-browser/tree —— 宿主要执行
+#   host.ts，但它只要读，不要写，也不需要能走进 /home/lykoi。
+#   反向：大脑读不到 /home/lykoi-browser/profile（家目录 700，她的登录态在里面，
+#   那是 Kevin 的东西不是她的记忆）。两个进程之间只有一条 socket，上面只跑四个 op。
+#
+# 沙箱前提（服务器实测，2026-09-02）：本机 /etc/apparmor.d/chrome 给
+#   /opt/google/chrome/chrome 放行 userns，`setpriv --no-new-privs google-chrome
+#   --headless=new ... --dump-dom about:blank` exit 0 正常出 DOM ——
+#   即 NoNewPrivileges=true 下 Chrome 的命名空间沙箱可用，本 unit 于是保留
+#   NoNewPrivileges / RestrictSUIDSGID。探针失败时**不许**改用 --no-sandbox，
+#   记录并停下（见 docs/browser_organ.md §2 前验）。
 #
 # env 面（GK-6）：本 unit **一个 Environment= 都没有**，宿主自己也零 env 读取。
 #   全部配置经 argv 的 --config 指到 /etc/lykoi-browser/host.json（root:root 644）。
@@ -31,25 +47,29 @@ Wants=network-online.target
 User=lykoi-browser
 Group=lykoi-browser
 WorkingDirectory=/home/lykoi-browser
-ExecStart=<NODE_BIN> /home/lykoi/projects/lykoi-cordis/packages/lykoi-organ-browser/src/host.ts --config /etc/lykoi-browser/host.json
+ExecStart=<NODE_BIN> /opt/lykoi-browser/tree/packages/lykoi-organ-browser/src/host.ts --config /etc/lykoi-browser/host.json
 Restart=on-failure
 RestartSec=5
 
-# socket 落在 /run/lykoi-browser（systemd 建、按需清）。组给 lykoi：大脑那一侧
-# 以 lykoi 身份连它，0660 于是刚好够"能连"而不够"能进家目录"。
+# socket 落在 /run/lykoi-browser（systemd 建、按需清），属主属组都是
+# lykoi-browser。方向是反的那一头：**大脑加入 lykoi-browser 组**
+# （usermod -aG lykoi-browser lykoi），于是 0750 的目录 + 0660 的 socket 刚好够
+# 它"能连"，而宿主一个外来组都不带。
 RuntimeDirectory=lykoi-browser
 RuntimeDirectoryMode=0750
-SupplementaryGroups=lykoi
 
 # 资源闸：一个失控的页面不许把整机拖垮。
 CPUQuota=200%
 MemoryMax=2G
 TasksMax=512
 
-# 隔离面。ReadWritePaths 只开家目录（profile + 截图）与 socket 目录。
+# 隔离面。
+#   ProtectHome=tmpfs 的效果只能由 BindPaths= 打洞（ReadWritePaths= 打不动），
+#   所以家目录走 BindPaths（读写：profile + 截图），代码树走 BindReadOnlyPaths。
 ProtectSystem=strict
-ProtectHome=false
-ReadWritePaths=/home/lykoi-browser
+ProtectHome=tmpfs
+BindPaths=/home/lykoi-browser
+BindReadOnlyPaths=/home/lykoi/projects/lykoi-cordis:/opt/lykoi-browser/tree
 PrivateTmp=true
 NoNewPrivileges=true
 ProtectKernelTunables=true

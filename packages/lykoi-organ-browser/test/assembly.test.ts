@@ -130,15 +130,57 @@ test('D-7：unit 模板带齐隔离与资源闸，且一个 Environment= 都没�
   const unit = readFileSync(join(REPO, 'deploy', 'lykoi-browser.service.template'), 'utf8')
   for (const line of [
     'User=lykoi-browser', 'CPUQuota=200%', 'MemoryMax=2G', 'TasksMax=512',
-    'ProtectSystem=strict', 'ReadWritePaths=/home/lykoi-browser', 'PrivateTmp=true',
+    'ProtectSystem=strict', 'PrivateTmp=true',
     'NoNewPrivileges=true', 'Restart=on-failure',
-    'RuntimeDirectory=lykoi-browser', 'SupplementaryGroups=lykoi',
+    'RuntimeDirectory=lykoi-browser',
   ]) {
     assert.ok(unit.includes(line), `unit 模板缺 ${line}`)
   }
   assert.ok(unit.includes('--config /etc/lykoi-browser/host.json'))
   // GK-6：宿主零 env —— 单元里不许出现 Environment= / EnvironmentFile=。
   assert.equal(/^Environment(File)?=/m.test(unit), false)
+})
+
+test('D-7 复核修订：隔离靠挂载命名空间，宿主一个附加组都不带', () => {
+  const unit = readFileSync(join(REPO, 'deploy', 'lykoi-browser.service.template'), 'utf8')
+  const directives = unit.split('\n').filter((l) => /^[A-Za-z]+=/.test(l))
+
+  // /home 是空 tmpfs，只有自己家被 BindPaths 挂回来 —— /home/lykoi 不在视野里。
+  assert.ok(directives.includes('ProtectHome=tmpfs'), 'ProtectHome 必须是 tmpfs')
+  assert.ok(directives.includes('BindPaths=/home/lykoi-browser'))
+  // ProtectHome=tmpfs 只能由 BindPaths= 打洞；ReadWritePaths= 打不动，留着是误导。
+  assert.equal(directives.some((l) => l.startsWith('ReadWritePaths=')), false)
+
+  // 代码树只读挂进来，宿主不需要能走进 /home/lykoi。
+  assert.ok(directives.includes(
+    'BindReadOnlyPaths=/home/lykoi/projects/lykoi-cordis:/opt/lykoi-browser/tree'))
+  assert.ok(unit.includes('ExecStart=<NODE_BIN> /opt/lykoi-browser/tree/'
+    + 'packages/lykoi-organ-browser/src/host.ts'))
+  assert.equal(unit.includes('ExecStart=<NODE_BIN> /home/lykoi/'), false,
+    'ExecStart 不许再直指宿主侧的 /home/lykoi 路径')
+
+  // 反了的那条已经删干净：宿主不许带 lykoi 组（那能穿过 750 的 /home/lykoi 读到
+  // 其下 755/775 的 state/backups、reports、.config）。
+  assert.equal(directives.some((l) => l.startsWith('SupplementaryGroups=')), false)
+
+  // 沙箱前提：服务器实测 NoNewPrivileges 下 Chrome 命名空间沙箱可用，两条都保留。
+  assert.ok(directives.includes('NoNewPrivileges=true'))
+  assert.ok(directives.includes('RestrictSUIDSGID=true'))
+})
+
+test('D-7 复核修订：手册把组的方向写成"大脑加入 lykoi-browser 组"，且带沙箱前验', () => {
+  const doc = readFileSync(join(REPO, 'docs', 'browser_organ.md'), 'utf8')
+  assert.ok(doc.includes('usermod -aG lykoi-browser lykoi'), '缺"大脑加入宿主组"')
+  // 行首才算命令（§0 的历史说明里那句反例是散文，不是要执行的东西）。
+  assert.equal(/^usermod -aG lykoi lykoi-browser/m.test(doc), false,
+    '手册里不许再有"宿主加入 lykoi 组"的可执行命令')
+  assert.ok(doc.includes('chmod 700 /home/lykoi-browser'), '家目录必须 700')
+  assert.ok(doc.includes('install -d -o root -g root -m 755 /opt/lykoi-browser/tree'),
+    '缺 bind 挂载点')
+  assert.ok(doc.includes('srw-rw---- lykoi-browser lykoi-browser'), 'socket 期望属组写错')
+  // 前验：探针命令与"失败不许用 --no-sandbox"。
+  assert.ok(doc.includes('setpriv --no-new-privs /usr/bin/google-chrome'), '缺沙箱探针')
+  assert.ok(doc.includes('不要加 `--no-sandbox`'), '缺"探针失败不许 --no-sandbox"')
 })
 
 test('D-8：两份备份文档都写了 /home/lykoi-browser/profile 与"先停服务"', () => {

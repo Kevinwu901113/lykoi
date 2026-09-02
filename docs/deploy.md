@@ -564,12 +564,16 @@ journal 里起来的样子（出处：`profile/index.prod.ts` 末尾两行）：
    （停稳 = 一致快照）打包 `/home/lykoi/state`：
    `tar -C /home/lykoi -czf backup-$(date +%Y%m%dT%H%M%S).tar.gz state`
    （出处：`WO-M4-W2/paste-2-switch.sh` §2）。
-10. **浏览器器官的 profile 另算一项备份**（WO-M5-ORGAN-BROWSER D-8）：
+10. **浏览器器官的 profile 另算一项备份，且目前是手工项**（WO-M5-ORGAN-BROWSER D-8）：
    `/home/lykoi-browser/profile` 存的是她那双手的登录态，不在 `/home/lykoi/state`
-   里。同样**先停服务再打包**，且停的是浏览器宿主那个单元：
+   里。**它不在日备份集里**：`/usr/local/sbin/lykoi-cordis-backup.sh` 由
+   `lykoi-cordis-backup.service` 以 `User=lykoi` 运行，而这个目录是 `700 lykoi-browser`，
+   脚本读不到，现有定时器不会产出这一项。要这份快照得 **root 手工**跑三步，
+   且停的是浏览器宿主那个单元：
    `systemctl stop lykoi-browser.service`（保持 enabled，不要 disable）→
    `tar -C /home/lykoi-browser -czf browser-profile-$(date +%Y%m%dT%H%M%SZ).tar.gz profile`
    → `systemctl start lykoi-browser.service`。运行中的 profile 不是一致快照。
+   纳入日备份需要一个以 root 身份运行的独立定时器，留作 M5 后续（不在本单）。
    大脑从不读这个目录；截图目录 `data/` 不备份（可再生，7 天自清）。
    落地手册见 `docs/browser_organ.md` §6。
 

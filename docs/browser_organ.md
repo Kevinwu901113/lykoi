@@ -17,6 +17,20 @@
 
 **大脑永不 spawn Chrome。** 两侧都零 env 读取（GK-6）。
 
+**两侧互相看不见（2026-09-02 复核修订）**：
+
+- 宿主 → 大脑：unit 带 `ProtectHome=tmpfs`，宿主视野里的 `/home` 是一张空 tmpfs，
+  只有 `BindPaths=/home/lykoi-browser` 把它自己家挂回来。`/home/lykoi` 不在它的
+  挂载命名空间里 —— 它带什么组都读不到。代码树经
+  `BindReadOnlyPaths=/home/lykoi/projects/lykoi-cordis:/opt/lykoi-browser/tree`
+  只读挂进来，宿主**不需要任何附加组**。
+  （早先那版靠 `usermod -aG lykoi lykoi-browser` + `SupplementaryGroups=lykoi`，
+  方向是反的：`/home/lykoi` 虽是 750，其下 `state/backups/`、`reports/`、`.config/`
+  等多为 755/775 组可读，带上 lykoi 组就穿得过去。已删除。）
+- 大脑 → 宿主：socket 属组是宿主自己的主组 `lykoi-browser`（0660），由**大脑**加入
+  该组来连（`usermod -aG lykoi-browser lykoi`）。家目录 `700`，所以同组也进不去
+  `profile/`；组只买到"连 socket"这一件事。
+
 三个动作（v1，只读）：
 
 | 动作 | 上下文 | 参数 | 返回 |
@@ -38,17 +52,47 @@ postinstall 下载浏览器，那是不受 manifest 约束的执行面。
 
 ## 2 · root 落地（逐条命令）
 
+### 前验：NoNewPrivileges 下 Chrome 沙箱可用吗
+
+unit 带 `NoNewPrivileges=true` / `RestrictSUIDSGID=true`，Chrome 于是只能用命名空间
+沙箱（setuid helper 在这两条下不可用）。落地**之前**先跑这条探针：
+
+```sh
+tmp=$(mktemp -d)
+setpriv --no-new-privs /usr/bin/google-chrome --headless=new --no-first-run \
+        --disable-gpu --user-data-dir="$tmp" --dump-dom about:blank
+echo "exit=$?"
+rm -rf "$tmp"
+```
+
+期望：`exit=0` 且打出 `<html>…</html>`。服务器上 2026-09-02 实测通过（`/etc/apparmor.d/chrome`
+给 `/opt/google/chrome/chrome` 放行了 `userns`，而 `kernel.apparmor_restrict_unprivileged_userns=1`）。
+
+**探针失败时不要加 `--no-sandbox`。** 那等于把"Chrome 是唯一执行外部代码的进程"这条
+前提作废。记录现象（exit code、stderr 全文、`aa-status | grep chrome`）并停下，回治理侧
+重新定隔离形态。
+
+### 逐条命令
+
 以下全部以 root 执行，`<NODE_BIN>` = Node 24 绝对路径。
 
 ```sh
-# ① OS 用户与目录。无登录 shell、无密码；家目录只有它自己进得去。
+# ① OS 用户与目录。无登录 shell、无密码；家目录只有它自己进得去（700 —— 大脑
+#    即便同组也读不到 profile 里的登录态）。
 useradd --system --create-home --home-dir /home/lykoi-browser \
         --shell /usr/sbin/nologin lykoi-browser
+chmod 700 /home/lykoi-browser
 install -d -o lykoi-browser -g lykoi-browser -m 700 /home/lykoi-browser/profile
 install -d -o lykoi-browser -g lykoi-browser -m 700 /home/lykoi-browser/data
+#    代码树只读 bind 的挂载点（空目录，内容由 unit 的 BindReadOnlyPaths 挂进来）。
+install -d -o root -g root -m 755 /opt/lykoi-browser
+install -d -o root -g root -m 755 /opt/lykoi-browser/tree
 
-# ② 宿主要能连到 lykoi 组（socket 0660 组 lykoi，大脑那侧才连得上）。
-usermod -aG lykoi lykoi-browser
+# ② 方向是反的：**大脑加入 lykoi-browser 组**，好去连宿主的 socket。
+#    宿主一个外来组都不带 —— 它在自己的挂载命名空间里根本看不见 /home/lykoi。
+usermod -aG lykoi-browser lykoi
+#    附加组要重启进程才生效。LANDING-H 本来就要重启大脑（第⑦步），不用额外动作；
+#    验证：`sudo -u lykoi id -nG | tr ' ' '\n' | grep -x lykoi-browser`（大脑重启后再验）。
 
 # ③ 配置文件（root 属主，宿主只读）。
 install -d -o root -g root -m 755 /etc/lykoi-browser
@@ -64,10 +108,18 @@ install -o root -g root -m 644 \
 sed -i "s#<NODE_BIN>#<NODE_BIN>#" /etc/systemd/system/lykoi-browser.service
 systemctl daemon-reload
 
-# ⑤ 起宿主，先只验 health（这一步不需要大脑在跑）。
+# ⑤ 起宿主，先只验 health（这一步不需要大脑在跑，但需要第⑥步的 npm ci 已经做过
+#    —— host.ts import playwright-core；树里没有 node_modules 时宿主起不来）。
+#    bind 挂载不改权限：宿主以 lykoi-browser 身份读挂进来的树，所以树本身要 o+rx。
+#    750 的 /home/lykoi 不挡路 —— 挂载点是 /opt/lykoi-browser/tree，权限检查从
+#    挂进来的那个目录往下算，不再经过它的宿主侧父目录。要看的是树自己的 other 位：
+stat -c '%a %n' /home/lykoi/projects/lykoi-cordis \
+     /home/lykoi/projects/lykoi-cordis/packages/lykoi-organ-browser/src/host.ts \
+     /home/lykoi/projects/lykoi-cordis/node_modules/playwright-core
+#    期望目录 o+rx（如 755）、文件 o+r（如 644）。不满足就 chmod o+rX 补上。
 systemctl enable --now lykoi-browser.service
 systemctl status lykoi-browser.service --no-pager
-ls -l /run/lykoi-browser/host.sock            # 期望 srw-rw---- lykoi-browser lykoi
+ls -l /run/lykoi-browser/host.sock   # 期望 srw-rw---- lykoi-browser lykoi-browser
 sudo -u lykoi node -e '
   const net=require("net");const s=net.connect("/run/lykoi-browser/host.sock");
   s.on("connect",()=>s.write(JSON.stringify({id:"1",op:"health",args:{}})+"\n"));
@@ -145,7 +197,13 @@ duration_ms, truncated}` —— **不落页面文本、不落完整 URL**（只�
 
 ## 6 · 备份
 
-`/home/lykoi-browser/profile` 进备份集（她的登录态在里面），**先停服务再打包**：
+`/home/lykoi-browser/profile` 进备份集（她的登录态在里面）。
+
+**目前是手工项**：日备份 `/usr/local/sbin/lykoi-cordis-backup.sh` 以 `User=lykoi` 跑，
+读不到 700 的 `lykoi-browser` 家目录，所以定时器不会产出它。以下三步要 **root 手工**执行；
+纳入日备份需要一个以 root 身份运行的独立定时器，留作 M5 后续。
+
+**先停服务再打包**：
 
 ```sh
 systemctl stop lykoi-browser.service          # 保持 enabled，不要 disable
@@ -167,7 +225,8 @@ systemctl start lykoi-browser.service
 
 | 现象 | 多半是 | 怎么办 |
 |---|---|---|
-| 每个动作都 `browser_host_unreachable` | 宿主没起 / socket 不在 / 组不对 | `systemctl status lykoi-browser`；`ls -l /run/lykoi-browser/host.sock` 期望组 `lykoi`、模式 `0660` |
+| 每个动作都 `browser_host_unreachable` | 宿主没起 / socket 不在 / 大脑没带 `lykoi-browser` 组 | `systemctl status lykoi-browser`；`ls -l /run/lykoi-browser/host.sock` 期望组 `lykoi-browser`、模式 `0660`；`sudo -u lykoi id -nG` 里要有 `lykoi-browser`（`usermod -aG` 之后大脑进程**必须重启**才带上新组） |
+| 宿主起不来，日志 `Cannot find module ... playwright-core` 或 `ENOENT ... host.ts` | 只读 bind 的树没挂上或树不可读 | `systemctl show -p BindReadOnlyPaths lykoi-browser`；`stat -c %a` 看 `/home/lykoi/projects/lykoi-cordis` 一路是否 o+rx；挂载点 `/opt/lykoi-browser/tree` 必须先存在 |
 | `busy` | 宿主串行，上一个动作还没结束 | 正常行为，不是故障。等它结束再来；长期频繁说明某个页面卡在超时上限 |
 | `blocked_url` | SSRF 判定拒了 | 看审计 `browser_url_blocked.reason`：`private_address` 多半是那个域名解析到内网 |
 | `redirect_off_domain` | 目标站 302 去了别的注册域 | 这是设计。要去那个域就让她显式对那个域再走一次审批 |
