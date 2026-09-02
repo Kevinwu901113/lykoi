@@ -59,8 +59,10 @@
   category=focus，无 relationship 行 → `promotedFocusInsights` 收窄后返回集不变；
   `promotedRelationshipInsights('user_001')` 返回空 → overlay 段零字节 → 人格块逐字节
   与现在相同。第一条 overlay 行要等 L4 从 `relationship_thread` 关切得出结论并过 3 周期影子期。
-- **落地耦合：零迁移** → 合并后服务器 `git pull` main + 重启 `lykoi-cordis.service` 即生效
-  （deploy.md §11 口径），不需要停机窗，不需要备份点以外的任何准备。
+- **落地耦合：零迁移** → 合并后服务器树钉 main + 重启 `lykoi-cordis.service` 即生效。
+  **落地后更正**：原文"不需要停机窗"不准确——manifest hash-pin 域覆盖 src，本单改了 5 个
+  src 文件，须 root 重签 manifest，R-01 要求停 → 备份 → 起串行；实际形态 = E 稿去掉迁移段，
+  停机约 5 秒（`LANDING-F-20260902/record.md`）。
 - **合并次序**：与 `wo/fix-loop-01`（另一治理会话在途）区段不重叠，merge-tree 无冲突；
   两单谁先合都可。建议本单先合（已复核完），fix-loop 复核完再合；两次落地各一次重启，
   或等两单都合后一次重启（Kevin 定）。

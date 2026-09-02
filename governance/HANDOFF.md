@@ -497,7 +497,12 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   D-PERS-2（relationship overlay）之前** —— 先让她能出门，再给她第二张脸。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
-- **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS，待 Kevin 裁合（2026-09-02）**：
+- **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落
+  （2026-09-02 17:38）**：合并 main@**29ffab1**，产线现钉此提交（记录
+  `wo/LANDING-F-20260902/record.md`：零迁移但 manifest 钉 src 须 root 重签，停机约
+  5 秒；备份 `/root/backup-pre-overlay-20260902T173758.tar.gz`；manifest 106；
+  NRestarts 0）。**教训：零迁移 ≠ 零停机。** 通道事实：治理账户可传 bundle 到服务器
+  /tmp，传 root 执行脚本被分类器拦（脚本走聊天正文 + Kevin 落盘）。下面是签发与复核经过：
   Kevin 15:22 在另一会话点名"那现在做 D-PERS-2"，晚于上条 15:12 的改序裁决，故按
   更晚指示签发（章程头注记了时间线；两单并行、区段不重叠）。opus 执行，分支
   `wo/pers-overlay` 尖 69ee4fc（父 23c65a0）。内容：L4 从 `relationship_thread`
