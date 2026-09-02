@@ -487,11 +487,11 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 ### 📍 状态快照（2026-09-02 刷新；比下方一切条目新，先读这里）
 
 - **审计修复单 `wo/AUDIT-FIX-2026-09-02`（Kevin 2026-09-02 口头授权"其余按建议修"，
-  token 轮换明示不做）**，分支待 Kevin 裁决合并。内容：
+  token 轮换明示不做）**，Kevin 同日裁决并入 main（merge c00165a），分支已删。内容：
   ① **main 即生产装配**：`profile/cordis.prod.yml` 六器官位在 main 上启用，
-  `m4-switch` 翻位分支废止（生产当前仍钉 56d7ead = 该分支尖；**下次落地起钉
-  main 提交**，之后可删 m4-switch 本地与远端分支）。deploy.md §11 / CLOUD_HANDOFF
-  同步改口。
+  `m4-switch` 翻位分支已删（本地+远端，Kevin 裁决）；其尖 56d7ead 留轻量标签
+  `m4-switch-retired`（生产当前仍钉此提交；**下次落地起钉 main 提交**）。
+  deploy.md §11 / CLOUD_HANDOFF 同步改口。
   ② **CI**：`.github/workflows/ci.yml`，push/PR 跑 `npm ci` + typecheck + 全量测试
   （Node 按 `.nvmrc`）。
   ③ **state 库生产创建入口**：`packages/lykoi-memory/src/init-state.ts`
