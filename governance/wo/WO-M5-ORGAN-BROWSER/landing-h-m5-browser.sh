@@ -1,5 +1,5 @@
 #!/bin/bash
-# LANDING-H · WO-M5-ORGAN-BROWSER 落地 —— 产线树 main@481e6d2 → main@482d644
+# LANDING-H v2 · WO-M5-ORGAN-BROWSER 落地（v1 在 §6 npm ci 后因 init-state.ts 模式漂移 FATAL；v2 修 npm 的 Node 版本与模式恢复，可从头重跑） —— 产线树 main@481e6d2 → main@482d644
 # 本单：零迁移、零 schema 变更；装配面 +1 器官位（browser）；新依赖 playwright-core 1.60.0；
 # 新 OS 用户 lykoi-browser + 新 unit lykoi-browser.service + /etc/lykoi-browser/host.json。
 # manifest 106 → 113（新包 package.json + 6 个 src），须 root 重签。
@@ -122,7 +122,9 @@ N=$(find governance/wo -path '*/migrations/018_*' 2>/dev/null | wc -l)
 echo 'TREE PINNED CLEAN OK'
 # npm ci 必须在 chown root 之前（GOV：npm 要写 workspace 目录）
 chown -R lykoi:lykoi "$REPO/packages" "$REPO/profile"
-sudo -u lykoi -H "$NPM" ci --ignore-scripts --prefix "$REPO"
+# npm 的 shebang 走 PATH 上的 node；sudo 会把 PATH 重置成 secure_path（/usr/bin/node 是系统 Node 18），必须显式给 Node 24
+sudo -u lykoi -H env PATH="/opt/node-v24.18.0/bin:/usr/bin:/bin" "$NPM" ci --ignore-scripts --prefix "$REPO"
+sudo -u lykoi -H env PATH="/opt/node-v24.18.0/bin:/usr/bin:/bin" node -v | grep -q "^v24" || { echo "FATAL: npm ci 用的不是 Node 24"; exit 1; }
 PV=$("$NODE" -p "require('$REPO/node_modules/playwright-core/package.json').version")
 [ "$PV" = 1.60.0 ] || { echo "FATAL: node_modules/playwright-core 版本 $PV ≠ 1.60.0"; exit 1; }
 [ -d "$REPO/node_modules/playwright-core/node_modules" ] && echo 'WARN: playwright-core 带了嵌套 node_modules（应零传递依赖）' || true
@@ -131,7 +133,12 @@ chmod -R go-w "$REPO/packages" "$REPO/profile"
 # 宿主经只读 bind 读树：树对 other 须可读
 N=$(find "$REPO" -path "$REPO/.git" -prune -o \( -type d ! -perm -o=rx -o -type f ! -perm -o=r \) -print | wc -l)
 if [ "$N" != 0 ]; then echo "WARN: 树内 $N 项对 other 不可读，补 o+rX"; chmod -R o+rX "$REPO"; fi
-[ -z "$(git status --porcelain)" ] || { echo 'FATAL: npm ci 后树不净（lockfile 被改？）'; git status --porcelain; exit 1; }
+# 属主/权限重整会刷新 git 的 stat 缓存，把此前就存在的模式漂移（如 init-state.ts 盘上 755、索引 644）暴露出来；
+# 树必须与钉点逐位一致，按索引把模式恢复回去（内容差异不会被这一步掩盖：checkout -f 后仍不净则 FATAL）
+if [ -n "$(git status --porcelain)" ]; then
+  echo 'INFO: 重整后有差异，按钉点恢复：'; git status --porcelain; git checkout -f -- . ; chmod -R go-w "$REPO/packages" "$REPO/profile"
+fi
+[ -z "$(git status --porcelain)" ] || { echo 'FATAL: 恢复后树仍不净（内容差异）'; git status --porcelain; git diff | head -40; exit 1; }
 echo 'DEPS + OWNERSHIP OK'
 
 echo '== 7 · 重签 manifest + 完整性门（期望 113 条） =='
