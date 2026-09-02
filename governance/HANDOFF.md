@@ -495,15 +495,24 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   **`wo/WO-FIX-LOOP-01`**（sonnet 执行，分支 `wo/fix-loop-01`，零迁移零装配）。
   队列改序（Kevin 15:12 裁决"M5 提前到人格分层前"）**已被 15:22 的更晚指示
   取代**：D-PERS-2 当日以 `WO-PERS-OVERLAY-01` 并入并落地（下下条）。现行队列：
-  **`WO-FIX-LOOP-01` 裁合 → `WO-M5-ORGAN-BROWSER` 开工**。
+  **`WO-FIX-LOOP-01` 已裁合落地（LANDING-G，见下条）→ `WO-M5-ORGAN-BROWSER` 开工**。
   **WO-FIX-LOOP-01 复核 PASS（同日 18:30）**：sonnet 执行 6 提交 + 治理复核改口
   1 提交（D-1d gap `wanted` 记工具名；`grounded_concern_ids` 去重升序），rebase 到
   main@a794e7f 后尖 **a6e4432**，独立复跑 **929/918/0/11**，tsc 净，详见
-  `wo/WO-FIX-LOOP-01/review.md`；**待 Kevin 裁合**，落地 = 拉 main + 重启（零迁移；
-  manifest 钉 src 须 root 重签，见 LANDING-F 教训）。遗留：执行方发现 GK-14 张力
+  `wo/WO-FIX-LOOP-01/review.md`；**Kevin 同日"动手"裁合 → 合并 main@481e6d2 →
+  LANDING-G 已落（20:25）**，见下条。遗留：执行方发现 GK-14 张力
   （信封 `dispatched` 自称先于 D-1d 闸——未接线 tool_call 会自称派发却无
   action_dispatch 行），触信封契约，另立小单。执行过程两次中断（429 速率限制、
   流停滞看门狗），均 SendMessage 续跑，worktree 提交未丢。
+- **LANDING-G 已落（2026-09-02 20:25）**：WO-FIX-LOOP-01 合并 main@**481e6d2**，
+  **产线现钉此提交**（记录 `wo/LANDING-G-20260902/record.md`：零迁移零装配，manifest
+  重签 106，gate OK，停机约 3 秒；备份 `/root/backup-pre-fixloop-20260902T202458.tar.gz`；
+  NRestarts 0）。首拍证据：`organ_inventory_built.chars` 703→309（清单 18→5 项）；重启
+  线索无 `never_stopped`/`negative_interval` 噪声。**新发现**：落地脚本 `disable --now`
+  使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
+  改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
+  日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 开工**；GK-14 小单待立。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落
