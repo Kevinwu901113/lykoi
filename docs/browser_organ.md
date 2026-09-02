@@ -239,19 +239,21 @@ Service Worker、Chrome 自己的后台连接、任何子进程，全部一视�
 
 **判定顺序与分工**：① 仍是第一道 —— 它拒得早、拒得便宜，而且能给出 `reason`
 （`blocked_url` + `private_address`），她因此知道自己撞了什么墙；③ 只会让连接失败，
-她看到的是 `navigation_failed`，没有语义。所以两道都要，不是二选一。
+她看到的是 `timeout`，没有语义。所以两道都要，不是二选一。
 
 **smoke ⑦ 那个案例在生产下的预期**：本机（Mac，无 systemd）实测 —— 直接
 `navigate('http://priv.test/…')` 被 ① 拒（`blocked_url`），而**经 302 抵达**的同一个
 地址被真的请求到了（P 站实收 `/latest/meta-data/`）。**在服务器的生产 unit 下，
-这一次 `connect()` 会被内核拒**，Chrome 报 `net::ERR_…`，动作落
-`navigation_failed`（而不是 `blocked_url` —— 拦它的不是判定器）。
+这一次连接的包会被内核丢掉**：`IPAddressDeny=` 是 cgroup skb 过滤，**丢包而不是拒绝**
+—— `connect()` 不返回 EPERM，SYN 一直没有回音，直到动作超时。所以动作落的是
+`timeout`（不是 `blocked_url` —— 拦它的不是判定器；也不是 `navigation_failed` ——
+Chrome 没有收到任何错误，只是等不到）。§2 前验二里 curl 的 rc=28（超时）是同一个签名。
 
-> ⚠ **这条预期尚未实证**：Mac 上没有 systemd / cgroup，smoke 跑不到内核这一层，
-> 倒挂断言钉的仍是"用户态拦不住"。**LANDING-H 必须在服务器上实证**：
-> §2 前验的第二条探针（证 IP 过滤在本机生效）+ 起服务后跑一次
-> `research_browser.read_text` 打向一个 302 到私网的地址，确认落 `navigation_failed`
-> 且 `journalctl -u lykoi-browser` 里没有 ip firewall 安装失败行。
+> **LANDING-H 实证（2026-09-03，服务器 Chrome 148）**：§2 前验二 带 Deny rc=28 / 无 Deny rc=0；
+> 起服务后 `research_browser.read_text` 打 `https://httpbin.org/redirect-to?url=http://192.168.0.202:7890/`
+> 得 `{"ok":false,"error":"timeout"}`；对照直连 `https://httpbin.org/get` 秒回 `ok:true`（unit 内 DNS 与出网可用）；
+> journal 无 ip firewall 安装失败行。原稿把预期写成 `navigation_failed`，是没算到丢包语义，已按实测改。
+> Mac 上没有 systemd / cgroup，smoke 跑不到内核这一层，倒挂断言钉的仍是"用户态拦不住"。
 
 **为什么不在 Playwright 层堵**：唯一路子是 `route.fetch({ maxRedirects: 0 })` +
 `route.fulfill` 自己跟重定向链，那等于把整条导航从 Chrome 的网络栈搬到 Playwright
@@ -327,6 +329,6 @@ systemctl start lykoi-browser.service
 | `timeout` | 页面加载超过预算 | `host.json` 的 `timeouts`；宿主已自愈（关页/关上下文），不会留僵尸 |
 | `no_page` | 还没 navigate 就 get_text，或上一次导航被拦 | 先 navigate |
 | 宿主起不来，日志 `ENOENT ... google-chrome` | `executablePath` 不对 | `which google-chrome` 后改 `host.json` |
-| 所有外网页面都 `navigation_failed`，私网也一样 | 出网闸把该放的也挡了 —— 多半是 `IPAddressAllow` 写了全网前缀把 Deny 废掉后又改错，或 DNS 存根没放行 | `systemctl show -p IPAddressAllow -p IPAddressDeny lykoi-browser`；`IPAddressAllow` 应当只有 `127.0.0.53/32` 与 `127.0.0.1/32`；开了代理要另加代理那一条 |
+| 所有外网页面都 `timeout`，私网也一样 | 出网闸把该放的也挡了 —— 多半是 `IPAddressAllow` 写了全网前缀把 Deny 废掉后又改错，或 DNS 存根没放行 | `systemctl show -p IPAddressAllow -p IPAddressDeny lykoi-browser`；`IPAddressAllow` 应当只有 `127.0.0.53/32` 与 `127.0.0.1/32`；开了代理要另加代理那一条 |
 | 私网地址经 302 还是连得上 | 出网闸没装上（systemd 只警告不拦，fail open） | `journalctl -u lykoi-browser -b \| grep -i "ip firewall"`；再跑一遍 §2 前验二的两条探针 |
 | Chrome 起来就崩 | 家目录权限 / profile 被别的进程占 | 确认 `/home/lykoi-browser/profile` 属主是 `lykoi-browser`；同一 profile 不许两个 Chrome |

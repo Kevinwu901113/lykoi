@@ -83,5 +83,5 @@
 - 前验：沙箱探针（setpriv --no-new-privs）；出网闸正反两条 `systemd-run` 探针。任一失败即停，不改 `--no-sandbox`、不「反正还有判定器」。
 - root：`useradd --system` lykoi-browser、家目录 700、`profile/ data/` 700、`/etc/lykoi-browser/host.json`（root 644）、`/opt/lykoi-browser/{,tree}` 挂载点、`usermod -aG lykoi-browser lykoi`、装 unit、`systemd-analyze verify`、daemon-reload。
 - 树落地后 `sudo -u lykoi npm ci --ignore-scripts` **先于** chown root；重签 manifest 期望 113；gate exit 0。
-- 起宿主 → journal 无 "ip firewall" 失败行 → health 往返 → 起大脑（带新组）→ 审计见 `browser_organ_wired` → 清单三项 → 服务器 Chrome 148 复跑 smoke 六步 → 302 → 私网走一次 `research_browser.read_text` 确认 `navigation_failed`（R-4 实证）。
+- 起宿主 → journal 无 "ip firewall" 失败行 → health 往返 → 起大脑（带新组）→ 审计见 `browser_organ_wired` → 清单三项 → 服务器 Chrome 148 复跑 smoke 六步 → 302 → 私网走一次 `research_browser.read_text` 确认被拦（R-4 实证；落地实得 `timeout` —— IPAddressDeny 是 skb 丢包不是拒绝，原预期 `navigation_failed` 有误）。
 - 记账：`governance-ops.jsonl` 一行 `landing-h-m5-browser`。
