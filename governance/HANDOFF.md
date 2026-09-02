@@ -109,6 +109,76 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ## 四、血泪教训（这些坑我都踩过，别再踩）
 
+### 教训索引（按主题）
+
+本节共 59 条（编号 1–53，其中原「6.」是两条不同教训占同一号；另有
+5b/5c/31b/31c/33b 五条后缀条目），按时间顺序追加，
+小标题分组与主题不完全对应，故有此索引。**索引只导航、不改写**：正文一字未动。
+
+**重号修正**：原有两条并列的「6.」已改为 **6a**（「关于"代码事实"与"部署事实"」节，
+drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅改编号本身，正文未动；
+全仓无外部引用指向「教训 6」，故无连带修改。
+
+固化状态口径：**已固化** = 有测试/门检查项/脚本/`CLAUDE.md` 硬规矩机械化，给出路径；
+**仅文档** = 只活在文字里；**旧体已退役** = 该条针对已退役的 Python 体
+（`guardian/`、pytest、`guardian/manifest.sha256`），列出 Cordis 对应物或注明「无」；
+**未核实** = 证据不在本仓，未下结论。
+
+| 主题 | 教训编号 | 固化状态 |
+| --- | --- | --- |
+| 执行 Agent 派发机制（wrapper / 脱管 / 重试 / 白名单） | 22、28 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:3,7`（setsid 启动要求 + `trap "" HUP`）、`:10`（START 行）、`:11-22`（5 次重试 + `report.attempt$i.md` 独立存证） |
+| 同上 | 24 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:13`（`$HOME/.local/bin/claude` 绝对路径） |
+| 同上 | 40 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:4,14`（`--add-dir ~/wo/$WO`） |
+| 同上 | 41 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:5,21`（`EXIT=SESSION_LIMIT` 立即停手 + reset 提示） |
+| 同上 | 13、35 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:11-22`（重试棘轮）+ `:19`（每 attempt 自动 commit）；条目关闭另记 `governance/docs/open_routes_inventory_2026-08-13.md:87` |
+| 同上 | 33 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:15` 三条无通配前缀（`Bash(timeout:*)`、`Bash(.venv/bin/python:*)`、`Bash(.venv/bin/pytest:*)`）。注：后两条属旧 Python 体，Cordis 所需的 node/npm 前缀尚未入表 |
+| 同上 | 25 | 旧体已退役（`.venv` / pip），Cordis 对应物：无（工作副本走 `npm ci`） |
+| 同上 | 43、45、46 | 仅文档 |
+| 工单正文与结束纪律 | 1、3 | 已固化：`CLAUDE.md:31-32`（报告一次性完整输出；自报完成不算完成，以复核为准） |
+| 同上 | 29 | 已固化（wrapper 半边）：`governance/docs/bin-dispatch_2026-08-21.sh:19`；「工单正文写死每里程碑立刻 commit」半边仅文档 |
+| 同上 | 30 | 已固化（机制半边）：`governance/docs/bin-dispatch_2026-08-21.sh:16` 硬读 `order.md`（续跑必须覆盖同名文件）；do-not-redo 表半边仅文档 |
+| 同上 | 34 | ① 旧体已退役（`tests/test_gate5_l1_scan.py`），Cordis 对应物：无全仓扫描门（时钟原语见「测试时钟」行）；② 已固化（通道半边）：`governance/docs/bin-dispatch_2026-08-21.sh:14`，投放内容仍逐单手写 |
+| 同上 | 2、23、33b、44 | 仅文档（本仓无工单模板文件，条款逐单复制；`bin-dispatch_2026-08-21.sh:20` 只认退出码与 "API Error"，认不出假完成） |
+| 复核与采证纪律 | 4、31b、38、42、52 | 仅文档（纪律范例：`governance/wo/WO-M4-W2/runbook.md:6`） |
+| 同上 | 27 | 旧体已退役（`tests/test_p0_integrity.py` 身份假失败），Cordis 对应物：无；同形说明见 `governance/wo/WO-STATE-CANON/report.md:77`（检查项①④⑦在开发机上本就红） |
+| manifest 与完整性门 | 5、7 | 旧体已退役（`guardian/manifest.sha256` + pytest），Cordis 对应物：`packages/lykoi-gate/src/manifest.ts`、`packages/lykoi-gate/src/surface.ts`（钉面表）、`packages/lykoi-gate/src/verify.ts:398`（检查项⑤ `checkManifest`）、`packages/lykoi-gate/test/manifest.test.ts`；重签入口 `packages/lykoi-gate/src/cli.ts:24 --write-manifest` |
+| 同上 | 26 | 旧体已退役（六目录锁），Cordis 对应物：钉面表 `packages/lykoi-gate/src/surface.ts`；「六目录锁同一时间只发一单」纪律本身仅文档 |
+| 同上 | 37 | 旧体已退役（`startup_verify._check_perms`），Cordis 对应物：`packages/lykoi-gate/src/verify.ts:185 checkProtectedTree`（检查项②）+ `packages/lykoi-gate/test/gate-checks.test.ts` |
+| 同上 | 50 | 已固化（代码侧半边）：`packages/lykoi-kernel/src/policy-core.ts`（`PROTECTED_PATHS` 收敛）、`packages/lykoi-gate/src/verify.ts:366 checkPathGuard`、`packages/lykoi-gate/test/gate-checks.test.ts:275`、`packages/lykoi-kernel/test/path-guard.test.ts:90`；「退役单先 grep 全仓绝对路径 + 搜 RETIRE 注释」半边仅文档 |
+| 部署事实与属主/权限 | 6b、9、31、39 | 旧体已退役（guardian 属主域 / 合并包 B 步排除清单），Cordis 对应物：`packages/lykoi-gate/src/verify.ts:147 checkGateOwnership`（①）与 `:185 checkProtectedTree`（②） |
+| 同上 | 8 | 旧体已退役，Cordis 对应物：`packages/lykoi-gate/src/verify.ts:578`（`checkAuditSink` 仍以 `accessSync(W_OK)` 判可写）——「权威判据是以服务账户身份跑」的依赖原样存在 |
+| 同上 | 6a、10、51 | 仅文档（幂等粘贴稿范例：`governance/wo/WO-CORE-RETIRE/paste-retire.sh`） |
+| GK-6 落点与 env 钉面 | 49 | 已固化：`packages/lykoi-gate/src/verify.ts:621 checkStateCanon`（检查项⑧，注册见 `:667 CHECKS`）+ `packages/lykoi-gate/test/state-canon.test.ts`；`CLAUDE.md:29-30` 硬规矩；env 钉面同族 `packages/lykoi-gate/src/verify.ts:291 checkEnvPins`（③）+ `packages/lykoi-gate/test/env-pins.test.ts` |
+| 同上 | 36 | 旧体已退役（`tests/conftest.py` 默认表、`test_no_state_path_constant_points_at_the_live_state_dir`），Cordis 对应物：检查项⑧（守同一条「落点分叉」失败面） |
+| 网络与代理 | 11、12 | 已固化：`governance/docs/bin-dispatch_2026-08-21.sh:8`（四个大小写代理变量显式 export） |
+| 同上 | 14、15、16 | 仅文档 |
+| 灾备重建（DR） | 19 | 已固化：`packages/lykoi-gate/src/verify.ts:556 checkAuditSink`（⑤ `appendOnlyProbe`，缺 append-only 属性即 FAIL） |
+| 同上 | 18 | 旧体已退役（pyc 属主检查），Cordis 无 pyc 面；同类 shadow 面见 `packages/lykoi-gate/src/verify.ts:218 checkShadowSurface` |
+| 同上 | 17、21 | 仅文档（17 已进运行稿：`governance/wo/WO-M4-W2/w3-runsheet-kevin.md:87`） |
+| 同上 | 20 | 未核实（灾难手册正本不在本仓，无从对树） |
+| 切换窗与粘贴稿 | 47 | 已固化（本条实例半边）：`packages/lykoi-wake/test/persona-toml.test.ts`（缺必填配置 → `ctx.get('wake') === undefined` 负例）；「翻位复核清单须含『起过一次该条目』」半边仅文档 |
+| 同上 | 48 | 仅文档（形态已落两稿：`governance/wo/WAVE-OBS-PREP/paste-landing-b.sh:14,64-85`、`governance/wo/WO-CORE-RETIRE/paste-retire.sh:10`） |
+| 测试时钟与定时炸弹 | 32 | 已固化：`CLAUDE.md:33-35` 硬规矩 + 注入原语 `packages/lykoi-wake/src/clock.ts` + `packages/lykoi-wake/test/clock.test.ts`；`// realtime-allow:` 尾注约定在用（如 `packages/lykoi-converse/src/deadline.ts:87`） |
+| 同上 | 31c | 仅文档（新体无迁移链相对冻结点；dispatch 白名单半边已固化，见教训 33 行） |
+| 观测与故障剥层 | 53 | 已固化（下游半边）：`packages/lykoi-llm/src/index.ts:94`（finish{error} 封口）+ `packages/lykoi-llm/test/llm.test.ts:134-161` + `packages/lykoi-converse/test/llm-finish.test.ts`（WO-LLM-FINISH-01 已关单）；route 名对齐钉在 `profile/cordis.prod.yml:106-110,153-155` 注释；「事件计数精确匹配 `"type":"X"`」纪律仅文档 |
+| 治理平面自身纪律 | 5c | 已固化：`CLAUDE.md:32`（波次完成当日 commit+push）；无自动检查 |
+| 同上 | 5b | 仅文档（`~/reports/governance-ops.jsonl` 在服务器，本仓无校验面） |
+
+**重复 / 包含关系**（同一个坑的不同层，两条都保留，勿合并）：
+
+- 22（`claude -p` 本身要脱管）→ 28（wrapper 自己也要脱管）→ 46（Mac 侧 ssh 管道同理）；
+- 23（工单不能有"等待"步骤）→ 29（等待之外还会中途断线丢工作）→ 33b（把测试丢后台再等）
+  → 44（把"进行中"当结束交卷）；四条是同一族 EXIT=0 假完成的四种形态；
+- 5（manifest 漏更新）→ 7（guardian 裸文件名易漏）→ 26（并行工单必然冲突）→ 37（排除清单漏 `core/`）；
+- 6b / 9（属主还原）→ 31（还原口径）→ 37（`core/` 同级封存）→ 39（A 步须 root）；
+- 36（路径常量的落点分叉）→ 49（落点分叉的部署面版本，已由检查项⑧看住）；
+- 31c（EXIT=0 假阳性的识别缺口）→ 33（白名单死规则导致的同形假阳性）→ 44（同族）。
+
+索引生成日期 **2026-09-02**（依据当日树上的代码与脚本核实固化状态）。
+**维护约定：新增一条教训时，同步在本表加一行**（写明主题、编号、固化状态；
+未机械化就写「仅文档」，不确定写「未核实」，不要猜）；固化状态随后续工单变化时
+一并更新路径。
+
 ### 关于执行 Agent
 
 1. **工单必须写死"stdout 即报告本体，不要写文件"**，否则它只回一段聊天式摘要。这个失败模式出现过三次。
@@ -117,6 +187,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 4. **涉及权限的判断必须自己实测**——它对文件权限的推断出过错。
 5. **⚠️ 最高频的致命缺陷：改了受 manifest 覆盖的文件却不更新 `guardian/manifest.sha256`。已发生两次**（SEC-01 漏更新 startup_verify.py 自身条目；SEC-02 新增 `resources/url_guard.py` 完全未登记）。两次都会导致三服务全部拒绝启动。
    **凡工单会动 `cognition/mind/memory/shared/surface/resources` 六个目录或 `guardian/` 下任何 .py，工单里必须显式写上"同步更新 manifest（改哈希 + 新增条目）"，复核时必须跑 `pytest tests/test_p0_integrity.py`。** 这一条建议直接写进工单模板。
+   → 参见教训 7、26、37（同族）。旧体已退役，Cordis 对应物见本节索引「manifest 与完整性门」行。
 
 ### 关于治理平面自身的纪律（2026-08-09 新增，两条都因实际缺失而写）
 
@@ -126,11 +197,11 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ### 关于"代码事实"与"部署事实"
 
-6. **治理工作副本是代码事实源，不是部署事实源。** 执行 Agent 曾据仓内 systemd unit 文件判定 `core/` 包（占全库 40%）是 default-off 死代码、建议删除；我用 `sudo systemctl cat lykoi-*` 查线上 drop-in，发现 M3 开关**几乎全开**——它是运行中的生产路径。**任何"是否启用"的结论都必须查 drop-in。**
+6a. **治理工作副本是代码事实源，不是部署事实源。** 执行 Agent 曾据仓内 systemd unit 文件判定 `core/` 包（占全库 40%）是 default-off 死代码、建议删除；我用 `sudo systemctl cat lykoi-*` 查线上 drop-in，发现 M3 开关**几乎全开**——它是运行中的生产路径。**任何"是否启用"的结论都必须查 drop-in。**
 
 ### 关于部署
 
-6. **`guardian/` 目录是 `dr-xr-xr-x root:root`，lykoi 完全不能写。** 触及 guardian 的改动**不能用普通 `git merge`**，必须 Kevin 以 root 执行。那 17 个 `/usr/local/sbin/lykoi-*-apply` 控制器就是为此存在的。
+6b. **`guardian/` 目录是 `dr-xr-xr-x root:root`，lykoi 完全不能写。** 触及 guardian 的改动**不能用普通 `git merge`**，必须 Kevin 以 root 执行。那 17 个 `/usr/local/sbin/lykoi-*-apply` 控制器就是为此存在的。
 7. **改了 `guardian/` 下任何文件，必须同步更新它在 `guardian/manifest.sha256` 里的条目**——包括 `startup_verify.py` 自己。清单里 guardian 文件用**裸文件名**（相对 `guardian/` 解析），批量核对时极易漏。漏了会导致三个服务全部拒绝启动。
 8. **`startup_verify.py` 用 `os.access` 判权限，以 root 运行会假阳性**报 `audit sink directory … writable by the service user`。权威判据是**以 lykoi 身份**运行（= systemd `ExecStartPre` 的真实身份）。
 9. **部署后属主/权限位要还原**：guardian 两文件 root:root 444；`src/lykoi/shared/{log,redaction}.py` 是 root:root 644（服务账户不能改脱敏器）；`src/` 下有 41 个文件本就是 root 属主（core 包整个是），**绝不能 `chown -R`**。
@@ -160,12 +231,14 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     不生效、NAT TCP 不通（疑宿主防火墙），容器出网用 LXD proxy device 最省事。
 22. **服务器侧长任务必须 nohup 脱管**，别附着在 ssh 会话上（宽带断线会连坐杀掉
     lxc exec / claude -p）。
+    → 参见教训 28（wrapper 层）、46（Mac 侧 ssh 管道层）。
 
 ### 关于无头执行 Agent（2026-08-09 新增，都是本轮实际踩的）
 
 23. **工单里不能有"等待"步骤**。WO-P2-03A 两次在"等全量 pytest 跑完"处直接结束会话
     （报告只有一句"我在等"），代码写完了却**没提交**。要么把长测试拆成独立后续单，
     要么在工单里写死"跑测试用 `timeout N` 且必须先 commit 再等"。最终由复核方代提交。
+    → 参见教训 29、33b、44（同族的后三层）。
 24. **派发包装脚本要用 `claude` 的绝对路径**（`$HOME/.local/bin/claude`）。
     重试用的 wrapper 是非 login shell，读不到 `.profile` 里的 PATH，直接
     `command not found` 连败三次（rc=127）。
@@ -238,6 +311,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     S 窗口复核和 L 窗口全量对照都在绿区跑的，谁都没看出来；Kevin 部署时才炸。
     **复核涉及时间语义的测试时，专门检查：断言里的每一个时间量，锚的是哪只钟。**
     修法是把过期锚在记录自身的时间戳上（`FIX-S2-TEST` `01a8099c`）。
+    → 已固化：`CLAUDE.md` 测试时钟纪律 + 注入原语 `packages/lykoi-wake/src/clock.ts`
+    （测试 `packages/lykoi-wake/test/clock.test.ts`）。
 
 34. **工单模板的两条固定项**（2026-08-13 补,均为陈年遗留销账）。
     ① **`tests/test_gate5_l1_scan.py` 进每张单的必跑清单**——全局不变量门,<1s;
@@ -262,6 +337,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     陈货投给了 Kevin(工单 §forbidden 明令禁止的那件事)。
     **复核清单新增一问:这单新增了哪些路径常量?每一个在 conftest 里有默认值吗?**
     回归守卫已落地:`test_no_state_path_constant_points_at_the_live_state_dir`。
+    → 参见教训 49（Cordis 对应物：完整性门检查项⑧ `state_canon`）。
 
 37. **合并包 B 步的属主排除清单必须含 `src/lykoi/core/`**(2026-08-13,合并包 10
     实际踩了)。`startup_verify._check_perms` 把 **kernel 与 core 同级**当作封存的
@@ -366,6 +442,8 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     unit 零 LYKOI_* env——调和物（var/state 符号链接）从未进部署材料，止损
     重启 40 分钟内服务进程就在仓库内 mkdir 真实目录分叉了一个游标。审批面
     诸文件靠懒加载才没跟着分叉。现已由门检查项⑧永久看住（缺失也算 FAIL）。
+    → 已固化：`packages/lykoi-gate/src/verify.ts:621`（`checkStateCanon`）+
+    `packages/lykoi-gate/test/state-canon.test.ts`。参见教训 36。
 
 50. **ops 退役单签发前必须 grep 全仓被退役的绝对路径——代码里引用它的常量/
     探针要有代码侧配套单**（2026-09-01 退役三跑事故）。封存旧仓后，kernel
@@ -398,12 +476,44 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
     抛错归一成 finish{error} 不外抛，lykoi-llm 不检查 finish 位返回空文本，
     wake 解码才炸，报错离根因隔两层。跟进项（观察周后）：lykoi-llm 应把
     finish{error} 外显（抛错或入结果），失败原因不许静默吞掉。
+    → 跟进项已固化（WO-LLM-FINISH-01 关单）：`packages/lykoi-llm/src/index.ts:94` +
+    `packages/lykoi-llm/test/llm.test.ts:134-161` +
+    `packages/lykoi-converse/test/llm-finish.test.ts`。
 
 ---
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-09-01 刷新；比下方一切条目新，先读这里）
+### 📍 状态快照（2026-09-02 刷新；比下方一切条目新，先读这里）
+
+- **审计修复单 `wo/AUDIT-FIX-2026-09-02`（Kevin 2026-09-02 口头授权"其余按建议修"，
+  token 轮换明示不做）**，分支待 Kevin 裁决合并。内容：
+  ① **main 即生产装配**：`profile/cordis.prod.yml` 六器官位在 main 上启用，
+  `m4-switch` 翻位分支废止（生产当前仍钉 56d7ead = 该分支尖；**下次落地起钉
+  main 提交**，之后可删 m4-switch 本地与远端分支）。deploy.md §11 / CLOUD_HANDOFF
+  同步改口。
+  ② **CI**：`.github/workflows/ci.yml`，push/PR 跑 `npm ci` + typecheck + 全量测试
+  （Node 按 `.nvmrc`）。
+  ③ **state 库生产创建入口**：`packages/lykoi-memory/src/init-state.ts`
+  （schema 正本移至 `src/schema.ts`，与生产库逐对象比对后补齐夹具缺的 9 表 /
+  1 索引 / 7 触发器；deploy.md 新增 §4c，§13 缺口 1-3 改为已有入口）。
+  三处待治理决断：mind_schema 台账只落一行 16；owner id 写死 `user_001`；
+  夹具表全集随之扩大。
+  ④ 本文件第四节加**教训索引**（主题 / 编号 / 固化状态，逐条核实到路径）；
+  重号「6.」改 6a/6b。`governance/README.md` 改回单仓库事实。
+  ⑤ README「当前状态」改为可核日期陈述。
+  测试基线：**859 / 848 过 / 11 跳过 / 0 失败**，typecheck 净。
+- **未做（被 Mac 权限拦下，留 Kevin 手跑）**：把分叉副本归档——
+  `mv ~/Documents/lykoi/docs ~/Documents/lykoi/archive/docs-pre-monorepo-2026-09-02`、
+  `mv ~/Documents/lykoi/lykoi-governance ~/Documents/lykoi/archive/lykoi-governance-repo-2026-09-02`
+  （已逐文件核实：旧治理仓所有差异均为 subtree 侧更新；docs/ 含 Mac 时代独有史料，只归档不删）。
+- **索引单附带发现，未改**：(a) `governance/docs/bin-dispatch_2026-08-21.sh:15` 白名单
+  只有 `.venv/bin/python|pytest` 前缀，无 `node`/`npm`——派 Cordis 实现单跑 `npm test`
+  会被拒，服务器现行 `~/bin-dispatch.sh` 版本待核；(b) `packages/lykoi-gate/src/verify.ts:578`
+  仍用 `accessSync(W_OK)` 判 audit sink 可写，以 root 跑会假阳性（教训 8 的 Cordis 同形）。
+- 下方 09-01 快照其余部分仍有效。
+
+### 旧快照存档（2026-09-01 刷新；已被上方 2026-09-02 快照部分取代）
 
 - **M4 切换完成，新体上线**：`lykoi-cordis.service` = 现行身体，生产树钉
   detached `m4-switch`（六器官位翻开：llm-deepseek / memory / converse /

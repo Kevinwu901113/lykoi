@@ -90,13 +90,13 @@ npm ci && npm test && npm run typecheck   # 确认基线绿（当前基线见 HA
   已以 subtree 并入 `governance/`；旧仓已删，bundle 存 Mac 归档。
 - **移植进度**：M0–M3 全部落库复核 PASS；M4 W1（构建波，含 undici 代理、
   index.prod.ts 双入口、GK-15）+ W2（部署材料八件，`governance/wo/WO-M4-W2/`）
-  已落；**当前卡点 = M4 W3 切换窗，等 Kevin**（打 bundle、填 token、跑
-  paste-1/paste-2 两稿 + E 步实弹）。切换分支 `m4-switch`，main 保持 disabled 安全态。
-- **旧体**：Python 五服务仍在服务器上运行（HEAD `4463ae8`，tag
-  `cordis-night-20260822`）；切换窗后 48h 观察，再另呈 CORE-RETIRE 收尾窗。
+  已落；M4 W3 切换窗 2026-08-31 完成，新体上线。**2026-09-02 起 `main` 的
+  `profile/cordis.prod.yml` 即生产装配**（六器官位启用），`m4-switch` 翻位分支废止；
+  落地钉 main 提交。
+- **旧体**：已退役（WO-CORE-RETIRE，2026-09-01）；封存区可 mv 回滚。
 - **M5**：首器官 browser 已立项（`governance/wo/WO-M5-ORGAN-BROWSER/charter.md`，
   Playwright 形态，旧 browser-profile 不迁移）。
-- **测试基线**：797 通过 / 0 失败（W1 时点，以最新工单报告为准）。
+- **测试基线**：850 项 / 839 过 / 11 跳过（devstate 夹具缺席）/ 0 失败（2026-09-02；以最新工单报告为准）。CI：`.github/workflows/ci.yml` 跑 typecheck + 全量测试。
 
 ## 七、给 Kevin：云端环境一次性配置清单
 

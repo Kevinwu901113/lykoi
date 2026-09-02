@@ -2,15 +2,21 @@
   "name": "lykoi-memory",
   "version": "0.1.0",
   "private": true,
-  "description": "state 接入：缺省只读入口（R-01 三重防写）+ 显式 rw 入口（M2-W1 写层；C-01/C-02）",
+  "description": "state 接入：缺省只读入口（R-01 三重防写）+ 显式 rw 入口（M2-W1 写层；C-01/C-02）+ schema 正本与生产创建入口",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./rw": "./src/rw.ts",
-    "./testing": "./src/testing.ts"
+    "./schema": "./src/schema.ts",
+    "./testing": "./src/testing.ts",
+    "./init-state": "./src/init-state.ts"
+  },
+  "bin": {
+    "lykoi-init-state": "./src/init-state.ts"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "init-state": "node src/init-state.ts"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
