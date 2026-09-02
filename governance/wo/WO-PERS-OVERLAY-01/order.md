@@ -120,10 +120,15 @@ L2 现体不产 insights，等于新造一条生产线；③ owner 手写 overla
 可写面，撞 P-D2/P-D3。"一条 relationship_thread 关切被深挖出的结论就是相处方式层面
 的结论"是本单立的**结构性**约定；内容质量随产线读数校准，不由执行方猜。
 
-**D-2 类别常量 `RELATIONSHIP_INSIGHT_CATEGORY = 'relationship'`，定义在
-`lykoi-memory/src/rw.ts`（与 `FOCUS_INSIGHT_STATUS_ENUM` 同处），`l4.ts` 从
-`'lykoi-memory/rw'` 值导入**（learn 已依赖 lykoi-memory 包；这是 learn src 第一处
-运行期导入，报告点名）。字面量 `'relationship'` 在 src 只出现一次。
+**D-2 类别常量 `RELATIONSHIP_INSIGHT_CATEGORY = 'relationship'`，正本定义在
+`lykoi-memory/src/rw.ts`（与 `FOCUS_INSIGHT_STATUS_ENUM` 同处）；`l4.ts` 用
+`lykoi-learn/src/shared.ts` 里的**副本**（与 `LINEAGE_*` 六常量同一范式），
+`boundary.test.ts` 的副本对拍段（:107-112）**增一行**断言副本 ≡ `rw.RELATIONSHIP_INSIGHT_CATEGORY`。**
+（2026-09-02 修订：原文要求 l4.ts 从 `'lykoi-memory/rw'` 值导入，执行方停工上报——
+与 `boundary.test.ts:44-53`"learn src 只许 import lykoi-regulation + 包内文件"的静态守卫
+硬冲突，且 lykoi-memory 在 learn 只是 devDependency、提为 dependency 即与
+`lykoi-memory/package.json:24` 成声明层循环。治理侧裁走现体既定范式；原"字面量只出现
+一次"改为"两处副本由测试钉逐字相等"。）
 `PERSONA_PROJECTION_CATEGORIES`（`persona.ts:204`，persona/preference 白名单）**不动**：
 overlay 不进 decide 共用投影，只进对话路径——与 S-34 转正结论同一口径。
 
@@ -193,7 +198,8 @@ D-3 成功键控时填 KEY）——让周期摘要能回答"这条结论是关�
    `promotedFocusInsights()` 排除 relationship（D-4）。
 2. `l4.ts`：`applyConclusion` 按 `concern.kind === 'relationship_thread'` 选类别
    （D-1/D-2）、KEY 推导 + scope 写 + 事件（D-3/D-6）、`FocusSummary.overlay_subject_user_id`
-   （D-9）；`FocusStore` 接口补 `ownerPrimaryUserId()` 与 `scopeInsightSubject(...)`。
+   （D-9）；`FocusStore` 接口补 `ownerPrimaryUserId()` 与 `scopeInsightSubject(...)`；
+   类别常量走 `shared.ts` 副本 + `boundary.test.ts` 对拍一行（D-2 修订版）。
 3. converse：`prompts.ts` `RELATIONSHIP_OVERLAY_HEADER`；`conversation.ts`
    `ConverseStore.promotedRelationshipInsights`、`#relationshipOverlaySection`、
    `#buildPersonaMessage` 接入（D-5/D-6）。
@@ -255,7 +261,8 @@ D-3 成功键控时填 KEY）——让周期摘要能回答"这条结论是关�
 - 五条既有提示词/守卫 sha 不变的证明（prompt.test.ts / prompts.test.ts 通过即可，点名）。
 - 偏离表（逐条：位置/原文要求/实际做法/理由），无偏离写"无"。
 - D-1..D-9 逐条自证位置（文件:行）。
-- learn src 首次运行期导入 lykoi-memory 的说明（D-2）。
+- D-2 修订版落点：`shared.ts` 副本行号 + `boundary.test.ts` 新增对拍行号；learn src
+  import 面守卫（boundary.test.ts:44-53）仍绿的证明。
 
 ## 7. 复核要点（治理侧）
 
