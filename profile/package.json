@@ -19,6 +19,7 @@
     "lykoi-converse": "0.1.0",
     "lykoi-heart": "0.1.0",
     "lykoi-llm": "0.1.0",
-    "lykoi-memory": "0.1.0"
+    "lykoi-memory": "0.1.0",
+    "lykoi-organ-browser": "0.1.0"
   }
 }

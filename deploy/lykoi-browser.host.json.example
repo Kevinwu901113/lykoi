@@ -1,0 +1,25 @@
+{
+  "_comment_1": "浏览器器官宿主配置（WO-M5-ORGAN-BROWSER D-7）。落点 /etc/lykoi-browser/host.json，root:root 644。",
+  "_comment_2": "宿主零 env 读取：这个文件是它唯一的配置面，路径经 systemd 的 --config 传入。",
+  "_comment_3": "改动生效 = systemctl restart lykoi-browser.service（宿主启动时读一次，运行期不重载）。",
+
+  "socketPath": "/run/lykoi-browser/host.sock",
+  "executablePath": "/usr/bin/google-chrome",
+  "userDataDir": "/home/lykoi-browser/profile",
+  "dataDir": "/home/lykoi-browser/data",
+
+  "_comment_proxy": "出站代理；空串 = 直连。代理不是 SSRF 豁免：判定永远先于连接。",
+  "proxy": "",
+
+  "_comment_maxChars": "单次读页返回给大脑的字数缺省，硬顶 60000（源码常量，配置改不动）。",
+  "maxChars": 20000,
+
+  "_comment_shots": "每个动作落一张 PNG 到 dataDir/shots/YYYYMMDD/；启动时与每小时滚动删除超期目录。",
+  "screenshotRetentionDays": 7,
+
+  "_comment_screencast": "实时画面：MJPEG over HTTP，**只绑 127.0.0.1**，Kevin 经 ssh -L 隧道看（docs/browser_organ.md §5）。只对持久上下文开画面；一次性调研上下文永不出画面。",
+  "screencast": { "enabled": true, "listen": "127.0.0.1:9223" },
+
+  "_comment_timeouts": "毫秒。超时返回 error:'timeout' 且宿主自愈（关页/关上下文，不留僵尸）。",
+  "timeouts": { "navigate": 30000, "getText": 15000, "research": 45000 }
+}

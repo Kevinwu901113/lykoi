@@ -1,0 +1,119 @@
+# Lykoi 浏览器器官宿主 · 模板（占位符形式，不含任何真值）
+#
+# 用法：
+#   install -o root -g root -m 644 deploy/lykoi-browser.service.template \
+#           /etc/systemd/system/lykoi-browser.service
+#   把 <NODE_BIN> 换成 Node 24 绝对路径（例：/opt/node-v24.18.0/bin/node）
+#   systemctl daemon-reload && systemctl enable --now lykoi-browser.service
+#
+# 逐条落地命令见 docs/browser_organ.md §2（含落地前的 Chrome 沙箱探针）。
+#
+# 为什么是独立 unit + 独立 OS 用户（WO-M5-ORGAN-BROWSER D-7）：
+#   Chrome 是本装配里唯一执行外部代码的进程。它与她的 state 库、审计链、
+#   secrets 之间**必须隔一层 OS 边界** —— 不是"最好隔"，是 v1 的准入条件。
+#
+# 隔离靠的是挂载命名空间，不是组（2026-09-02 复核修订）：
+#   ProtectHome=tmpfs 让宿主视野里的 /home 是一张空 tmpfs，再用 BindPaths 把
+#   /home/lykoi-browser 一个目录挂回来。于是宿主进程的 /home 里**只有它自己家**
+#   —— /home/lykoi 根本不存在于它的视野，它带什么组都无所谓。
+#   （服务器实测：/home/lykoi 是 750 lykoi:lykoi，但其下 .config/ .claude/ .codex/
+#   reports/ runtime/ state/backups/ 多为 755/775 组可读；靠"不给组"来隔离等于
+#   把边界押在每一个子目录的权限位上，靠 tmpfs 则一次性把整棵树移出视野。）
+#   代码树经 BindReadOnlyPaths 只读挂到 /opt/lykoi-browser/tree —— 宿主要执行
+#   host.ts，但它只要读，不要写，也不需要能走进 /home/lykoi。
+#   反向：大脑读不到 /home/lykoi-browser/profile（家目录 700，她的登录态在里面，
+#   那是 Kevin 的东西不是她的记忆）。两个进程之间只有一条 socket，上面只跑四个 op。
+#
+# 沙箱前提（服务器实测，2026-09-02）：本机 /etc/apparmor.d/chrome 给
+#   /opt/google/chrome/chrome 放行 userns，`setpriv --no-new-privs google-chrome
+#   --headless=new ... --dump-dom about:blank` exit 0 正常出 DOM ——
+#   即 NoNewPrivileges=true 下 Chrome 的命名空间沙箱可用，本 unit 于是保留
+#   NoNewPrivileges / RestrictSUIDSGID。探针失败时**不许**改用 --no-sandbox，
+#   记录并停下（见 docs/browser_organ.md §2 前验）。
+#
+# env 面（GK-6）：本 unit **一个 Environment= 都没有**，宿主自己也零 env 读取。
+#   全部配置经 argv 的 --config 指到 /etc/lykoi-browser/host.json（root:root 644）。
+#
+# 停机纪律（D-8 / LANDING-H）：备份 /home/lykoi-browser/profile 之前必须
+#   `systemctl stop lykoi-browser.service`（**保持 enabled** —— disable 会卸载单元、
+#   丢掉 InactiveEnterTimestamp，LANDING-G 实证）。运行中的 profile 不是一致快照。
+
+[Unit]
+Description=Lykoi browser organ host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lykoi-browser
+Group=lykoi-browser
+WorkingDirectory=/home/lykoi-browser
+ExecStart=<NODE_BIN> /opt/lykoi-browser/tree/packages/lykoi-organ-browser/src/host.ts --config /etc/lykoi-browser/host.json
+Restart=on-failure
+RestartSec=5
+
+# socket 落在 /run/lykoi-browser（systemd 建、按需清），属主属组都是
+# lykoi-browser。方向是反的那一头：**大脑加入 lykoi-browser 组**
+# （usermod -aG lykoi-browser lykoi），于是 0750 的目录 + 0660 的 socket 刚好够
+# 它"能连"，而宿主一个外来组都不带。
+RuntimeDirectory=lykoi-browser
+RuntimeDirectoryMode=0750
+
+# 资源闸：一个失控的页面不许把整机拖垮。
+CPUQuota=200%
+MemoryMax=2G
+TasksMax=512
+
+# 隔离面。
+#   ProtectHome=tmpfs 的效果只能由 BindPaths= 打洞（ReadWritePaths= 打不动），
+#   所以家目录走 BindPaths（读写：profile + 截图），代码树走 BindReadOnlyPaths。
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/lykoi-browser
+BindReadOnlyPaths=/home/lykoi/projects/lykoi-cordis:/opt/lykoi-browser/tree
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+
+# ---- 出网闸：cgroup BPF 防火墙（R-4 复核修订，2026-09-02）----
+#
+# 为什么在这一层：SSRF 判定器与 Playwright 的 route 都在**用户态**，而实测
+# （见 docs/browser_organ.md §4.1）Chromium 的 route 不为重定向 hop 回调 ——
+# 一个 302 就能把 Chrome 领到判定器没看过的地址上去。systemd 的 IP 过滤是
+# cgroup 上的 eBPF，**判定发生在 connect() 那一刻，与这个 URL 是怎么来的无关**：
+# 重定向 hop、WebSocket、Service Worker、Chrome 自己的后台连接、任何子进程，
+# 全部一视同仁。DNS rebinding 在这一层也自动失效 —— 它管的是最终那个 IP。
+#
+# systemd 语义（systemd.resource-control(5)，**别写反**）：
+#   命中 IPAddressAllow= → 放行；否则命中 IPAddressDeny= → 拒；都没命中 → 放行。
+#   即 **Allow 优先于 Deny**。所以绝不能写 `IPAddressAllow=0.0.0.0/0 ::/0` ——
+#   那会命中所有地址、把整张 Deny 表废掉，等于没装。同理不需要 `IPAddressDeny=any`：
+#   我们要的是"公网默认可去、私网一律不可去"，不是"默认全禁再逐条开"。
+#   规则还会与父 slice 的表叠加（每一层都得放行），system.slice 缺省无表，不影响。
+#
+# 放行两个环回地址的代价（服务器实核：本机监听只有 sshd 0.0.0.0:22、
+# systemd-resolved 存根 127.0.0.53:53 与 127.0.0.54:53）：
+#   127.0.0.53/32 —— /etc/resolv.conf 指着它，Chrome 得能查 DNS。上游
+#     223.5.5.5/223.6.6.6 由 resolved 自己的进程去查，不在本 cgroup 里，不受本表约束。
+#   127.0.0.1/32  —— screencast 绑 127.0.0.1:<port>，ssh 隧道从那头连进来；
+#     IPAddressAllow= 不分方向，收包也要过这张表。代价是 Chrome 也就能碰到
+#     127.0.0.1:22（sshd）与 screencast 自己那个口，两个都无害。
+#     127.0.0.54 没放行：resolv.conf 用不到它。
+IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 ::1/128 fc00::/7 fe80::/10 ff00::/8
+# v4-mapped v6（`::ffff:10.0.0.1` 这种形）另算一条：BPF 表按socket 的地址族查，
+# v6 socket 上的 v4-mapped 地址不会命中上面那些 v4 段。Chromium 走 v4 目标时用的是
+# AF_INET，落不到这里，但 D-5① 的判定器已经为同一类形态写过分支，这里跟上，别留形状。
+IPAddressDeny=::ffff:0.0.0.0/104 ::ffff:10.0.0.0/104 ::ffff:100.64.0.0/106 ::ffff:127.0.0.0/104 ::ffff:169.254.0.0/112 ::ffff:172.16.0.0/108 ::ffff:192.168.0.0/112 ::ffff:224.0.0.0/100 ::ffff:240.0.0.0/100
+IPAddressAllow=127.0.0.53/32 127.0.0.1/32
+# host.json 里开了 proxy 就再加一行（Allow 优先于 Deny，所以它压得过 192.168/16）：
+# IPAddressAllow=192.168.0.202/32
+#
+# ⚠ 这张表**装不上时 systemd 只记一条警告、单元照常启动**（fail open）。
+#   落地必须眼见为实：docs/browser_organ.md §2「前验」第二条探针 + 起服务后
+#   `journalctl -u lykoi-browser -b | grep -i "ip firewall"` 应当**没有**失败行。
+
+[Install]
+WantedBy=multi-user.target
