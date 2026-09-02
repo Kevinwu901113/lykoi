@@ -6,9 +6,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  _resolve, auditDegraded, createDispatch, DelegationRef, kernelActionCatalog,
-  KNOWN_ACTION_LIST, KNOWN_ACTIONS, unwiredResources, _setSecretsForTest,
-  _setPolicyCoreForTest, type ResourceRegistry,
+  _resolve, auditDegraded, createDispatch, DelegationRef, isUnwiredHandler,
+  kernelActionCatalog, KNOWN_ACTION_LIST, KNOWN_ACTIONS, unwiredResources,
+  wiredActionCatalog, _setSecretsForTest, _setPolicyCoreForTest,
+  type ResourceRegistry,
 } from '../src/index.ts'
 import { captureTelemetry, fakeSink, ioError, isolateKernelState } from './fixture.ts'
 
@@ -343,3 +344,57 @@ test('kernelActionCatalog：动作轴 = KNOWN_ACTIONS；isHardGated = 不可变�
   assert.ok(kernelActionCatalog.isHardGated('messenger.send')) // core 缺失 → 全表硬门（往少了说）
   _setPolicyCoreForTest(undefined)
 })
+
+// --- WO-FIX-LOOP-01 D-1a：替身标记 + wiredActionCatalog ------------------------
+
+test('D-1a：unwiredResources() 的每个 handler 都被 isUnwiredHandler 识别为替身', () => {
+  const resources = unwiredResources()
+  for (const actionType of KNOWN_ACTION_LIST) {
+    const [prefix, method] = actionType.split('.', 2) as [string, string]
+    const handler = resources[prefix]![method]!
+    assert.ok(isUnwiredHandler(handler), `${actionType} 应被判定为替身`)
+  }
+})
+
+test('D-1a：echoResources()（全真 handler）不被 isUnwiredHandler 识别为替身', () => {
+  const resources = echoResources()
+  for (const actionType of KNOWN_ACTION_LIST) {
+    const [prefix, method] = actionType.split('.', 2) as [string, string]
+    const handler = resources[prefix]![method]!
+    assert.ok(!isUnwiredHandler(handler), `${actionType} 不该被判定为替身`)
+  }
+})
+
+test('D-1a：wiredActionCatalog(unwiredResources()) 为空（全替身 → 零接得通）', () => {
+  isolateKernelState()
+  const catalog = wiredActionCatalog(unwiredResources())
+  assert.deepEqual([...catalog.knownActions], [])
+})
+
+test('D-1a：混入真 handler 后只列真的，顺序随 KNOWN_ACTION_LIST', () => {
+  isolateKernelState()
+  const resources = unwiredResources() as Record<string, Record<string, ResourceHandlerLike>>
+  // 只给 5 个真身（同活体现状：messenger.send/read、notify.owner、autonomy 2 个）。
+  resources.messenger!.send = async () => ({ ok: true })
+  resources.messenger!.read = async () => ({ ok: true })
+  resources.notify!.owner = async () => ({ ok: true })
+  resources.autonomy!.queue_notification = async () => ({ ok: true })
+  resources.autonomy!.initiate_chat = async () => ({ ok: true })
+  const catalog = wiredActionCatalog(resources)
+  assert.deepEqual([...catalog.knownActions], [
+    'autonomy.queue_notification', 'autonomy.initiate_chat',
+    'notify.owner', 'messenger.send', 'messenger.read',
+  ])
+})
+
+test('D-1a：wiredActionCatalog 混入真 handler 的 isHardGated 与 kernelActionCatalog 逐项相等', () => {
+  isolateKernelState()
+  const resources = unwiredResources() as Record<string, Record<string, ResourceHandlerLike>>
+  resources.messenger!.send = async () => ({ ok: true })
+  const catalog = wiredActionCatalog(resources)
+  for (const actionType of KNOWN_ACTION_LIST) {
+    assert.equal(catalog.isHardGated(actionType), kernelActionCatalog.isHardGated(actionType))
+  }
+})
+
+type ResourceHandlerLike = (params: Record<string, unknown>) => Promise<unknown>
