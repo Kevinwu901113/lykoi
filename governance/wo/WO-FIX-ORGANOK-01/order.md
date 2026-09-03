@@ -1,6 +1,6 @@
 # WO-FIX-ORGANOK-01 · 内核听器官的 ok：返回值 ok:false 即失败观察
 
-- 状态：**执行中**（Kevin 2026-09-04 01:40 放行，三单并行；opus 于 wt-fix-organok-01 / wo/fix-organok-01 执行，基线 main@4aec35f）
+- 状态：**复核通过，待裁合**（Kevin 2026-09-04 01:40 放行；opus 执行于 wo/fix-organok-01，基线 main@4aec35f，tip 5624a2f；复核 PASS 02:20，见 review.md）
 - 立单：2026-09-04 01:30 CST，主治理 Agent
 - 分析：governance/docs/tool_step_structural_analysis_2026-09-04.md §2
 - 包：lykoi-kernel（dispatch.ts + 测试）；organ-browser 只加 e2e 断言；converse 不动
