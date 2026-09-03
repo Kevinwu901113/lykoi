@@ -534,7 +534,9 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   ——产线 19:19 沉默那条 102 字 first_char:other 与 H 的 102 字同形；③关思考+无 json 在探针里干净，产线同形却出散文/
   DSML，差在产线历史更长、有引导消息。假说：病根是 M3-W2 定案的「工具步合成原生 ToolCallBlock/tool 帧」（index.ts:288，
   conversation.ts:1060/1225）——三病（reasoning_content 400、json 空白、DSML 泄漏）同源。探针 v4 已备：工具步改写为
-  文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。
+  文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。**v4 结果（19:42）：文本帧下 J/K/L/M 八次全部合法信封**（J 思考默认+json_object 亦干净，
+  reasoning 正常）。假说成立：病根 = seam 以原生 ToolCallBlock/tool-result 帧上 wire（M3-W2）。已立
+  WO-FIX-TOOLFRAME-01（只改 seam 渲染为文本帧，#messages 内部不动，J/K/L 落点原样保留为安全网），待 Kevin 放行。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
