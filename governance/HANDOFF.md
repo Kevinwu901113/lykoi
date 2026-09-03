@@ -512,7 +512,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
   改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
   日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
-  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644，出网闸两条对照闭环）→ `WO-GK14-DISPATCHED-01` 已派工（sonnet）**。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644，出网闸两条对照闭环）→ `WO-GK14-DISPATCHED-01` 复核 PASS（tip bb3cb31）待裁合**；init-state.ts 755 漂移根因已定（bin 目标，随本单入库 100755）。
 - **WO-M5-ORGAN-BROWSER 派工（2026-09-02，Kevin"开 M5 browser 的单"）**：spec 四决断
   Kevin 拍板——空白名单+逐域首次审批（kernel 既有 domain scope）；只读两项
   `browser.navigate/get_text` + 一次性 `research_browser.read_text`；独立 OS 用户
@@ -550,6 +550,12 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   的事实（闸抽成 `toolDispatchGate` 单一真源，新字段 `dispatch_gate`/`tool_named`），GK-14 测试去掉
   `name in TOOL_TO_ACTION` 的过滤并补未接线场景。`wo/WO-GK14-DISPATCHED-01/order.md`，分支
   `wo/gk14-dispatched-01`，基线 main@0fb2a10（代码树 482d644）995/984/0/11。零迁移零装配；落地可并入下一单。
+- **WO-GK14-DISPATCHED-01 复核 PASS（2026-09-03）**：执行 4 提交 8bd5813→5a8ae88 + 治理 1 提交 bb3cb31；
+  独立复跑 999/988/0/11、tsc 净；D-1..D-6 逐条核对成立，`#buildAction` 两分支体逐字节未动，信封位置未动。
+  `review.md` 在 `wo/WO-GK14-DISPATCHED-01/`。**init-state.ts 755 漂移根因**：`lykoi-memory/package.json`
+  `bin.lykoi-init-state → src/init-state.ts`，npm ci 建 bin 链接给目标加执行位；644 入库 ⟹ 每次 npm ci 后树脏
+  （LANDING-H v1 FATAL 即此）。bb3cb31 把它按 `lykoi-gate/src/cli.ts` 同口径入库为 100755，随本单裁合后消失。
+  执行方提醒：派工单应在切分支之前落 main，否则工作树里看不到单（本次它跨副本读到了）。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落
