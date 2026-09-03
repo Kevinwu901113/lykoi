@@ -171,6 +171,99 @@ test('SK-10：成功数据先 redact 再交回认知；资源边界异常 = 正�
   }
 })
 
+// --- WO-FIX-ORGANOK-01：内核听器官的 ok（返回值 ok:false 即失败观察） -------
+
+/** 单动作注册表：只接 messenger.read，返回值由调用方给（器官不抛只返回的形态）。 */
+function returningResources(value: unknown): ResourceRegistry {
+  return { messenger: { read: async () => value } } as unknown as ResourceRegistry
+}
+
+async function readOnce(resources: ResourceRegistry) {
+  const dispatch = createDispatch({ sink: fakeSink(), resources })
+  return dispatch({ type: 'messenger.read', params: {} }, { context: { origin: 'autonomous' } })
+}
+
+test('ORGANOK-01：handler 返回 ok:false → success:false，data 整体保留（detail 仍交给认知），error 取 data.error', async () => {
+  isolateKernelState()
+  const observation = await readOnce(
+    returningResources({ ok: false, error: 'timeout', detail: '宿主 45s 未回' }),
+  )
+  assert.equal(observation.success, false)
+  assert.equal(observation.error, 'timeout')
+  // data 一个键都不少 —— 器官不抛而返回，正是为了这份细节能到她手里（红线 #5）。
+  assert.deepEqual(observation.data, { ok: false, error: 'timeout', detail: '宿主 45s 未回' })
+})
+
+test('ORGANOK-01：ok:false 但 error 不是字符串（缺失/非串）→ error 恒 organ_failed，不编分类', async () => {
+  isolateKernelState()
+  const missing = await readOnce(returningResources({ ok: false, detail: '没说是哪一种' }))
+  assert.equal(missing.success, false)
+  assert.equal(missing.error, 'organ_failed')
+  assert.deepEqual(missing.data, { ok: false, detail: '没说是哪一种' })
+  const nonString = await readOnce(returningResources({ ok: false, error: 42 }))
+  assert.equal(nonString.success, false)
+  assert.equal(nonString.error, 'organ_failed')
+})
+
+test('ORGANOK-01：失败观察的 error 与 data 同过 redact（两处错误串不许一处遮一处不遮）', async () => {
+  isolateKernelState()
+  _setSecretsForTest(['topsecretvalue'])
+  try {
+    const observation = await readOnce(
+      returningResources({ ok: false, error: 'blocked_url topsecretvalue' }),
+    )
+    assert.equal(observation.error, 'blocked_url [REDACTED]')
+    assert.equal(observation.data.error, 'blocked_url [REDACTED]')
+  } finally {
+    _setSecretsForTest(null)
+  }
+})
+
+test('ORGANOK-01：其余三路逐字节不变 —— ok:true / 无 ok 字段 / 非对象返回值全是成功观察', async () => {
+  isolateKernelState()
+  const okTrue = await readOnce(returningResources({ ok: true, text: '正文' }))
+  assert.equal(okTrue.success, true)
+  assert.equal(okTrue.error, null)
+  assert.deepEqual(okTrue.data, { ok: true, text: '正文' })
+  // 不带 ok 的 handler（notify.owner 的节流返回就是这一形态）照旧算成功。
+  const noOk = await readOnce(returningResources({ queued: false, throttled: true, reason: 'cooldown' }))
+  assert.equal(noOk.success, true)
+  assert.equal(noOk.error, null)
+  assert.deepEqual(noOk.data, { queued: false, throttled: true, reason: 'cooldown' })
+  // 数组/标量不是 plain object：新规则够不着，成功路径原样。
+  const arrayish = await readOnce(returningResources([{ ok: false }]))
+  assert.equal(arrayish.success, true)
+  assert.equal(arrayish.error, null)
+})
+
+test('ORGANOK-01：抛错路径不变 —— 仍是 data:{} 的失败观察，不被新规则改道', async () => {
+  isolateKernelState()
+  const throwing: ResourceRegistry = {
+    messenger: {
+      read: async () => {
+        throw new Error('boom')
+      },
+    },
+  } as unknown as ResourceRegistry
+  const observation = await readOnce(throwing)
+  assert.equal(observation.success, false)
+  assert.equal(observation.error, 'boom')
+  assert.deepEqual(observation.data, {})
+})
+
+test('ORGANOK-01：审计 action_result.success 随之如实记 false（D-5 影响面）', async () => {
+  isolateKernelState()
+  const sink = fakeSink()
+  const dispatch = createDispatch({
+    sink,
+    resources: returningResources({ ok: false, error: 'timeout' }),
+  })
+  await dispatch({ type: 'messenger.read', params: {} }, { context: { origin: 'autonomous' } })
+  const results = sink.records.filter((r) => r.type === 'action_result')
+  assert.equal(results.length, 1)
+  assert.equal(results[0]!.success, false)
+})
+
 test('SK-06/10：四路判定入账 —— deny / ask（needs_approval 载荷）/ allow / pre_approved', async () => {
   isolateKernelState()
   const sink = fakeSink()
