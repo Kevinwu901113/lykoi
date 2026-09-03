@@ -526,6 +526,15 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   **L 稿瑕疵**：§7 记账行我整行重写时写成 `$OPS`（set -u 下 unbound）→ §7 未写、末行「完成」未打；§0–§6 全部成立，
   产线状态正确。已让 Kevin 手工补一条 ops 记录；仓库内脚本已改为写死路径（与 K 稿同）。Kevin 19:10 先跑过一次
   （deploy_event 11:10:13Z），§6 慢中断后 19:15 重跑，前验容忍 HEAD∈{OLD,NEW}，幂等成立。
+  **探针 v3 结果（19:30，root 跑，各两次全确定性）**：F 关思考+无 json → 干净信封 JSON 69 字（tool_call browser_get_text）；
+  G 关思考+json_object → 65 个空格（66 token）；I 思考默认+回传 reasoning_content+json_object → 同样 65 空格；
+  H 思考默认+回传 reasoning_content+无 json → content 是 **DSML 原生工具调用标记泄漏**（`<｜｜DSML｜｜tool_calls>…`，
+  102/222 字，reasoning 正常）。读解：①json_object 在历史含原生 tool_calls/tool 帧时**必定**退化成空白，与思考无关
+  ——产线 content_chars 51 同源；②模型看见原生工具帧就想走原生工具调用，请求又没声明 tools，标记泄进 content
+  ——产线 19:19 沉默那条 102 字 first_char:other 与 H 的 102 字同形；③关思考+无 json 在探针里干净，产线同形却出散文/
+  DSML，差在产线历史更长、有引导消息。假说：病根是 M3-W2 定案的「工具步合成原生 ToolCallBlock/tool 帧」（index.ts:288，
+  conversation.ts:1060/1225）——三病（reasoning_content 400、json 空白、DSML 泄漏）同源。探针 v4 已备：工具步改写为
+  文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
