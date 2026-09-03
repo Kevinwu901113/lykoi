@@ -512,7 +512,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
   改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
   日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
-  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644）**；10b 探针待补两条；GK-14 小单待立。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644，出网闸两条对照闭环）→ `WO-GK14-DISPATCHED-01` 已派工（sonnet）**。
 - **WO-M5-ORGAN-BROWSER 派工（2026-09-02，Kevin"开 M5 browser 的单"）**：spec 四决断
   Kevin 拍板——空白名单+逐域首次审批（kernel 既有 domain scope）；只读两项
   `browser.navigate/get_text` + 一次性 `research_browser.read_text`；独立 OS 用户
@@ -539,6 +539,17 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   **deploy_event downtime "12 分钟"（G 修的线索首次非空）**，NRestarts 0，服务器 Chrome 148 smoke
   1/1。10b 302→私网得 `timeout`：IPAddressDeny 是 skb 丢包不是拒绝（§1 curl rc=28 同签名），
   与拦住一致但要补直连 httpbin 对照。记录 `wo/LANDING-H-20260903/record.md`。
+- **落地后 11 小时读数（2026-09-03 11:40 CST）**：414 行审计；autonomy_wake 23（rest/contemplate 为主），
+  `autonomy_wake_retried` 4 + `autonomy_wake_failed` 1（全是 `not_json, content_len 0` —— 模型空回复，
+  G 的有界重试在工作，但空回复率约 1/6 值得盯）；**她自己用了一次浏览器**：落地 18 分钟后
+  `research_browser.read_text` bing.com，origin autonomous，allow，success，84 字，2.8 s；
+  `capability_gap` 0、`decision_ungrounded` 0；一次 `autonomy.initiate_chat` + `messenger.send`；
+  telegram_transport_network_error 9（均 poll_recovered）；`suspension_overdue_breakdown{threads:3}` 1。
+  NRestarts 0，宿主 0 重启。init-state.ts 755 漂移根因未定（git 史无模式变更；H 已按索引恢复）。
+- **WO-GK14-DISPATCHED-01 派工（2026-09-03）**：`u3_cycle_envelope.dispatched` 改为「到达 kernel」
+  的事实（闸抽成 `toolDispatchGate` 单一真源，新字段 `dispatch_gate`/`tool_named`），GK-14 测试去掉
+  `name in TOOL_TO_ACTION` 的过滤并补未接线场景。`wo/WO-GK14-DISPATCHED-01/order.md`，分支
+  `wo/gk14-dispatched-01`，基线 main@0fb2a10（代码树 482d644）995/984/0/11。零迁移零装配；落地可并入下一单。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落
