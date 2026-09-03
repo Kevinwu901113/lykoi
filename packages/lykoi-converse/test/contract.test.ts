@@ -6,9 +6,10 @@ import test from 'node:test'
 import {
   annotateReceiptBacking, classifyFailure, CONVERSATION_CATALOGUE,
   CONVERSATION_CONTENT_REQUIRED, CONVERSATION_KINDS, CONVERSATION_SAFE_KIND,
-  ENVELOPE_FIELDS, FAIL_MISSING_CONTENT, FAIL_NO_DECISION_OBJECT, FAIL_NOT_JSON,
-  FAIL_UNKNOWN_KIND, FAILURE_REASONS, firstCharClass, kindToken, parseEnvelope,
-  receiptsPresentInContext, sanitizePulse, sanitizeTool, TOOL_TO_ACTION,
+  cycleRecord, ENVELOPE_FIELDS, FAIL_MISSING_CONTENT, FAIL_NO_DECISION_OBJECT,
+  FAIL_NOT_JSON, FAIL_UNKNOWN_KIND, FAILURE_REASONS, firstCharClass, kindToken,
+  parseEnvelope, receiptsPresentInContext, sanitizePulse, sanitizeTool,
+  TOOL_TO_ACTION, toolDispatchGate,
   type ConverseMessage,
 } from '../src/index.ts'
 import { envelope } from './fixture.ts'
@@ -194,4 +195,76 @@ test('receiptsPresentInContext：成功回执/解析不出的 tool 消息 → tr
   ]
   assert.equal(receiptsPresentInContext(unparsable), true) // 宁可判 True
   assert.equal(receiptsPresentInContext([{ role: 'user', content: 'hi' }]), false)
+})
+
+// --- WO-GK14-DISPATCHED-01：toolDispatchGate 单一真源 + cycleRecord 改口 -----
+
+test('toolDispatchGate 四条：词表外 unknown_tool（wiredActions 救不回）/ 未给 wired 缺省 pass / 给了未接 not_wired / 给了已接 pass', () => {
+  assert.equal(toolDispatchGate('web_search'), 'unknown_tool')
+  assert.equal(toolDispatchGate('web_search', new Set(['terminal.exec'])), 'unknown_tool')
+  assert.equal(toolDispatchGate('terminal_exec'), 'pass') // 未给 wiredActions：未接线口径缺省关
+  assert.equal(toolDispatchGate('terminal_exec', new Set()), 'not_wired') // 给了但不含该动作类型
+  assert.equal(toolDispatchGate('terminal_exec', new Set(['browser.navigate'])), 'not_wired')
+  assert.equal(toolDispatchGate('terminal_exec', new Set(['terminal.exec'])), 'pass') // 给了且已接
+})
+
+/** 一个合法的 tool_call Decision（TOOL_CALL 免溯源门，见 parseEnvelope 的 groundingExempt）。 */
+function toolCallDecision(name: string, args: Record<string, unknown> = {}) {
+  return parseEnvelope({
+    content: envelope({
+      decision: { kind: 'tool_call', tool: { name, arguments: args }, reason: '他问我在不在' },
+    }),
+  })
+}
+
+test('cycleRecord 三态逐字对表：reply（非 tool_call）/ tool_call 闸放行 pass / 闸拦下 unknown_tool·not_wired', () => {
+  const baseOpts = { elapsedMs: 12, assembled: [] as ConverseMessage[], step: 1, innerApplied: false }
+
+  // ① 非 tool_call（缺省 envelope() 就是 reply）：三个工具字段全 null/0，
+  // dispatch_gate 也是 null —— 它不是任何一种闸的判定结果，压根没过闸。
+  const replyRecord = cycleRecord(parseEnvelope({ content: envelope() }), baseOpts)
+  assert.equal(replyRecord.tool_named, null)
+  assert.equal(replyRecord.dispatch_gate, null)
+  assert.equal(replyRecord.dispatched, null)
+  assert.equal(replyRecord.dispatched_arg_count, 0)
+
+  // ② tool_call，闸放行（wiredActions 含该动作类型）：dispatched = 到达 kernel 的事实，
+  // tool_named 与它同值——闸放行时「点了名字」与「到达」重合。
+  const passRecord = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls', x: 1 }), {
+    ...baseOpts,
+    wiredActions: new Set(['terminal.exec']),
+  })
+  assert.equal(passRecord.tool_named, 'terminal_exec')
+  assert.equal(passRecord.dispatch_gate, 'pass')
+  assert.equal(passRecord.dispatched, 'terminal_exec')
+  assert.equal(passRecord.dispatched_arg_count, 2)
+
+  // ③ tool_call，词表外：她点了名字（tool_named 恒记）但从未到达 kernel（dispatched=null）——
+  // 这正是 GK-14 要区分开的两件事：自称 ≠ 事实。
+  const unknownRecord = cycleRecord(toolCallDecision('web_search', { q: 'x' }), baseOpts)
+  assert.equal(unknownRecord.tool_named, 'web_search')
+  assert.equal(unknownRecord.dispatch_gate, 'unknown_tool')
+  assert.equal(unknownRecord.dispatched, null)
+  assert.equal(unknownRecord.dispatched_arg_count, 0)
+
+  // ④ tool_call，词表内但未接线：同一件事的另一条闸路——tool_named 照记，
+  // dispatch_gate 换成 not_wired，dispatched 同样是 null。
+  const unwiredRecord = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls' }), {
+    ...baseOpts,
+    wiredActions: new Set(), // 给了空集：未接线口径打开，terminal.exec 不在其中
+  })
+  assert.equal(unwiredRecord.tool_named, 'terminal_exec')
+  assert.equal(unwiredRecord.dispatch_gate, 'not_wired')
+  assert.equal(unwiredRecord.dispatched, null)
+  assert.equal(unwiredRecord.dispatched_arg_count, 0)
+})
+
+test('cycleRecord 不给 wiredActions 时（未接线口径缺省关）行为逐字节不变：tool_call 词表内即 pass', () => {
+  const record = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls' }), {
+    elapsedMs: 5, assembled: [], step: 1, innerApplied: false,
+  })
+  assert.equal(record.dispatch_gate, 'pass')
+  assert.equal(record.tool_named, 'terminal_exec')
+  assert.equal(record.dispatched, 'terminal_exec')
+  assert.equal(record.dispatched_arg_count, 1)
 })

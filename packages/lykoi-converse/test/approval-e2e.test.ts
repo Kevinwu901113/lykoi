@@ -303,14 +303,19 @@ test('实弹反向（W3 设备侧）：owner 回「不要」→ denied + DENY_CO
   assert.equal(routed.scope_key, null)
 })
 
-// --- GK-14 e2e（DK-07 定案；W2 必立） -----------------------------------------
+// --- GK-14 e2e（DK-07 定案；W2 必立；WO-GK14-DISPATCHED-01 改口） -------------
 
-/** 一条 u3_cycle_envelope 自称 dispatched 且那个工具是**会派发**的动作。 */
+/**
+ * 一条 u3_cycle_envelope 自称 dispatched 的动作类型。GK-14 单一真源改口后
+ * `dispatched` 本身已经是「到达了 kernel」的事实（`toolDispatchGate` 判
+ * `'pass'` 才非 null）——**不再**需要 `name in TOOL_TO_ACTION` 这道过滤来把
+ * 词表外的自称筛掉：自称即自称，筛不筛都不该改变这条不变量的判据。
+ */
 function selfReportedDispatches(events: AuditEvent[]): string[] {
   return events
     .filter((e) => e.type === 'u3_cycle_envelope')
     .map((e) => e.dispatched)
-    .filter((name): name is string => typeof name === 'string' && name in TOOL_TO_ACTION)
+    .filter((name): name is string => typeof name === 'string')
     .map((name) => TOOL_TO_ACTION[name]!)
 }
 
@@ -347,6 +352,14 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
   assert.deepEqual(recorded, claimed) // 自称几条就有几行，且逐条同型
   assert.deepEqual(exempted, [['messenger.send', 'E1']]) // 问句本身：免问不免账
   assert.ok(claimed.length > 0, '这个夹具必须真的自称过一次，否则正断言是空转')
+
+  // GK14-DISPATCHED-01 D-5：正断言场景闸真放行——dispatch_gate 必须是 'pass'，
+  // tool_named 恒记她点的名字（此场景与 dispatched 同值，因为闸放行了）。
+  const envelopeEvent = audit.events.find(
+    (e) => e.type === 'u3_cycle_envelope' && e.dispatched === 'terminal_exec',
+  )!
+  assert.equal(envelopeEvent.dispatch_gate, 'pass')
+  assert.equal(envelopeEvent.tool_named, 'terminal_exec')
 })
 
 /**
@@ -355,19 +368,16 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
  * 这个场景在 D-2b 之后已经不能用来造"零自称"了。
  *
  * 换成 D-02 的词表外工具名场景：kind 仍是 tool_call（不降级、不豁免任何东西），
- * 但 `web_search` 从不在 TOOL_TO_ACTION 里——`selfReportedDispatches` 的过滤器
- * （`name in TOOL_TO_ACTION`）天然把它筛掉，claimed 仍是 []。这其实比原场景
- * 更贴合 GK-14 本来要测的东西：负断言测的是"自称"的真假，不是"降级"本身。
+ * 但 `web_search` 从不在 TOOL_TO_ACTION 里 —— `toolDispatchGate` 判
+ * `'unknown_tool'`，`cycleRecord` 因此记 `dispatched: null`，claimed 是 []。
  *
- * 附注（供 report §5）：D-1d 让"自称 dispatched 但从未到达 kernel"多了一条新
- * 路——一个**在词表里、注册表里却仍是替身**的动作，若理由是接地的（不落入
- * demote），cycleRecord 在 `#buildAction` 的 D-1d 闸判断之前就已经把
- * `dispatched` 记成了该工具名（`isToolCall` 只看 kind+tool 是否存在，不看
- * 是否真接线）。这种场景下 selfReportedDispatches 会非空，而 action_dispatch
- * 行数为零——GK-14"自称 ⟹ 有行"的字面不变量出现新的例外。这不属于本工单
- * D-1..D-5 的改动范围（改 cycleRecord 的 dispatched 语义属于动 envelope
- * 契约，D-5 明确排除），本用例改用不触碰这条新例外的场景来验证 GK-14 的负向
- * 判据，新例外本身留给治理层另行判断是否需要新工单。
+ * WO-GK14-DISPATCHED-01 改口：`selfReportedDispatches` 不再靠
+ * `name in TOOL_TO_ACTION` 过滤把词表外的自称筛掉 —— 现在 `dispatched` 本身
+ * 已经是「到达了 kernel」的事实，词表外这条路上它天然是 null，不需要外部过滤
+ * 器再帮它说谎。旧附注提到的"D-1d 新例外"（在词表里、注册表里仍是替身但理由
+ * 接地时 `dispatched` 曾被记成工具名、行数却为零）已随 D-1 改口消失：那条路
+ * 现在走 `toolDispatchGate` 判 `'not_wired'`，`dispatched` 同样是 null —— 见
+ * 下面新增的未接线场景，两条路径都不再是 GK-14 不变量的例外。
  */
 test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（词表外工具名路）', async () => {
   isolateKernelFiles()
@@ -384,4 +394,44 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
   assert.equal(audit.events.filter((e) => e.type === 'action_result').length, 0)
   // 反向也成立：既然一行都没有，就不可能有 approval 器官的任何一步
   assert.equal(audit.events.filter((e) => e.type === 'approval_question').length, 0)
+
+  const envelopeEvent = audit.events.find((e) => e.type === 'u3_cycle_envelope')!
+  assert.equal(envelopeEvent.dispatch_gate, 'unknown_tool')
+  assert.equal(envelopeEvent.tool_named, 'web_search')
+  assert.equal(envelopeEvent.dispatched, null)
+})
+
+/**
+ * WO-GK14-DISPATCHED-01 D-5 新增：未接线路的负断言。`terminal_exec`
+ * **在** TOOL_TO_ACTION 词表里，但这次刻意不调 `fakeTerminal()`——注册表里
+ * 它仍是 D-1a 打了标记的替身，`toolDispatchGate` 判 `'not_wired'`。这条路
+ * 此前是 `approval-e2e.test.ts:362-371` 附注点名的缺口：没有任何用例断言过
+ * 「在词表但未接线」时 `dispatched` 确实记 null——旧口径下 `isToolCall` 只看
+ * kind+tool 是否存在，`dispatched` 会被记成工具名，claimed 非空而
+ * action_dispatch 行数为零，GK-14"自称 ⟹ 有行"字面不变量出现例外。改口后
+ * `dispatched` 由 `toolDispatchGate` 复算，此路同样是 null，例外消失。
+ */
+test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（词表内但未接线路）', async () => {
+  isolateKernelFiles()
+  // 刻意不调 fakeTerminal()：terminal.exec 在 KNOWN_ACTION_LIST 里，但注册表
+  // 里没有真身，wiredActionCatalog 因此不把它列进 wiredActions。
+  const { audit, transport, telegram } = await assemble(
+    toolEnvelope('terminal_exec', { command: 'ls' }),
+  )
+  transport.queueUpdate({
+    updateId: 1,
+    message: { messageId: 900, chatId: '1001', senderId: '1001', text: '帮我跑 ls' },
+  })
+  assert.equal(await telegram.pollOnce(), 1)
+
+  assert.ok(audit.events.some((e) => e.type === 'u3_cycle_tool_unwired'))
+  assert.deepEqual(selfReportedDispatches(audit.events), [])
+  assert.equal(audit.events.filter((e) => e.type === 'action_dispatch').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'action_result').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'approval_question').length, 0)
+
+  const envelopeEvent = audit.events.find((e) => e.type === 'u3_cycle_envelope')!
+  assert.equal(envelopeEvent.dispatch_gate, 'not_wired')
+  assert.equal(envelopeEvent.tool_named, 'terminal_exec')
+  assert.equal(envelopeEvent.dispatched, null)
 })
