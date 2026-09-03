@@ -1,6 +1,6 @@
 # WO-OPS-BROWSER-PROXY-01 · 浏览器器官宿主开出站代理（零代码）
 
-- 状态：**待 Kevin 放行执行**（root 执行 apply-proxy.sh；大脑 lykoi-cordis 不动、不重启）
+- 状态：**已放行，待 Kevin root 执行**（2026-09-04 00:55 CST 放行；apply-proxy.sh sha 679ed172…dd09f7；大脑 lykoi-cordis 不动、不重启）
 - 立单：2026-09-04 00:50 CST，主治理 Agent
 - 上游：LANDING-M 后首轮 Telegram 读数（HANDOFF §五）：缝处四跳全净，但五次取数全空 → 180 s 轮次期限 DeadlineExceeded → 沉默
 
