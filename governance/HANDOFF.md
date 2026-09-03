@@ -537,6 +537,21 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。**v4 结果（19:42）：文本帧下 J/K/L/M 八次全部合法信封**（J 思考默认+json_object 亦干净，
   reasoning 正常）。假说成立：病根 = seam 以原生 ToolCallBlock/tool-result 帧上 wire（M3-W2）。已立
   WO-FIX-TOOLFRAME-01（只改 seam 渲染为文本帧，#messages 内部不动，J/K/L 落点原样保留为安全网），待 Kevin 放行。
+- **LANDING-N 待落（2026-09-04 03:30 CST 裁合，产线 main@91a47cf → main@e299c1d，三单同批）**：Kevin「都可以修，但绝不打补丁、
+  轻框架/重模型」→ 结构分析 `docs/tool_step_structural_analysis_2026-09-04.md`（四个观察归到三处结构缝：工具参数无真相源、
+  两套成功词汇、推理档位两个主人）→ 三单 opus 并行执行、各自复核 PASS、三次 --no-ff 裁合（86e6e77 / 20fd31d / e299c1d）。
+  **ORGANOK**：kernel dispatch 一条规则 ok:false → success:false（data 保留，error 过 redact）。**TOOLSPEC**：TOOL_TABLE 13 项
+  一处真相，{tools} 渲染 name(signature) — purpose（生产 8 行），prompts.ts 删逐工具散文与 query 句（891 字）。**THINKPOLICY**：
+  u3_cycle_envelope 补 prompt_tokens/completion_tokens/reasoning_len（prompt_tokens = 缓存未命中部分，vendor 不相交约定）；
+  删 J 的 step≥1 关思考；profile llm-deepseek 显式 thinking enabled / reasoningEffort low（探针 v5 按 D-4 定：14/14 合法，
+  S0 low 9.3/1.4 s、S0P low 11.8/5.9 s、S1 low 1.6/1.1 s；off 在 step 0 会放弃工具；high/low 时延无稳定差；缓存命中与否
+  差 5–18 s 是最大单项；产线 85 s 未复现，等 D-0 真数）。事实改口：profile 无 config 时 wire 上无 thinking 键，HIGH 是
+  供应商模型缺省，非 vendor 兜底。合并树 tsc 净、全量 1037/1026/0/11。bundle `lykoi-landing-n.bundle`
+  sha 298829a9…9830fb；脚本 `wo/WO-FIX-THINKPOLICY-01/landing-n-threefix.sh` sha dc85c4bc…2ee94e，起点 91a47cf，
+  manifest 仍 113（cordis.prod.yml 在域内内容变）。**待清理**：renderSystemPrompt 已成恒等函数；lykoi-decide organs.ts
+  器官清单仍无参数；LlmCallResult 未带 vendor reasoningTokens。**落地后读数**：research action_result 出现 success:false、
+  unbacked_claim 开始为 true；u3_cycle_envelope step 0 elapsed_ms 对 prompt_tokens/reasoning_len；step≥1 first_char:other 仍零；
+  url 必填 / requires content 类失败串与对话中 notify_owner 误用下降。
 - **LANDING-M 已落（2026-09-03 23:49 CST，产线钉 main@91a47cf，一次通过）**：WO-FIX-TOOLFRAME-01 ——
   出线缝处工具帧改文本帧：`index.ts` 新导出 `toDshEnvelopeMessages`，assistant tool_calls → assistant 文本帧
   （信封 JSON `{decision:{kind:'tool_call',tool:{name,arguments}}}`），tool 结果 → user 文本帧 `[工具结果 <name>] …`
