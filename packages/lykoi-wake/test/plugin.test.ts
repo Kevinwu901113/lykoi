@@ -69,7 +69,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
         messageCount: options.messages.length,
         runId: meta.runId,
       })
-      return { text: JSON.stringify({ decision: { kind: 'rest', reason: '就想歇着' } }) }
+      return { text: JSON.stringify({ decision: { kind: 'rest', reason: '就想歇着' } }), reasoningLength: 0 }
     },
   }
   ctx.provide('lykoiLlm', llm)
@@ -171,7 +171,7 @@ test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化�
         ...(options.system === undefined ? {} : { system: options.system }),
         userText: first.text ?? '',
       })
-      return { text: JSON.stringify({ decision: { kind: 'rest', reason: '就想歇着' } }) }
+      return { text: JSON.stringify({ decision: { kind: 'rest', reason: '就想歇着' } }), reasoningLength: 0 }
     },
   } satisfies Pick<LykoiLlmService, 'call'>)
 

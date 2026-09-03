@@ -134,6 +134,18 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
   assert.equal(failed.length, 1)
   assert.equal(failed[0]!.error, 'LlmFinishError', '失败在唯一入口层就有名字')
 
+  // WO-FIX-TOOLSTEP-01 D-2a：非内容失败元数据补全——kind/finish_code/
+  // finish_status/route/text_len/reasoning_len 六项俱全；message/requestId
+  // 两项一个字都不许落（S-21：那两栏可能带 URL 或供应商原文）。
+  assert.equal(failed[0]!.kind, 'llm_finish')
+  assert.equal(failed[0]!.finish_code, 'NO_ADAPTER')
+  assert.equal(failed[0]!.finish_status, null, 'FailingFinishAdapter 的 failure 没给 status → null（不是缺席）')
+  assert.equal(failed[0]!.route, 'mock')
+  assert.equal(failed[0]!.text_len, 0, 'FailingFinishAdapter 在 finish 之前没吐过 text-delta')
+  assert.equal(failed[0]!.reasoning_len, 0, 'FailingFinishAdapter 从不吐 reasoning-delta')
+  assert.equal('message' in failed[0]!, false, 'S-21：供应商原文不得进事件流')
+  assert.equal('requestId' in failed[0]!, false, 'S-21：requestId 可能带内部细节，不得进事件流')
+
   // ② S-14 回滚照常（失败回合不留半截轮）。
   assert.ok(
     audit.events.some((e) => e.type === 'chat_turn_rolled_back'),

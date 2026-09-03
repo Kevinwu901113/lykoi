@@ -16,8 +16,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
 import * as budgetPlugin from 'lykoi-budget'
 import * as lykoiLlm from 'lykoi-llm'
@@ -31,6 +31,9 @@ import { envelope, seedBinding } from './fixture.ts'
 
 const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
+/** 照抄真身（lykoi-llm-deepseek vendor）的 off 档形态，供 resolveModel 声明。 */
+const OFF_REASONING_EFFORT = ReasoningEffortId('off')
+
 class CapturingAdapter extends LlmAdapter {
   seen: GenerateOptions[] = []
   #reply: string
@@ -38,6 +41,26 @@ class CapturingAdapter extends LlmAdapter {
   constructor(reply: string) {
     super()
     this.#reply = reply
+  }
+
+  /**
+   * D-1（WO-FIX-TOOLSTEP-01）：第二次起的信封调用会带 `reasoningEffort:'off'`
+   * （dsh-llm 的 resolveCallWithInfo 要求 adapter 在 resolveModel 里报告过
+   * 这个档位才放行），照真身形态声明，否则本测试的第二次调用会假摔成
+   * LlmFinishError。
+   */
+  resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      // 不给 defaultEffort：见 lykoi-llm/src/mock.ts 同款注释——否则 dsh-llm
+      // 会在 step 0（没请求 reasoningEffort）也把这个键材化进 resolved
+      // config，盖掉「D-1 只在 step>=1 才带这个键」这条断言要测的那一层。
+      reasoning: {
+        efforts: [{ id: OFF_REASONING_EFFORT, name: 'off' }],
+      },
+    })
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -157,6 +180,12 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
   const withSignal = adapter.seen.filter((o) => o.signal instanceof AbortSignal)
   assert.equal(withSignal.length, adapter.seen.length, '每一次信封调用都要带周期 signal')
   assert.equal(adapter.seen[0]!.signal!.aborted, false, '没撞线就不该是 aborted')
+  // ③ WO-FIX-TOOLSTEP-01 D-1：`reasoningEffort:'off'` 真的通到 dsh 的
+  //    GenerateOptions 这一跳（不只是 lykoi-converse 内部的 opts 对象）——
+  //    第一次调用（step 0）一个字都不带这个键，第二次（step>=1，历史里已有
+  //    工具帧）恒为 'off'。
+  assert.equal('reasoningEffort' in adapter.seen[0]!, false)
+  assert.equal(adapter.seen[1]!.reasoningEffort, 'off')
   // ② vision 位读到的是**显式 disabled**（装配期落一条，运维看得见这是决定）。
   const seam = audit.events.filter((e) => e.type === 'vision_seam_state')
   assert.equal(seam.length, 1)

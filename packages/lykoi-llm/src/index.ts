@@ -58,6 +58,13 @@ export interface LlmCallResult {
    * 不随返回值带出（WO-LLM-FINISH-01）。
    */
   finish?: FinishReason
+  /**
+   * WO-FIX-TOOLSTEP-01 D-2b：`reasoning-delta` chunk 的码点数总和；**不保存
+   * 文本本身**（零正文口径同 D-08）。思考模式 + json_object 会把答案整个吞进
+   * reasoning_content、content 落空（探针 E）——这个数是用来验证那个假说的
+   * 唯一诊断信号，不是拿来复原她想了什么。
+   */
+  reasoningLength: number
 }
 
 /**
@@ -106,12 +113,15 @@ export class LlmFinishError extends Error {
   readonly usage?: TokenUsage
   /** 抛出前已拼接到的 text-delta 长度（码点数；事故里的那个 `''` 就是 0）。 */
   readonly textLength: number
+  /** WO-FIX-TOOLSTEP-01 D-2b：抛出前已拼接到的 reasoning-delta 长度（码点数）。 */
+  readonly reasoningLength: number
 
   constructor(input: {
     reason: FailureFinishReason
     route: string
     usage?: TokenUsage
     textLength: number
+    reasoningLength: number
   }) {
     const failure: LlmFailure = input.reason.failure
     super(
@@ -125,6 +135,7 @@ export class LlmFinishError extends Error {
     this.route = input.route
     if (input.usage !== undefined) this.usage = input.usage
     this.textLength = input.textLength
+    this.reasoningLength = input.reasoningLength
   }
 }
 
@@ -161,6 +172,7 @@ class LykoiLlm implements LykoiLlmService {
     await this.#ctx.budget.gate(options.provider)
 
     let text = ''
+    let reasoningLength = 0
     let usage: TokenUsage | undefined
     let finish: FinishReason | undefined
     let thrown: unknown
@@ -170,6 +182,9 @@ class LykoiLlm implements LykoiLlmService {
       for await (const chunk of this.#ctx.llm.stream(options) as AsyncIterable<StreamChunk>) {
         if (chunk.type === 'text-delta') {
           text += chunk.text
+        } else if (chunk.type === 'reasoning-delta') {
+          // WO-FIX-TOOLSTEP-01 D-2b：只累加码点数，正文不落地（零正文口径）。
+          reasoningLength += [...chunk.text].length
         } else if (chunk.type === 'usage') {
           usage = chunk.usage
         } else if (chunk.type === 'finish') {
@@ -212,10 +227,11 @@ class LykoiLlm implements LykoiLlmService {
         route: options.provider,
         ...(usage ? { usage } : {}),
         textLength: [...text].length,
+        reasoningLength,
       })
     }
 
-    return { text, ...(usage ? { usage } : {}), ...(finish ? { finish } : {}) }
+    return { text, reasoningLength, ...(usage ? { usage } : {}), ...(finish ? { finish } : {}) }
   }
 }
 

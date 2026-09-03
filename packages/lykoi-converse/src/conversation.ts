@@ -65,7 +65,7 @@ import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
   MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
   SUMMARIZE_SYSTEM_PROMPT,
-  SUMMARY_SKELETON, SYSTEM_PROMPT, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt,
+  SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt,
 } from './prompts.ts'
 
 // --- Context governance 常量（S-28；conversation.py:72-107 逐字，env 可覆写） ----
@@ -198,6 +198,15 @@ export type ConverseLlmFn = (
      * 这边不等了。summary 在锁外、不属于周期，恒不带。
      */
     signal?: AbortSignal
+    /**
+     * WO-FIX-TOOLSTEP-01 D-1：工具步之后那一跳关思考。DeepSeek v4-flash 默认
+     * 开思考；紧接工具帧的那一跳若开着思考，assistant 帧回传缺 reasoning_content
+     * 会被 DeepSeek 直接 400（探针 A）——关思考（`thinking:{type:'disabled'}`）
+     * 让那一跳变回普通 completion（探针 B）。只在 `step >= 1` 带这个键；
+     * `step === 0` 与 summary 调用恒不带（字节不变，测试断言"没有这个键"而不是
+     * undefined）。
+     */
+    reasoningEffort?: 'off'
   },
 ) => Promise<ConverseLlmResult>
 
@@ -408,7 +417,7 @@ export class Conversation {
     const parts = [buildPersonaKernel(this.#deps.persona)]
     const notice = renderRestartNotice(this.#deps.restartEvent?.() ?? null)
     if (notice) parts.push(notice)
-    parts.push(SYSTEM_PROMPT)
+    parts.push(renderSystemPrompt(this.#deps.wiredActions))
     const acquired = buildPersonaPrompt(this.#deps.store).trim()
     if (acquired) parts.push(acquired)
     const promoted = this.#promotedInsightsSection()
@@ -869,15 +878,18 @@ export class Conversation {
 
   // --- 一次 completion（S-52 的 json 钮只在信封那一次生效） --------------------
 
-  async #completion(signal?: AbortSignal): Promise<ConverseLlmResult> {
+  async #completion(step: number, signal?: AbortSignal): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble())
+    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null,
       runId: this.#lastRunId,
       // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
       ...(signal === undefined ? {} : { signal }),
+      // WO-FIX-TOOLSTEP-01 D-1：只有工具步之后的那一跳（step >= 1）关思考——
+      // step 0（历史里还没有工具帧）不带这个键，字节不变。
+      ...(step >= 1 ? { reasoningEffort: 'off' as const } : {}),
     })
   }
 
@@ -897,7 +909,7 @@ export class Conversation {
       let elapsedMs = 0
       for (let attempt = 0; ; attempt += 1) {
         const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
-        const result = await this.#completion(signal)
+        const result = await this.#completion(step, signal)
         elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
         try {

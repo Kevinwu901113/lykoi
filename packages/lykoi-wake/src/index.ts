@@ -147,7 +147,15 @@ export type LlmFn = (
      */
     responseFormat?: { type: 'json_object' }
   },
-) => Promise<{ content: string | null }>
+) => Promise<{
+  content: string | null
+  /**
+   * WO-FIX-TOOLSTEP-01 D-2b：来自 `LlmCallResult.reasoningLength`（lykoi-llm）
+   * ——只透传数，验证 E 假说（思考模式 + json_object 把答案吞进
+   * reasoning_content、content 落空）。缺省 fake 不带这个键也成立（`?? 0`）。
+   */
+  reasoningLength?: number
+}>
 
 export interface WakeDeps {
   store: ReadWriteMemory
@@ -281,6 +289,9 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     } catch {
       deps.logEvent('autonomy_wake_retried', {
         run_id: runId, reason: 'not_json', content_len: (reply.content ?? '').length,
+        // WO-FIX-TOOLSTEP-01 D-2b：验证探针 E 假说（思考模式 + json_object 把
+        // 答案吞进 reasoning_content、content 落空）——只记数，不动 wake 其余口径。
+        reasoning_len: reply.reasoningLength ?? 0,
       })
       reply = await deps.llm(messages, llmMeta)
     }
@@ -500,7 +511,7 @@ export function apply(ctx: Context, config: Config) {
         source: { kind: 'user' },
       })),
     }, { runId: meta.runId })
-    return { content: result.text }
+    return { content: result.text, reasoningLength: result.reasoningLength }
   }
 
   const deps: WakeDeps = {
