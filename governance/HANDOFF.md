@@ -513,7 +513,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   **纠错（18:44）**：drop-in 路不通——该钮在 GK-6 env 钉面表登记为 knob 类（surface.ts:114），unit 环境覆盖即
   ExecStartPre 门 FAIL、服务不起（verify.ts:checkEnvPins，fail closed 本意）。Kevin 照我的命令加 drop-in 后大脑
   进 auto-restart 循环，18:40 起离线，已让 Kevin 删 override 恢复。正道 = 改签名源码缺省（contract.ts:84
-  fallback true→false，或仅重试跳不带 response_format）+ manifest 重签，需立单落地。教训：给 root 命令前先查钉面表。**18:49:02 恢复**（删 override 后门过，deploy_event downtime 记 1 秒，实际离线约 9 分钟，NRestarts 累计 57）。WO-FIX-JSONMODE-01 已立单并放行（bdf0193，重试跳去 json_object，attempt 0 不动），sonnet 执行中。
+  fallback true→false，或仅重试跳不带 response_format）+ manifest 重签，需立单落地。教训：给 root 命令前先查钉面表。**18:49:02 恢复**（删 override 后门过，deploy_event downtime 记 1 秒，实际离线约 9 分钟，NRestarts 累计 57）。WO-FIX-JSONMODE-01 已立单并放行（bdf0193，重试跳去 json_object，attempt 0 不动），sonnet tip 5167e46，复核 PASS（2c34c33），Kevin 裁合 5e6bf02，落地稿 landing-l-jsonmode.sh（8a9a382）待 Kevin 跑。瑕疵：K 稿 §7 governance-ops 记账行的 wo/detail 沿用了 J 的文字（action 正确为 landing-k-notjson），服务器 ops 日志里那条 detail 失实，以本 HANDOFF 为准；L 稿已改为整行生成。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
