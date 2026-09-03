@@ -246,6 +246,9 @@ test('失败路（红）：契约失败 → 有界重试至多两次、带引导
   // mock adapter 不带 reasoningLength → `?? 0` 兜底，键仍在。
   assert.equal(retriedEvents[0]!.reasoning_len, 0)
   assert.equal(retriedEvents[1]!.reasoning_len, 0)
+  // WO-FIX-JSONMODE-01 D-2：attempt 0（首次）带 json_object，attempt 1（第一次重试）已去。
+  assert.equal(retriedEvents[0]!.json_mode, true)
+  assert.equal(retriedEvents[1]!.json_mode, false)
   const failed = audit.events.find((e) => e.type === 'u3_cycle_failed')!
   assert.equal(failed.reason, 'not_json')
   assert.equal(failed.detail, 'first_char:cjk')
@@ -253,6 +256,7 @@ test('失败路（红）：契约失败 → 有界重试至多两次、带引导
   assert.equal(failed.finish_reason, 'stop')
   assert.equal(failed.completion_tokens, 34, 'U3 缺陷①消灭：tokens 与失败同事件可关联')
   assert.equal(failed.reasoning_len, 0)
+  assert.equal(failed.json_mode, false, '最后一次尝试（attempt 2，带引导）已去 json 模式')
   assert.equal(String(failed.error_type ?? ''), 'Error')
   // 正文零泄漏（detail 只是模板组合）。
   for (const event of audit.events) {

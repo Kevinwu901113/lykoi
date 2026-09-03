@@ -889,13 +889,21 @@ export class Conversation {
    * 不变；`true` → 契约末尾追加一条临时引导（contract.ts 的
    * buildEnvelopeMessages 第三参）——这条消息只存在于这一次返回的 messages
    * 里，不 push 进 `#messages`，不进历史/摘要/下一步装配。
+   *
+   * WO-FIX-JSONMODE-01 D-1：`nudge` 为 true 时 `responseFormat: null`——
+   * json_object 模式下的空白退化态对同一份引导前缀原样重发过（NOTJSON-01
+   * 已证），引导本身对这种退化无效；这一单换个杠杆，重试跳直接不强制 json
+   * 模式，靠 lykoi-decide 的 extractJson（contract.ts:classifyFailure 已在
+   * 用的花括号切片容错）从「前缀说明 + JSON 对象」形态的正文里抠出信封。
+   * attempt 0（`nudge` 缺省/false）维持 `envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT
+   * : null` 不变——这一支从未被本单触碰，字节逐字节不变。
    */
   async #completion(step: number, signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
     const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
-      responseFormat: envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null,
+      responseFormat: nudge ? null : (envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null),
       runId: this.#lastRunId,
       // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
       ...(signal === undefined ? {} : { signal }),
@@ -924,7 +932,11 @@ export class Conversation {
         const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
         // WO-FIX-NOTJSON-01 D-2：attempt 0 原样重发；attempt ≥ 1 带引导——
         // 前一次原样重发已证对这种退化无效，改前缀才是杠杆。
-        const result = await this.#completion(step, signal, attempt >= 1)
+        // WO-FIX-JSONMODE-01 D-1：attempt ≥ 1（nudge）同时去 json 模式——
+        // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
+        const nudge = attempt >= 1
+        const result = await this.#completion(step, signal, nudge)
+        const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
         try {
@@ -947,6 +959,8 @@ export class Conversation {
               // WO-FIX-NOTJSON-01 D-4：与 wake 的 autonomy_wake_retried 同口径
               // ——「答案被吞进 reasoning」在对话路径上也可读数。
               reasoning_len: result.reasoningLength ?? 0,
+              // WO-FIX-JSONMODE-01 D-2：刚失败的这一次请求是否带了 json_object。
+              json_mode: jsonMode,
             })
             continue
           }
@@ -967,6 +981,8 @@ export class Conversation {
             other_message_keys: [...(result.extraKeys ?? [])],
             // WO-FIX-NOTJSON-01 D-4：同上，最后一次尝试的 reasoning_len。
             reasoning_len: result.reasoningLength ?? 0,
+            // WO-FIX-JSONMODE-01 D-2：同上，最后一次尝试是否带了 json_object。
+            json_mode: jsonMode,
           })
           return ''
         }
