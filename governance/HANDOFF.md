@@ -501,6 +501,11 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   意图塞进 research_read_text 的 query 字段（只认 url）→ bad_request，角色没有搜索工具可用，只能自知网址，
   与①是同一缺口两面；③ brace 形态（以 { 开头但解析失败）审计无正文，若频率上来应在 u3_cycle_retried 补
   text_len 与尾字符。
+  **反例（18:39）**：Kevin 问苹果发布会时间，step 0 读 bing 空壳 167 字，step 1 三跳全空
+  （completion 67/62/52 token，failed 记 content_chars 51 = 一字符一 token 的换行/空格退化态；重试 prompt 仅
+  162/34 token，引导语确已进上下文）→ silence。结论：引导语对「吞进 reasoning」与偶发空白有效（当日救回 4 次），
+  对 json_object 退化态无效。下一单候选（Kevin 裁）：重试跳去掉 response_format 靠 extractJson 抠 JSON（首答不动），
+  或整体弃用 json_object。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
