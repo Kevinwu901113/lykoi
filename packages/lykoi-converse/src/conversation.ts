@@ -50,7 +50,7 @@ import {
   CYCLE_UNKNOWN_TOOL_EVENT,
   ENVELOPE_RESPONSE_FORMAT, ENVELOPE_RETRY_MAX, FAIL_NOT_JSON, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
-  TOOL_TO_ACTION, VISION_TOOL,
+  TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
 } from './contract.ts'
 import {
@@ -944,6 +944,7 @@ export class Conversation {
         assembled: this.#messages,
         step,
         innerApplied,
+        wiredActions: this.#deps.wiredActions,
       }))
       if (decision.demoted && decision.original_kind === TOOL_CALL) {
         // D-03：她想动手却被闸掉 ≠ 她本来就想沉默 —— 独立告警。
@@ -1093,11 +1094,16 @@ export class Conversation {
    * （cycle_unknown_tool 事件 + error 结果回填；活体这里零 audit 零 events，
    * 正是 U3 缺陷②"零痕迹断点"的病灶）。notify.owner 的 origin 由本循环盖章，
    * 永不由模型给（S-55）。
+   *
+   * GK-14：两道闸的判定本身现在只在 `toolDispatchGate`（contract.ts）里写一份
+   * —— 这里只消费判定结果，不重复判定逻辑；`cycleRecord` 也调同一个函数算
+   * `dispatch_gate`/`dispatched`，两处不会各说各话。事件名、`capability_gap`
+   * 载荷、error 结果串逐字节不变。
    */
   #buildAction(call: ToolCall): [{ type: string; params: Record<string, unknown> } | null, Fields | null] {
     const name = call.function.name
-    const actionType = TOOL_TO_ACTION[name]
-    if (actionType === undefined) {
+    const gate = toolDispatchGate(name, this.#deps.wiredActions)
+    if (gate === 'unknown_tool') {
       this.#log(CYCLE_UNKNOWN_TOOL_EVENT, { name })
       // 位点④（工具名词表判定；WO-U2-SENSE-01）：她点了一个白名单外的工具名 ——
       // 这是「她想做但没有」在对话路径上最贴近判定的那一处。旁路留痕：上面那条
@@ -1110,10 +1116,12 @@ export class Conversation {
       })
       return [null, { success: false, error: `unknown tool '${name}'` }]
     }
+    const actionType = TOOL_TO_ACTION[name]!
     // WO-FIX-LOOP-01 D-1d：动作**在**词表里，但注册表里仍是 D-1a 打了标记的
     // 替身（未接线）—— 与上面的"词表外"分支是结构上不同的两件事，不许合并；
-    // 不给 wiredActions 时（未接线口径缺省关）此分支永不触发，行为逐字节不变。
-    if (this.#deps.wiredActions !== undefined && !this.#deps.wiredActions.has(actionType)) {
+    // 不给 wiredActions 时（未接线口径缺省关）`toolDispatchGate` 永不判 not_wired，
+    // 此分支永不触发，行为逐字节不变。
+    if (gate === 'not_wired') {
       this.#log(CYCLE_TOOL_UNWIRED_EVENT, { name, action_type: actionType })
       emitCapabilityGap(this.#deps.logEvent, {
         // 治理复核改口：记工具名（≤20 字，过 capabilityToken 标签闸原样落）而非
