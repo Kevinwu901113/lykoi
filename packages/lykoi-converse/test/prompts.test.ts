@@ -14,6 +14,7 @@ import {
   THOUGHTS_HEADER, THOUGHTS_LINE_SKELETON, TIME_SKELETON, UNDELIVERED_HEADER,
   UNDELIVERED_LINE_SKELETON, envelopeSystemPrompt, envelopeToolNames,
   ASK_FALLBACK, DELEGATED_ASK_FIELDS,
+  renderSystemPrompt, TOOL_TO_ACTION, buildEnvelopeMessages,
 } from '../src/index.ts'
 
 function sha(text: string): string {
@@ -136,4 +137,101 @@ test('SK-77：DELEGATED_ASK_FIELDS 恰四项，入站 message_id 不在其中（
   assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('message_id'))
   assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('reply_to'))
   assert.ok(!(DELEGATED_ASK_FIELDS as readonly string[]).includes('context_id'))
+})
+
+// --- WO-FIX-TOOLSTEP-01 D-3a/D-3b：白名单按接线过滤（不给 wiredActions 时零漂移） ---
+
+/** 生产装配面的实际接线集（order.md 给定，wake/converse 两侧同一份）。 */
+const PROD_WIRED = new Set([
+  'terminal.exec', 'browser.navigate', 'browser.get_text',
+  'research_browser.read_text', 'notify.owner',
+])
+
+test('D-3a：不给 wiredActions → envelopeToolNames/envelopeSystemPrompt 逐字节不变（既有 pin 就是回归线）', () => {
+  assert.deepEqual(envelopeToolNames(undefined), envelopeToolNames())
+  assert.equal(envelopeSystemPrompt(undefined), envelopeSystemPrompt())
+  // 全接线（TOOL_TO_ACTION 的整张映射值集）等价于不给——两条路殊途同归。
+  const fullWired = new Set(Object.values(TOOL_TO_ACTION))
+  assert.deepEqual(envelopeToolNames(fullWired), envelopeToolNames())
+})
+
+test('D-3a：envelopeToolNames(生产接线集) 恰为 order.md 给定的那 8 项（5 个白名单工具 + 3 个恒在的 in-cognition 工具）', () => {
+  const tools = envelopeToolNames(PROD_WIRED)
+  assert.deepEqual(tools, [
+    'browser_get_text', 'browser_navigate', 'notify_owner', 'research_read_text', 'terminal_exec',
+    'vision_describe', 'promise_followup', 'post_progress',
+  ])
+  // 未接线的工具名一个都不许出现（research_open/research_extract_links/
+  // browser_click/browser_type/browser_screenshot 全部被过滤掉）。
+  for (const gone of [
+    'research_open', 'research_extract_links', 'browser_click', 'browser_type', 'browser_screenshot',
+  ]) {
+    assert.ok(!tools.includes(gone), `${gone} 不该出现在生产接线集的过滤结果里`)
+  }
+})
+
+test('D-3a：buildEnvelopeMessages 把 wiredActions 一路传到系统提示词里的 {tools} 代入（不是只在 envelopeToolNames 单元里生效）', () => {
+  const messages = buildEnvelopeMessages([], PROD_WIRED)
+  const system = messages.find((m) => m.role === 'system')!
+  assert.ok(system.content!.includes('research_read_text'))
+  assert.ok(!system.content!.includes('research_open'))
+  assert.ok(!system.content!.includes('browser_type'))
+})
+
+test('D-3b：renderSystemPrompt() 与 renderSystemPrompt(全接线) 都恒等于 SYSTEM_PROMPT（=== 而不只是 deepEqual —— 老版消费者零感知）', () => {
+  assert.equal(renderSystemPrompt(undefined), SYSTEM_PROMPT)
+  const fullWired = new Set(Object.values(TOOL_TO_ACTION))
+  assert.equal(renderSystemPrompt(fullWired), SYSTEM_PROMPT)
+})
+
+test('D-3b：renderSystemPrompt(生产接线集) 只改工具行两处，其余逐行字节不变（chars=1325，sha 665a4399…）', () => {
+  const rendered = renderSystemPrompt(PROD_WIRED)
+  assert.equal(cps(rendered), 1325)
+  assert.equal(sha(rendered), '665a4399002c1f786dcb27f963c3fd2bf3ffac7acad60bff2be9bd77b223690c')
+
+  const origLines = SYSTEM_PROMPT.split('\n')
+  const newLines = rendered.split('\n')
+  assert.equal(newLines.length, origLines.length, '过滤只改行内内容，不增删行')
+
+  // 恰两行变化（研究浏览器行 / 常驻浏览器行），其余逐行 === 原文。
+  const changed = origLines
+    .map((line, i) => [i, line, newLines[i]] as const)
+    .filter(([, o, n]) => o !== n)
+  assert.equal(changed.length, 2)
+  assert.equal(
+    changed[0]![1],
+    '- research_open / research_read_text / research_extract_links'
+    + '（一次性只读浏览器：查资料、搜索、读网页优先用它——免审批、即开即用；它没有登录态，读完即焚）',
+  )
+  assert.equal(
+    changed[0]![2],
+    '- research_read_text（一次性只读浏览器：查资料、搜索、读网页优先用它——免审批、即开即用；它没有登录态，读完即焚）',
+  )
+  assert.equal(
+    changed[1]![1],
+    '- browser_navigate / browser_click / browser_type / browser_screenshot / browser_get_text'
+    + '（常驻桌面浏览器：真实浏览器环境，防爬验证拦 research 时换它。'
+    + '导航/点击/读页/截图免审批；browser_type 输入会问 Kevin——输入是密码、付款的必经之路）',
+  )
+  assert.equal(
+    changed[1]![2],
+    '- browser_navigate / browser_get_text（常驻桌面浏览器：真实浏览器环境，防爬验证拦 research 时换它。'
+    + '导航/点击/读页/截图免审批；browser_type 输入会问 Kevin——输入是密码、付款的必经之路）',
+  )
+})
+
+test('D-3b：接线集为空 → 三条工具枚举行整行省略（filtered.length===0 分支），其余行照旧', () => {
+  // SYSTEM_PROMPT 里符合「- 名字（…）」形态且名字全在 TOOL_TO_ACTION 里的
+  // 恰三行：research 一次性浏览器 / browser 常驻浏览器 / notify_owner 单名
+  // 那一行。三行全空过滤，行数从 31 掉到 28（不是留三条空行）。
+  const rendered = renderSystemPrompt(new Set())
+  const origLines = SYSTEM_PROMPT.split('\n')
+  const newLines = rendered.split('\n')
+  assert.equal(newLines.length, origLines.length - 3, '三条工具行整行消失（不是留一条空行）')
+  assert.ok(!rendered.includes('research_read_text'))
+  assert.ok(!rendered.includes('browser_navigate'))
+  assert.ok(!newLines.includes('- notify_owner（主动联系 Kevin）'), '枚举行没了')
+  // 同一个名字在别处的散文提及（非枚举行、不匹配「- 名字（…）」形态）不受
+  // 这个函数管——renderSystemPrompt 只过滤白名单枚举行，不做全文改写。
+  assert.ok(rendered.includes('直接用 notify_owner 问他'), '散文提及不受枚举过滤影响（函数职责边界）')
 })

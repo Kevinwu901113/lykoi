@@ -10,6 +10,7 @@
  * 自身环境的操作认知（工具名、审批语义、失败别一句话收工）是她处境的一部分，
  * 一个字都不改；工具名与 TOOL_TO_ACTION 的对应由 contract.ts 承担。
  */
+import { TOOL_TO_ACTION } from './contract.ts'
 
 export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁、你和 Kevin 的关系在前文已经交代，这里只讲怎么做事）。
 
@@ -42,6 +43,47 @@ export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁�
 "\\n\\n---inner---\\n", 再以一个 JSON 对象描述念头:
 {"thoughts":[{"content":"...","kind":"intent|question|hypothesis|rumination|observation","charge_hint":0.5}],"resolve":[<只能引用上下文中你能看到的念头 id>]}
 定界符及其后内容不会进入 Kevin 看到的回复,也不会被记入对话历史。`
+
+/**
+ * WO-FIX-TOOLSTEP-01 D-3b：人设提示词里的工具行按接线过滤 —— `SYSTEM_PROMPT`
+ * 常量本身一字不改（sha 钉保持），这是它的纯函数投影。四轮沉默事故三轮点名
+ * 的是未接线的 `research_open`；她自己对"有哪些工具"的认知不该包含她点了
+ * 也会被 `toolDispatchGate` 判 `not_wired` 的名字。
+ *
+ * 只对以 `- ` 开头、首段形如 `name / name / …（`（全角左括号）的行动手：把
+ * 首段按 ` / ` 拆出的名字逐个查 `TOOL_TO_ACTION`——**只要有一个名字不在表里**，
+ * 这一行就不是本函数认得的"工具行"，原样保留（vision_describe /
+ * terminal_exec / promise_followup 这类 in-cognition 或无括号的行都在此列）。
+ * 全部名字都在表里的行才是真正的过滤对象：保留 `wiredActions` 里有的名字，
+ * 用 ` / ` 重新拼回去；一个都不剩就整行删掉（连它的换行一起没了）。括号里的
+ * 说明文字、其余所有行、空行、顺序一概不动。
+ *
+ * 不给 `wiredActions`，或给了但没有过滤掉任何名字（全接线）→ 返回值
+ * `=== SYSTEM_PROMPT`。
+ */
+export function renderSystemPrompt(wiredActions?: ReadonlySet<string>): string {
+  if (wiredActions === undefined) return SYSTEM_PROMPT
+  const lines = SYSTEM_PROMPT.split('\n')
+  const kept: string[] = []
+  for (const line of lines) {
+    const match = /^- ([^（]+)（/.exec(line)
+    if (match === null) {
+      kept.push(line)
+      continue
+    }
+    const names = match[1]!.split(' / ')
+    if (!names.every((name) => Object.hasOwn(TOOL_TO_ACTION, name))) {
+      // 名字不在 TOOL_TO_ACTION 里的不算工具名——这一行不是过滤对象，原样保留。
+      kept.push(line)
+      continue
+    }
+    const filtered = names.filter((name) => wiredActions.has(TOOL_TO_ACTION[name]))
+    if (filtered.length === 0) continue // 一个都不剩：整行（含换行）删掉
+    const suffix = line.slice(match[0].length - 1) // 从"（"起、含说明文字，逐字节不动
+    kept.push(`- ${filtered.join(' / ')}${suffix}`)
+  }
+  return kept.join('\n')
+}
 
 /** 摘要器 system（conversation.py:133-138 逐字，chars=142 sha=3eb2679b…）。 */
 export const SUMMARIZE_SYSTEM_PROMPT

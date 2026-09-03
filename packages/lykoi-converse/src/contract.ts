@@ -152,9 +152,18 @@ export type EnvelopeToolName
  * D-02①：渲染进信封契约的工具白名单 —— sorted(TOOL_TO_ACTION) + 三个
  * in-cognition 名（SPEC-CONV §6b 修正版原文）。从**同一个** TOOL_TO_ACTION
  * 真相源派生的投影，不是抄的第二份。
+ *
+ * WO-FIX-TOOLSTEP-01 D-3a：给了 `wiredActions` 时只保留真接得通的项 ——
+ * 未接线的工具名不该出现在她能点名的表里（四轮沉默事故三轮点的是未接线的
+ * `research_open`）。三个 in-cognition 工具不过 dispatch，恒在，不受这道闸管。
+ * 不给 = 现状（全量），无参调用输出字节不变。
  */
-export function envelopeToolNames(): string[] {
-  return [...Object.keys(TOOL_TO_ACTION).sort(), VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL]
+export function envelopeToolNames(wiredActions?: ReadonlySet<string>): string[] {
+  const sorted = Object.keys(TOOL_TO_ACTION).sort()
+  const names = wiredActions === undefined
+    ? sorted
+    : sorted.filter((name) => wiredActions.has(TOOL_TO_ACTION[name]))
+  return [...names, VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL]
 }
 
 // --- 信封契约（conversation_cycle.py:149-206 逐字 + G-10 修正） -----------------
@@ -230,10 +239,10 @@ decision.content 字段里;它照样会送到他那里,一个字都不少。
 只有那一个 JSON 对象。`
 
 /** 渲染后的契约：{causes} = 15 CAUSES 排序 join；{tools} = D-02① 白名单投影。 */
-export function envelopeSystemPrompt(): string {
+export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   return ENVELOPE_SYSTEM_PROMPT
     .replace('{causes}', PULSE_CAUSES.join(', '))
-    .replace('{tools}', envelopeToolNames().join(', '))
+    .replace('{tools}', envelopeToolNames(wiredActions).join(', '))
 }
 
 /** 对话消息（tools-API 原生词汇 —— 历史共用形状）。 */
@@ -256,8 +265,11 @@ export interface ToolCall {
  * 地位）；放在最后是因为三段带的易变尾部已占住生成点前的位置，契约插中间会把
  * U2 理顺的缓存边界又顶回去（CACHE-INVERT）。上面的十二块一个字节都不动。
  */
-export function buildEnvelopeMessages(assembled: readonly ConverseMessage[]): ConverseMessage[] {
-  return [...assembled, { role: 'system', content: envelopeSystemPrompt() }]
+export function buildEnvelopeMessages(
+  assembled: readonly ConverseMessage[],
+  wiredActions?: ReadonlySet<string>,
+): ConverseMessage[] {
+  return [...assembled, { role: 'system', content: envelopeSystemPrompt(wiredActions) }]
 }
 
 // --- 情境专属字段的消毒（S-42/S-43） -------------------------------------------
