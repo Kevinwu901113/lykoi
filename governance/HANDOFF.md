@@ -548,6 +548,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   §7 记账行整行重写、路径写死，本次正常落账。落地前累计：u3_cycle_retried first_char:other 1、u3_cycle_failed
   not_json 5——落地后 step ≥ 1 的 first_char:other 与 DSML 泄漏应归零，这是 M 的验收读数。**待 Kevin 另裁**：
   TOOLFRAME 落地后 J 的 step ≥ 1 `reasoningEffort:'off'` 是否回退（探针 v4 显示文本帧下思考开也干净）。
+  **M 落地后首两条 Telegram（00:26–00:31 CST）**：①7 字 → step 0 直接 silence（85 s，无工具，非降级）；②11 字（问 ETH 价）→
+  step 0 tool_call 10 s，**step 1–4 四跳在历史含工具帧下全部首跳合法信封（1–3 s），零 retried、零 first_char:other——M 达成**。
+  但五次取数全空：coingecko 超时 45.8 s、binance API blocked_url、coinbase 超时 45.9 s、binance 网页 navigate 超时 30 s、
+  kraken 未等到 → 180 s 轮次期限到 `turn_failed: DeadlineExceededError`，Kevin 侧沉默。新瓶颈在网络面：研究器官对境外 API
+  一律超时到 45 s 上限（持久浏览器配了代理 192.168.0.202:7890，怀疑无头研究器官未走代理——须在服务器查器官出网配置，未定）；
+  超时/出网闸的 action_result 仍 success:true（接地缺口同源）。另见派发参数 URL 里 `&` 写成 `&amp;`（coingecko 那条），
+  是模型输出还是审计转义待查。候选下一单：查研究器官代理；单次 read_text 超时 45 s → ~15 s 给 180 s 内留 reply 余量。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
