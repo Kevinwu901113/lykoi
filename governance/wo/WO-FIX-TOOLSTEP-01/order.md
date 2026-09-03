@@ -1,7 +1,7 @@
 # WO-FIX-TOOLSTEP-01 · 派工单
 
 - 立单：主治理 Agent，2026-09-03
-- 状态：**待执行**
+- 状态：**已落地**（sonnet tip fdbab51 → 复核 PASS → 裁合 main@47fb05a → LANDING-J 2026-09-03 16:11，一次通过）
 - 来源：2026-09-03 13:09–13:12 CST Kevin 在 Telegram 发 4 条，4 条全部沉默。audit 实证四轮都死在**工具步之后的第二跳**：`u3_cycle_envelope{tool_named}` → `action_dispatch`/`action_result`（第一轮真的经 wttr.in 拿到了东莞天气）→ 第二跳 `budget/charge 0/0` 瞬时返回 → `LlmFinishError` → `chat_turn_rolled_back{dropped_messages:3}` → `converse/silence`。根因由 root 探针（`probe-deepseek-toolstep.sh` A/B/C、`-v2.sh` D/E，2026-09-03 下午）定罪，见 §1。
 - 基线：main@1317cc8（代码树 = 产线钉点 04bef07）；全仓 999 / 988 / 0 / 11（LANDING-I 记录），tsc 净
 - 执行：sonnet（三处小改 + 一处纯函数过滤 + 测试；改动面集中在 converse / llm 两包，wake 只加一个字段）
