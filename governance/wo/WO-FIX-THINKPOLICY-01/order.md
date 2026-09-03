@@ -1,6 +1,6 @@
 # WO-FIX-THINKPOLICY-01 · 推理策略回到一处（adapter 显式档位），先量后定
 
-- 状态：**已裁合，待落地 LANDING-N**（Kevin 03:30「都合」，合入 main@e299c1d；Kevin 2026-09-04 01:40 放行；opus 执行 D-0/D-3/D-5 于 wo/fix-thinkpolicy-01，治理侧补 D-1 探针 v5 与 D-2 profile；基线 main@4aec35f，tip 9fab7a9；复核 PASS 02:45，见 review.md）
+- 状态：**已落地**（LANDING-N 2026-09-04 一次通过，产线钉 main@e299c1d，downtime 6 秒；Kevin 03:30「都合」，合入 main@e299c1d；Kevin 2026-09-04 01:40 放行；opus 执行 D-0/D-3/D-5 于 wo/fix-thinkpolicy-01，治理侧补 D-1 探针 v5 与 D-2 profile；基线 main@4aec35f，tip 9fab7a9；复核 PASS 02:45，见 review.md）
 - 立单：2026-09-04 01:30 CST，主治理 Agent
 - 分析：governance/docs/tool_step_structural_analysis_2026-09-04.md §3
 - 包：profile/cordis.prod.yml、lykoi-converse（conversation.ts 一行删除 + 事件字段）、探针脚本

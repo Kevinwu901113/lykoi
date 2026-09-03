@@ -537,7 +537,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。**v4 结果（19:42）：文本帧下 J/K/L/M 八次全部合法信封**（J 思考默认+json_object 亦干净，
   reasoning 正常）。假说成立：病根 = seam 以原生 ToolCallBlock/tool-result 帧上 wire（M3-W2）。已立
   WO-FIX-TOOLFRAME-01（只改 seam 渲染为文本帧，#messages 内部不动，J/K/L 落点原样保留为安全网），待 Kevin 放行。
-- **LANDING-N 待落（2026-09-04 03:30 CST 裁合，产线 main@91a47cf → main@e299c1d，三单同批）**：Kevin「都可以修，但绝不打补丁、
+- **LANDING-N 已落（2026-09-04 01:28 UTC / 09:28 CST 前后 Kevin root 跑，一次通过，downtime 6 秒，NRestarts 0；03:30 CST 裁合，产线 main@91a47cf → main@e299c1d，三单同批）**：服务器实证 dispatch 25/25、plugin 11/11、contract+prompts+toolstep 34/34、cycle 23/23；备份 backup-pre-threefix-20260904T012832（13.98 MB）。落地前账：research action_result success:false 已有 6 条（抛错路径所致，非本单口径）、browser_action 非 ok 7 条、u3_cycle_envelope 带 prompt_tokens 0。：Kevin「都可以修，但绝不打补丁、
   轻框架/重模型」→ 结构分析 `docs/tool_step_structural_analysis_2026-09-04.md`（四个观察归到三处结构缝：工具参数无真相源、
   两套成功词汇、推理档位两个主人）→ 三单 opus 并行执行、各自复核 PASS、三次 --no-ff 裁合（86e6e77 / 20fd31d / e299c1d）。
   **ORGANOK**：kernel dispatch 一条规则 ok:false → success:false（data 保留，error 过 redact）。**TOOLSPEC**：TOOL_TABLE 13 项
