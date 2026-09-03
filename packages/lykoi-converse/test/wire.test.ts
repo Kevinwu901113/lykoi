@@ -231,12 +231,15 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   const withSignal = adapter.seen.filter((o) => o.signal instanceof AbortSignal)
   assert.equal(withSignal.length, adapter.seen.length, '每一次信封调用都要带周期 signal')
   assert.equal(adapter.seen[0]!.signal!.aborted, false, '没撞线就不该是 aborted')
-  // ③ WO-FIX-TOOLSTEP-01 D-1：`reasoningEffort:'off'` 真的通到 dsh 的
-  //    GenerateOptions 这一跳（不只是 lykoi-converse 内部的 opts 对象）——
-  //    第一次调用（step 0）一个字都不带这个键，第二次（step>=1，历史里已有
-  //    工具帧）恒为 'off'。
+  // ③ WO-FIX-TOOLSTEP-01 D-1（WO-FIX-THINKPOLICY-01 D-5 翻面）：这一位测的
+  //    始终是「converse 到底往 dsh 的 GenerateOptions 上放了什么」，而不只是
+  //    lykoi-converse 内部那个 opts 对象。TOOLSTEP-01 时的读数是 step 0 不带
+  //    键、step>=1 恒 'off'；THINKPOLICY-01 D-3 撤掉了那个 per-step 覆盖
+  //    （它绕的 400 已由 TOOLFRAME-01 根除），推理档位只剩 adapter 一个主人，
+  //    于是**两跳都不带这个键** —— 档位由 profile 的显式 config 决定，
+  //    converse 这一层不许再改口。
   assert.equal('reasoningEffort' in adapter.seen[0]!, false)
-  assert.equal(adapter.seen[1]!.reasoningEffort, 'off')
+  assert.equal('reasoningEffort' in adapter.seen[1]!, false)
   // ② vision 位读到的是**显式 disabled**（装配期落一条，运维看得见这是决定）。
   const seam = audit.events.filter((e) => e.type === 'vision_seam_state')
   assert.equal(seam.length, 1)

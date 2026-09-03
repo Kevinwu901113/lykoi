@@ -169,7 +169,11 @@ test('WO-FIX-JSONMODE-01 D-4③：重试返回「前缀说明 + JSON 对象」�
   assert.equal(eventNames(h.events).includes('u3_cycle_failed'), false)
 })
 
-test('WO-FIX-NOTJSON-01 D-2 × WO-FIX-TOOLSTEP-01 D-1 × WO-FIX-JSONMODE-01 D-1：step ≥ 1 的重试同时带 reasoningEffort:off、引导、去 json 模式', async () => {
+// WO-FIX-THINKPOLICY-01 D-5 翻面：本条原断言「step ≥ 1 的重试同时带
+// reasoningEffort:off」。THINKPOLICY-01 D-3 撤掉了那个 per-step 覆盖（它绕的
+// 400 已由 TOOLFRAME-01 根除，档位归 adapter 一处），于是这一位翻成「键不
+// 在」；同条用例另外两件事（引导、去 json 模式）与本单无关，原样保留。
+test('WO-FIX-NOTJSON-01 D-2 × WO-FIX-TOOLSTEP-01 D-1（THINKPOLICY-01 D-5 翻面）× WO-FIX-JSONMODE-01 D-1：step ≥ 1 的重试不带 reasoningEffort 键，但带引导、去 json 模式', async () => {
   const h = makeConversation()
   h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) }) // step 0：工具步
   h.llm.push({ content: '', finishReason: 'stop' }) // step 1 attempt 0：空
@@ -178,7 +182,7 @@ test('WO-FIX-NOTJSON-01 D-2 × WO-FIX-TOOLSTEP-01 D-1 × WO-FIX-JSONMODE-01 D-1�
   assert.equal(reply, '好')
   assert.equal(h.llm.calls.length, 3)
   const step1Retry = h.llm.calls[2]!
-  assert.equal(step1Retry.opts.reasoningEffort, 'off')
+  assert.equal('reasoningEffort' in step1Retry.opts, false)
   assert.equal(step1Retry.opts.responseFormat, null)
   assert.deepEqual(
     step1Retry.messages[step1Retry.messages.length - 1],
@@ -207,6 +211,58 @@ test('WO-FIX-NOTJSON-01 D-4：三次都带 reasoningLength → u3_cycle_failed.r
   assert.equal(reply, '')
   const failed = lastEvent(h.events, 'u3_cycle_failed')!
   assert.equal(failed.reasoning_len, 137)
+})
+
+// --- WO-FIX-THINKPOLICY-01 D-0：成功周期的三个读数 --------------------------
+//
+// elapsed_ms 一个数分不开「思考很长」与「前缀缓存未命中」。三个字段的缺席
+// 语义与 u3_cycle_failed 对齐：usage 两项 null（「没报量」≠「花了 0」），
+// reasoning_len 0（没有 reasoning-delta 就是真没有）。
+
+test('WO-FIX-THINKPOLICY-01 D-0：回包带 usage 与 reasoningLength → u3_cycle_envelope 三字段原样入账', async () => {
+  const h = makeConversation()
+  h.llm.push({
+    content: envelope(),
+    promptTokens: 4321,
+    completionTokens: 88,
+    reasoningLength: 1907,
+  })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '在的，怎么了？')
+  const record = lastEvent(h.events, 'u3_cycle_envelope')!
+  assert.equal(record.prompt_tokens, 4321)
+  assert.equal(record.completion_tokens, 88)
+  assert.equal(record.reasoning_len, 1907)
+  // 零正文口径不因加了读数而破：三个字段都是数，不含任何正文。
+  assert.equal(JSON.stringify(record).includes('在的，怎么了'), false)
+})
+
+test('WO-FIX-THINKPOLICY-01 D-0：回包没有 usage / reasoningLength → prompt/completion 记 null，reasoning_len 记 0（键都在）', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: envelope() }) // 缺省 fake：三个键一个都不带
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const record = lastEvent(h.events, 'u3_cycle_envelope')!
+  assert.equal(record.prompt_tokens, null)
+  assert.equal(record.completion_tokens, null)
+  assert.equal(record.reasoning_len, 0)
+  // 缺席是 null/0 而不是「键不在」—— 下游按名取值，缺个键与缺个读数不同。
+  assert.equal('prompt_tokens' in record, true)
+  assert.equal('completion_tokens' in record, true)
+  assert.equal('reasoning_len' in record, true)
+})
+
+test('WO-FIX-THINKPOLICY-01 D-0：重试之后记的是**成立那一跳**的读数，不是失败那跳的', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: '', finishReason: 'stop', promptTokens: 100, completionTokens: 1, reasoningLength: 900 })
+  h.llm.push({ content: envelope(), promptTokens: 120, completionTokens: 66, reasoningLength: 7 })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(h.llm.calls.length, 2)
+  const record = lastEvent(h.events, 'u3_cycle_envelope')!
+  assert.equal(record.prompt_tokens, 120)
+  assert.equal(record.completion_tokens, 66)
+  assert.equal(record.reasoning_len, 7)
+  // 失败那一跳的读数没丢，它在自己的 u3_cycle_retried 里。
+  assert.equal(lastEvent(h.events, 'u3_cycle_retried')!.reasoning_len, 900)
 })
 
 test('D-01 边界：unknown_kind 不重试（理解偏差重试大概率复现）—— attempts=1 直接失败', async () => {

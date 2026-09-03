@@ -9,6 +9,15 @@
  * D-1 的修法：信封调用只要 step>=1（历史里已经有一帧工具调用/结果）就带
  * `reasoningEffort:'off'`；step 0 和 summary 调用一个字都不带这个键
  * （不是 undefined —— 键本身不出现，见下方 `in` 断言）。
+ *
+ * ---
+ * WO-FIX-THINKPOLICY-01 D-5 翻面：上面那条修法**已撤**。它绕的那个 400 的
+ * 根因由 WO-FIX-TOOLFRAME-01 消除（工具帧改走文本帧，assistant 帧不再需要
+ * 回传 reasoning_content），绕行留着的代价是推理档位有两个主人。D-3 起
+ * `#completion` 任何 step 都不带 reasoningEffort 键，档位只由 adapter 一处
+ * （profile 的显式档位）决定。用例名保留 `D-1：` 前缀（同一条接缝的历史
+ * 可追），断言全部翻成「键不在」；步内的工具帧形状断言原样保留 —— 那是
+ * TOOLSTEP-01 另一半的成果，本单不动。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -34,7 +43,7 @@ test('D-1：step 0 信封调用不带 reasoningEffort 键（不是 undefined —
   assert.equal('reasoningEffort' in h.llm.calls[0]!.opts, false)
 })
 
-test('D-1：工具步之后（step>=1）信封调用恒带 reasoningEffort:\'off\'；工具帧仍在历史里', async () => {
+test('D-1（THINKPOLICY-01 D-5 翻面）：工具步之后（step>=1）信封调用同样不带 reasoningEffort 键；工具帧仍在历史里', async () => {
   let dispatched = 0
   const h = makeConversation({
     dispatchFn: async () => {
@@ -52,10 +61,11 @@ test('D-1：工具步之后（step>=1）信封调用恒带 reasoningEffort:\'off
   // step 0：没有这个键。
   assert.equal('reasoningEffort' in h.llm.calls[0]!.opts, false)
 
-  // step 1：键在，值是 'off'。
-  assert.equal(h.llm.calls[1]!.opts.reasoningEffort, 'off')
+  // step 1：THINKPOLICY-01 D-3 之后同样没有这个键（此前是 'off'）——
+  // 档位不再由这一层决定，两跳的 opts 在这一位上一模一样。
+  assert.equal('reasoningEffort' in h.llm.calls[1]!.opts, false)
 
-  // D-1 只关思考，不掉工具帧：第二次调用的历史里能看到 assistant 的
+  // 工具帧不掉：第二次调用的历史里能看到 assistant 的
   // tool_calls 帧和对应的 tool 结果帧（成对，callId 绑回）。
   const secondMessages = h.llm.calls[1]!.messages
   const toolCallMsg = secondMessages.find((m) => m.role === 'assistant' && m.tool_calls !== undefined)
@@ -65,7 +75,7 @@ test('D-1：工具步之后（step>=1）信封调用恒带 reasoningEffort:\'off
   assert.ok(toolResultMsg, '对应的 tool 结果帧必须还在，callId 绑回同一次调用')
 })
 
-test('D-1：多步工具循环里每一步 step>=1 都带 reasoningEffort:\'off\'（不是只在第二步）', async () => {
+test('D-1（THINKPOLICY-01 D-5 翻面）：多步工具循环里每一步都不带 reasoningEffort 键（不是只有第一步干净）', async () => {
   let dispatched = 0
   const h = makeConversation({
     dispatchFn: async () => {
@@ -81,8 +91,8 @@ test('D-1：多步工具循环里每一步 step>=1 都带 reasoningEffort:\'off\
   assert.equal(dispatched, 2)
   assert.equal(h.llm.calls.length, 3)
   assert.equal('reasoningEffort' in h.llm.calls[0]!.opts, false)
-  assert.equal(h.llm.calls[1]!.opts.reasoningEffort, 'off')
-  assert.equal(h.llm.calls[2]!.opts.reasoningEffort, 'off')
+  assert.equal('reasoningEffort' in h.llm.calls[1]!.opts, false)
+  assert.equal('reasoningEffort' in h.llm.calls[2]!.opts, false)
 })
 
 test('D-1：summary 调用（purpose=summary）一个字都不带 reasoningEffort 键', async () => {
