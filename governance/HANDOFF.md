@@ -555,6 +555,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   一律超时到 45 s 上限（持久浏览器配了代理 192.168.0.202:7890，怀疑无头研究器官未走代理——须在服务器查器官出网配置，未定）；
   超时/出网闸的 action_result 仍 success:true（接地缺口同源）。另见派发参数 URL 里 `&` 写成 `&amp;`（coingecko 那条），
   是模型输出还是审计转义待查。候选下一单：查研究器官代理；单次 read_text 超时 45 s → ~15 s 给 180 s 内留 reply 余量。
+  **已查实并立单 WO-OPS-BROWSER-PROXY-01（零代码，00:55 放行）**：host.json `proxy:""` 直连不通（coingecko/kraken 10 s 000），
+  经 192.168.0.202:7890 均 200 约 1 s；unit IPAddressDeny 含 192.168/16 故需 drop-in Allow 代理那台；gate 不钉 lykoi-browser。
+  **第三条 Telegram（00:44，问 ETH/BTC 价）**：审计显示代理已生效——币安 2.9 s ok 220 字（451 封锁页）、coingecko 3.7 s ok
+  52 字（正常价格 JSON，证明 `&amp;` 只是审计/监视显示转义，非模型输出，撤回该疑点）。step 0 用时 69 s（三轮 85/10/69 s，
+  step 0 思考延迟观察转硬）。模型 step 2 选 notify_owner 先以 `message` 传参被拒（动作层要 `content`，prompts.ts 工具行
+  未给参数形状）、step 3 自纠成功；step 4 首跳 not_json `first_char:brace`（json_mode true，reasoning 0，新形态一次样本）、
+  重试后选 silence——价格经通知道送达，回复道沉默。候选小单：notify_owner 工具行补参数说明或动作层兼容 `message`。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
