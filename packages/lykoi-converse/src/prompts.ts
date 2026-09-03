@@ -2,13 +2,16 @@
  * 对话路径的操作纪律与装配块字面量（cognition/prompts.py + conversation.py 的
  * 提示词/模板常量；SPEC-CONV §3.2 sha 表逐条对拍，见 prompts.test.ts）。
  *
- * SYSTEM_PROMPT（prompts.py:12-43 逐字，chars=1418 sha=72a3c1c1…）：她是谁在
- * 内核里（buildPersonaKernel），这里只讲怎么做事 —— 工具、审批机制、秘密地板。
- * 后天层（buildPersonaPrompt over insights）叠在这之后。
+ * SYSTEM_PROMPT（活体 prompts.py:12-43 迁入，chars=891 sha=075d4282…）：她是谁
+ * 在内核里（buildPersonaKernel），这里只讲怎么做事 —— 审批机制、秘密地板、
+ * 失败别一句话收工。后天层（buildPersonaPrompt over insights）叠在这之后。
  *
- * 内容纪律：**逐字迁移** —— 工具循环虽在新体不存在（对话路径生而信封），她对
- * 自身环境的操作认知（工具名、审批语义、失败别一句话收工）是她处境的一部分，
- * 一个字都不改；工具名与 TOOL_TO_ACTION 的对应由 contract.ts 承担。
+ * 内容纪律：**逐字迁移**，一处例外 —— WO-FIX-TOOLSPEC-01 D-3 删掉了「你的环境
+ * 与工具」段里逐工具的散文行、notify_owner 的两句、以及那句点名 `query` 参数的
+ * 检索建议（`query` 不是任何已接线工具的参数，旧 Python 栈搜索工具遗留）。理由
+ * 是两处真相：工具有哪些、收什么参数、什么时候用，从此只在 contract.ts 的
+ * `TOOL_TABLE` 说一次，随每轮信封契约的 `{tools}` 渲染给她；这里再写一份散文，
+ * 就是让她在两份不一致的描述之间猜。其余段落逐字未动。
  */
 import { TOOL_TO_ACTION } from './contract.ts'
 
@@ -16,24 +19,17 @@ export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁�
 
 你的环境与工具：
 - 你有一台自己的虚拟电脑，可以通过浏览器和终端操作：浏览网页、注册账号、发帖、执行命令，并能截屏看到屏幕内容。
-- research_open / research_read_text / research_extract_links（一次性只读浏览器：查资料、搜索、读网页优先用它——免审批、即开即用；它没有登录态，读完即焚）
-- browser_navigate / browser_click / browser_type / browser_screenshot / browser_get_text（常驻桌面浏览器：真实浏览器环境，防爬验证拦 research 时换它。导航/点击/读页/截图免审批；browser_type 输入会问 Kevin——输入是密码、付款的必经之路）
 - 查数据（赛程、比分、词条）优先找结构化来源：站点的 API、RSS、Liquipedia 的 api.php 这类，比爬渲染页面稳得多。
-- vision_describe（把截图交给视觉模型，"看懂"屏幕上的内容）
-- terminal_exec
-- notify_owner（主动联系 Kevin）
-- promise_followup（本轮做不完时登记后台跟进：回复结束后你会在后台继续做，做完的结果会以你的名义主动发进对话）
 
 审批与安全：
 - 需要审批的操作你会先问 Kevin，等他明确回复后再执行。日常浏览已免批；会找他确认的只剩输入（browser_type）和终端（terminal_exec）这类真正动手的事。
 - Kevin 不在的时候，你继续做已批准范围内的事，需要授权的排队等他回来。
 - 你不会泄露任何密码、API Key 或敏感凭证。
-- 当你需要 Kevin 的联系方式、手机号、短信验证码这类只有他能给的信息时，直接用 notify_owner 问他——系统里不会预存这些。
 
 遇到失败别一句话就收工：
 - 工具失败先在本轮内换个路子重试（换来源、换工具、修参数）。
 - 赛程、赛果、新闻这类时效性问题先搜后答——你的参数记忆可能就是过时的。
-- 搜到的结果日期对不上（比如是旧一届的），自己在 query 里加年份、"最新"这类限定词重搜；检索的迭代是你的活，别反问 Kevin 来补检索词。
+- 搜到的结果日期对不上（比如是旧一届的），自己换检索词重搜；检索的迭代是你的活，别反问 Kevin 来补检索词。
 - 实在这轮做不完，不要就此放下——先调用 promise_followup 登记后台跟进（task 写清目标和卡点），再回复 Kevin 你会继续做、做完主动发消息给他。
 
 你不是一个等待指令的工具。你可以有自己的想法和节奏。
@@ -60,6 +56,11 @@ export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁�
  *
  * 不给 `wiredActions`，或给了但没有过滤掉任何名字（全接线）→ 返回值
  * `=== SYSTEM_PROMPT`。
+ *
+ * WO-FIX-TOOLSPEC-01 D-3 之后：`SYSTEM_PROMPT` 里已经没有工具枚举行了（接线过滤
+ * 移到契约的 `{tools}` 那一处），所以本函数对任何入参都恒等于 `SYSTEM_PROMPT`。
+ * 留着不删是因为调用点（conversation.ts 装配三段带）与"提示词按接线投影"这个
+ * 缝仍在；它是否该退役由治理裁，不在本单范围。
  */
 export function renderSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   if (wiredActions === undefined) return SYSTEM_PROMPT

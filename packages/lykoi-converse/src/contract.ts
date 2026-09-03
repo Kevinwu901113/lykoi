@@ -17,7 +17,7 @@
  * 读在调用点）。
  *
  * G-10 落点索引：D-01 有界重试（ENVELOPE_RETRY_MAX，conversation.ts 的周期体
- * 消费）；D-02 工具白名单入契约（{tools} 代入 —— 从 TOOL_TO_ACTION 同一真相源
+ * 消费）；D-02 工具白名单入契约（{tools} 代入 —— 从 TOOL_TABLE 同一真相源
  * 派生的投影，不是抄的第二份）+ buildAction 枚举校验 + cycle_unknown_tool；
  * D-03 降级后果写进契约 + u3_cycle_tool_demoted；D-08 全部事件只记长度/哈希。
  */
@@ -124,21 +124,122 @@ export function buildConversationCandidates(): Candidate[] {
   return [...CONVERSATION_CATALOGUE]
 }
 
-// --- 工具名 → 动作类型（S-55；conversation.py:141-152 逐字 10 项） --------------
+// --- 工具表（S-55 的 10 项 + 三个 in-cognition；WO-FIX-TOOLSPEC-01 D-1） --------
 
-/** Tool names cannot contain dots, so they map onto kernel action types here. */
-export const TOOL_TO_ACTION: Readonly<Record<string, string>> = {
-  terminal_exec: 'terminal.exec',
-  browser_navigate: 'browser.navigate',
-  browser_screenshot: 'browser.screenshot',
-  browser_get_text: 'browser.get_text',
-  browser_click: 'browser.click',
-  browser_type: 'browser.type',
-  research_open: 'research_browser.open',
-  research_read_text: 'research_browser.read_text',
-  research_extract_links: 'research_browser.extract_links',
-  notify_owner: 'notify.owner',
+/**
+ * 一个工具在表里的三列。
+ *
+ * WO-FIX-TOOLSPEC-01 D-1：这张表从"工具名 → 动作类型"升成"工具名 → 名字/参数
+ * 形状/用途"的**一处真相** —— 参数形状原先只活在动作层代码里，她读到的三处
+ * （SYSTEM_PROMPT 散文、契约 `{tools}` 裸名、器官清单）一处都不带参数，只能从
+ * 失败串里学（`url 必填`、`requires 'content'`），每猜错一次烧掉一个工具步。
+ */
+export interface ToolSpec {
+  /** kernel 动作类型；三个 in-cognition 工具不过 dispatch，记 `null`。 */
+  action: string | null
+  /** 形参列表，**不含工具名本身** —— 渲染时拼成 `name(signature)`。 */
+  signature: string
+  /** 什么时候用它、它与别的出口的分工。 */
+  purpose: string
 }
+
+/**
+ * 工具名不能带点，所以在这里映到 kernel 的动作类型上；signature 一律以动作层
+ * handler **实际读取的参数名**为准（依据逐条见 WO-FIX-TOOLSPEC-01 报告）。
+ *
+ * 五个动作至今只有 `unwiredResources()` 的替身（`browser.click/type/screenshot`、
+ * `research_browser.open/extract_links`）：其中 research 两项按 browser 器官
+ * handler 的 `needsUrl` 惯例写 `url`，另外三项没有任何真身可核，signature 记
+ * `...` —— 宁可说"形状未定"，也不编一个她会照着填的假参数。生产口径下
+ * `wiredActions` 会把这五行整个滤掉，她看不到它们。
+ */
+export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
+  terminal_exec: {
+    action: 'terminal.exec',
+    signature: 'command',
+    purpose: '在你自己的虚拟电脑上跑一条 shell 命令；这是真动手的事，执行前会先问 Kevin',
+  },
+  browser_navigate: {
+    action: 'browser.navigate',
+    signature: 'url',
+    purpose: '常驻桌面浏览器打开一个网址：真实浏览器、带登录态，防爬验证拦下 research 时换它',
+  },
+  browser_screenshot: {
+    action: 'browser.screenshot',
+    signature: '...',
+    purpose: '未接线（真身未到）：常驻浏览器截屏；参数形状随真身确定',
+  },
+  browser_get_text: {
+    action: 'browser.get_text',
+    signature: 'max_chars?',
+    purpose: '读常驻浏览器此刻停在那一页的正文；它不收 url，先 browser_navigate 再读',
+  },
+  browser_click: {
+    action: 'browser.click',
+    signature: '...',
+    purpose: '未接线（真身未到）：常驻浏览器里点一下；参数形状随真身确定',
+  },
+  browser_type: {
+    action: 'browser.type',
+    signature: '...',
+    purpose: '未接线（真身未到）：常驻浏览器里输入文字；输入是密码、付款的必经之路，接线后会问 Kevin',
+  },
+  research_open: {
+    action: 'research_browser.open',
+    signature: 'url',
+    purpose: '未接线（真身未到）：一次性只读浏览器打开一个网址',
+  },
+  research_read_text: {
+    action: 'research_browser.read_text',
+    signature: 'url, max_chars?',
+    purpose: '一次性只读浏览器读一个网址的正文：查资料、搜索、读网页优先用它'
+      + '——免审批、即开即用、没有登录态、读完即焚。它只收 url，没有检索词参数',
+  },
+  research_extract_links: {
+    action: 'research_browser.extract_links',
+    signature: 'url',
+    purpose: '未接线（真身未到）：一次性只读浏览器取一页上的链接',
+  },
+  notify_owner: {
+    action: 'notify.owner',
+    signature: 'content',
+    purpose: '对话之外主动找 Kevin：问验证码、联系方式这类只有他能给的信息，'
+      + '或把后台跟进的结果送到他那里。正在对话里就直接 reply，不要用它送答案',
+  },
+  // 三个 in-cognition 工具（S-54）：不过 dispatch，所以 action 为 null，也就不
+  // 进 TOOL_TO_ACTION 投影；参数形状与其余工具同表同形，她读到的是同一张表。
+  vision_describe: {
+    action: null,
+    signature: 'attachment_id, question?',
+    purpose: '把上下文里的截图交给视觉模型"看懂"；attachment_id 只能用上下文里出现过的那个',
+  },
+  promise_followup: {
+    action: null,
+    signature: 'task',
+    purpose: '这一轮做不完：登记后台跟进（task 写清要完成什么、卡在哪里）；'
+      + '回复结束后你会在后台继续做，做完的结果以你的名义发进对话',
+  },
+  post_progress: {
+    action: null,
+    signature: 'content',
+    purpose: '后台跟进途中给 Kevin 发一条进展；只在后台回合可用，现场对话直接在回复里说',
+  },
+}
+
+/**
+ * 工具名 → 动作类型（S-55；conversation.py:141-152 逐字 10 项）。
+ *
+ * D-1 之后它是 `TOOL_TABLE` 的**投影**而不是第二份表：`action` 为 null 的三个
+ * in-cognition 工具不在其中，既有引用（`EnvelopeToolName`、`toolDispatchGate`、
+ * `#buildAction`）读到的键集与值逐项不变。
+ */
+export const TOOL_TO_ACTION: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(TOOL_TABLE)
+      .filter(([, spec]) => spec.action !== null)
+      .map(([name, spec]) => [name, spec.action!]),
+  ),
+)
 
 /** 三个 in-cognition 工具（S-54）：不过 dispatch、不在 TOOL_TO_ACTION。 */
 export const VISION_TOOL = 'vision_describe'
@@ -168,6 +269,22 @@ export function envelopeToolNames(wiredActions?: ReadonlySet<string>): string[] 
     ? sorted
     : sorted.filter((name) => wiredActions.has(TOOL_TO_ACTION[name]))
   return [...names, VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL]
+}
+
+/**
+ * WO-FIX-TOOLSPEC-01 D-2：`{tools}` 的渲染体 —— 每行一条
+ * `name(signature) — purpose`，行序与过滤规则**复用** `envelopeToolNames`
+ * （同一处真相：不许出现第二套排序/过滤）。
+ *
+ * 返回值不带任何缩进：占位符落在契约里哪一层是代入点的排版事，不是本函数的事。
+ */
+export function renderToolTable(wiredActions?: ReadonlySet<string>): string {
+  return envelopeToolNames(wiredActions)
+    .map((name) => {
+      const spec = TOOL_TABLE[name]!
+      return `${name}(${spec.signature}) — ${spec.purpose}`
+    })
+    .join('\n')
 }
 
 // --- 信封契约（conversation_cycle.py:149-206 逐字 + G-10 修正） -----------------
@@ -242,11 +359,18 @@ decision.content 字段里;它照样会送到他那里,一个字都不少。
 开场白、没有"好的"、没有代码块围栏、没有解释你为什么这么填。
 只有那一个 JSON 对象。`
 
-/** 渲染后的契约：{causes} = 15 CAUSES 排序 join；{tools} = D-02① 白名单投影。 */
+/**
+ * 渲染后的契约：{causes} = 15 CAUSES 排序 join；{tools} = D-2 的工具表
+ * （`name(signature) — purpose` 每行一条，替代原先的裸名 join）。
+ *
+ * 续行缩进 2 空格在这里补：`{tools}` 占位符坐在 tool_call 那一条的续行位上，
+ * 多行代入进去必须跟着那一层缩进才读得像一张表 —— 排版属代入点，`renderToolTable`
+ * 自己不带缩进。
+ */
 export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   return ENVELOPE_SYSTEM_PROMPT
     .replace('{causes}', PULSE_CAUSES.join(', '))
-    .replace('{tools}', envelopeToolNames(wiredActions).join(', '))
+    .replace('{tools}', renderToolTable(wiredActions).split('\n').join('\n  '))
 }
 
 /** 对话消息（tools-API 原生词汇 —— 历史共用形状）。 */
