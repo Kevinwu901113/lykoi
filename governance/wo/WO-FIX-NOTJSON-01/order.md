@@ -1,7 +1,7 @@
 # WO-FIX-NOTJSON-01 · 派工单
 
 - 立单：主治理 Agent，2026-09-03
-- 状态：**已落地**（LANDING-K，2026-09-03 17:34 CST，产线钉 main@f449fda，一次通过；服务器实证 cycle 19/19、wake 12/12，downtime 6 秒，NRestarts 0）
+- 状态：**已落地**（LANDING-K，2026-09-03 17:34 CST，产线钉 main@f449fda，一次通过；服务器实证 cycle 19/19、wake 12/12，downtime 6 秒，NRestarts 0；**已验 18:23 CST**：一轮内 step 1 空白 + step 2 brace 两次 not_json 均被引导拉回，17.5 s 闭环 112 字）
 - 来源：LANDING-J 验收（2026-09-03 16:39–16:52 CST）。第二跳 400 已修，但 16:39 那条仍沉默：step 1 两次采样都返回 58/59 token 的**纯空白**（finish_reason stop、有 charge、`first_char:empty`），有界重试打满 → `u3_cycle_failed{not_json, attempts:2}` → silence。16:51 那条 step 0 也空过一次（重试成功后 24 秒闭环）。今日 5 跳 3 跳出过空白；与自主路径 `autonomy_wake_retried{not_json}`（约 1/6 拍）同源 —— DeepSeek json_object 模式的空输出（DeepSeek 文档自认「可能偶发返回空内容，建议改提示词缓解」）。Kevin「可以试试」（16:58）。
 - 基线：main@3d13025（代码树 = 产线钉点 47fb05a）；全仓 1015 / 1004 / 0 / 11，tsc 净
 - 执行：sonnet（两处重试改口 + 一个常量 + 事件补字段 + 测试）

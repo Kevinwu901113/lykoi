@@ -494,7 +494,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   downtime 6 秒，NRestarts 0，autonomy_runs 2595→2596。落地前账：u3_cycle_failed{not_json} 累计 2，
   最近三条 retried 全是 `first_char:empty` attempt 1。**待验**：落地后 retried 应出现 attempt 2 与
   reasoning_len 字段，not_json 失败日计应归零或接近零；wake retried→failed 比例。
-  未入单观察：搜索引擎结果页对无头 research 器官基本不给正文（百度 0 字、bing 167 字）。
+  **已验（18:23）**：wake 10:07Z 一拍 content 0/reasoning 3224 → 引导重试成功（tend_inner completed）；
+  Kevin 18:23 一条问深圳天气，17.5 s 闭环 112 字：step 1 空白（reasoning_len 0）与 step 2 `first_char:brace`
+  两次不同形态的 not_json 均被引导拉回，落地前此条必沉默。
+  未入单观察：① 搜索引擎结果页对无头 research 器官基本不给正文（百度 0 字、bing 167 字）；② step 0 把搜索
+  意图塞进 research_read_text 的 query 字段（只认 url）→ bad_request，角色没有搜索工具可用，只能自知网址，
+  与①是同一缺口两面；③ brace 形态（以 { 开头但解析失败）审计无正文，若频率上来应在 u3_cycle_retried 补
+  text_len 与尾字符。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
