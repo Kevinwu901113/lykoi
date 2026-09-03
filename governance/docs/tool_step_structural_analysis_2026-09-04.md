@@ -28,7 +28,7 @@
 
 ## 3 · 推理策略有两个主人
 
-DeepSeek 思考档位由两处决定：adapter 缺省（profile `llm-deepseek` 无 config → vendor 兜底 HIGH，隐式）与 converse `#completion` 的 per-step 覆盖（WO-FIX-TOOLSTEP-01：step ≥ 1 `reasoningEffort:'off'`）。后者是原生工具帧 400 的绕行；根因已由 TOOLFRAME-01 消除（探针 v4：文本帧下思考开也干净）。
+DeepSeek 思考档位由两处决定：adapter 缺省（profile `llm-deepseek` 无 config → vendor `resolveThinking` 返回空对象，wire 上 thinking/reasoning_effort 两键都不出现，档位落到供应商侧模型缺省，读数上是 HIGH，隐式；2026-09-04 执行方核实改口，原写「vendor 兜底 HIGH」不属实）与 converse `#completion` 的 per-step 覆盖（WO-FIX-TOOLSTEP-01：step ≥ 1 `reasoningEffort:'off'`）。后者是原生工具帧 400 的绕行；根因已由 TOOLFRAME-01 消除（探针 v4：文本帧下思考开也干净）。
 
 现状读数：step 0（HIGH）85 / 10 / 69 s；step ≥ 1（off）1–3 s。但 `u3_cycle_envelope` 只记 `elapsed_ms`，不记 prompt/completion/reasoning tokens，85 s 是思考长还是前缀缓存未命中无法区分。`LlmResult` 已带 `usage` 与 `reasoningLength`，converse 只在失败事件里记后者。
 

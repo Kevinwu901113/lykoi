@@ -1,13 +1,13 @@
 # WO-FIX-THINKPOLICY-01 · 推理策略回到一处（adapter 显式档位），先量后定
 
-- 状态：**执行中**（Kevin 2026-09-04 01:40 放行，三单并行；opus 于 wt-fix-thinkpolicy-01 / wo/fix-thinkpolicy-01 执行，基线 main@4aec35f）
+- 状态：**复核通过，待裁合**（Kevin 2026-09-04 01:40 放行；opus 执行 D-0/D-3/D-5 于 wo/fix-thinkpolicy-01，治理侧补 D-1 探针 v5 与 D-2 profile；基线 main@4aec35f，tip 9fab7a9；复核 PASS 02:45，见 review.md）
 - 立单：2026-09-04 01:30 CST，主治理 Agent
 - 分析：governance/docs/tool_step_structural_analysis_2026-09-04.md §3
 - 包：profile/cordis.prod.yml、lykoi-converse（conversation.ts 一行删除 + 事件字段）、探针脚本
 
 ## 1 · 根因
 
-思考档位由两处决定：profile 未配置 → vendor 隐式 HIGH；converse `#completion` per-step 覆盖（J：step ≥ 1 off）。J 是原生工具帧 400 的绕行，根因已由 TOOLFRAME-01 消除。step 0 时延 85/10/69 s 无 token 读数，无法归因。
+思考档位由两处决定：profile 未配置 → wire 上不带 thinking/reasoning_effort 键，落到供应商侧模型缺省（读数 HIGH，隐式；原写「vendor 隐式 HIGH」经核实改口）；converse `#completion` per-step 覆盖（J：step ≥ 1 off）。J 是原生工具帧 400 的绕行，根因已由 TOOLFRAME-01 消除。step 0 时延 85/10/69 s 无 token 读数，无法归因。
 
 ## 2 · 决定
 
@@ -37,4 +37,4 @@
 
 读解：①前缀缓存命中与否是最大单项（5–18 s）；②high/low 的 reasoning 长度噪声大、不单调（S0 首跑 low 5114 > high 1677）；③生成约 105 tok/s，产线 85 s ≈ 9k 输出 token，探针任何档位未复现，产线 step 0 长输出来自完整契约 + 思考，须 D-0 落地后读真数；④off 在 S0 两次中一次选 reply「没法查」而非工具，step 0 不取 off。
 
-**D-4 定档：low**（step 0 ≤ 15 s、step ≥ 1 ≤ 5 s、合法率 100% 三条均过）。D-0 追加：事件同时记 `cache_hit_tokens`（DeepSeek usage `prompt_cache_hit_tokens`，adapter 若不透传则记 null 并在报告说明）。前缀缓存失效率作为落地后读数之一。
+**D-4 定档：low**（step 0 ≤ 15 s、step ≥ 1 ≤ 5 s、合法率 100% 三条均过）。D-0 追加撤回：vendor `mapUsage` 已按不相交约定把缓存命中从 `inputTokens` 减掉，`prompt_tokens` 读到的就是未命中部分，命中时自然塌下去，不另加 `cache_hit_tokens`。前缀缓存失效率作为落地后读数之一（看 `prompt_tokens` 的分布）。
