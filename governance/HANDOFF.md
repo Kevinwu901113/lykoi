@@ -493,8 +493,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   `wo/WO-FIX-TOOLSTEP-01/order.md` §1）。修法：step ≥ 1 信封跳 `reasoningEffort:'off'`；turn_failed 记
   finish_code/status/text_len/reasoning_len；契约白名单与人设工具行按接线过滤（未接线 5 名不再出现）。
   sonnet 4 提交 tip fdbab51，复核 1015/1004/0/11，裁合 47fb05a，manifest 113 重签，服务器实证
-  toolstep 4/4、deepseek wire 7/7，downtime 6 秒，NRestarts 0。**待验**：Kevin 发一条需查资料的消息，
-  期望 tool_named → action_result → 第二跳 charge 非 0/0 → converse/reply。遗留（Kevin 裁）：step 0 是否
+  toolstep 4/4、deepseek wire 7/7，downtime 6 秒，NRestarts 0。**已验（16:52）**：Kevin 第二条消息 24 秒内闭环——step 0 点
+  research_read_text 读 weather.com.cn 2748 字 → step 1（关思考）2.4 s 出 reply 87 字 → telegram/sent；无回滚。
+  **新问题**：DeepSeek json_object 空白输出——16:39 那条 step 1 两次采样均 58 token 纯空白（finish stop，
+  有 charge）→ 有界重试耗尽 → silence；16:51 那条 step 0 也空过一次（重试成功）。今日 5 跳 3 跳出空白，与 wake
+  not_json 同源。重试是**原样重发**（conversation.ts:910-930，同 messages 同 options，命中缓存原样复现），
+  且 converse 的 retried/failed 事件未带 reasoning_len（D-2b 只做了 wake）。候选小单：重试时加引导语或换采样、
+  retried/failed 事件补 reasoning_len。另记：百度搜索页对无头浏览器给 0 字，她自己换 weather.com.cn 成功。遗留（Kevin 裁）：step 0 是否
   降 low；prompts.ts 第 19 行说明文字仍提点击/截图/输入。E 假说（思考+json_object 吞答案）由
   `autonomy_wake_retried.reasoning_len` 读数验证，修不修另单。
 - **用户层完成度评估（2026-09-02 治理会话，基准=愿景八条验收，Kevin 拍板）**：
