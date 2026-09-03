@@ -195,6 +195,22 @@ test('receiptsPresentInContext：成功回执/解析不出的 tool 消息 → tr
   ]
   assert.equal(receiptsPresentInContext(unparsable), true) // 宁可判 True
   assert.equal(receiptsPresentInContext([{ role: 'user', content: 'hi' }]), false)
+  // WO-FIX-ORGANOK-01：器官超时回执的**真实形状**（#resultPayload 的三键 + 器官
+  // 保留下来的 data）。内核改口之前这条的 success 是 true，于是「我刚查了」被判
+  // 有据；改口之后它落在与上面 `failed` 同一条 success:false 分支上，不算回执。
+  // 本包一行没改 —— 钉这一条是为了写下那个形状，别的单动它时看得见。
+  const organTimeout: ConverseMessage[] = [
+    {
+      role: 'tool',
+      tool_call_id: 'cycle-1',
+      content: JSON.stringify({
+        success: false,
+        data: { ok: false, error: 'timeout', detail: '45s 未回' },
+        error: 'timeout',
+      }),
+    },
+  ]
+  assert.equal(receiptsPresentInContext(organTimeout), false)
 })
 
 // --- WO-GK14-DISPATCHED-01：toolDispatchGate 单一真源 + cycleRecord 改口 -----

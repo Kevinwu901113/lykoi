@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
-import { isUnwiredHandler, wiredActionCatalog, BodySchemaRegistry, KNOWN_ACTION_LIST }
+import { createDispatch, isUnwiredHandler, wiredActionCatalog, BodySchemaRegistry, KNOWN_ACTION_LIST }
   from 'lykoi-kernel'
 import { clearOrganHandlers, outboundOrganResources } from 'lykoi-adapter-telegram/resources'
 import type { Server } from 'node:net'
@@ -173,6 +173,44 @@ test('D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就�
   const getText = createOrganHandler('browser.get_text', live, () => {})
   assert.equal((await getText({})).ok, true)
   await host.close()
+})
+
+test('WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.success 为 false，detail 仍在 data 里', async () => {
+  // 器官整条链路（假 driver → 真宿主 → 真 client → 真 handler → 真 dispatch）：
+  // 器官不抛而返回 {ok:false,...}，内核得听见它说的失败（否则超时记 success:true，
+  // 白皮书 37.8 的回执背书在超时上失效）。
+  process.env.LYKOI_APPROVAL_RULES = join(TMP, 'approval_rules.json')
+  process.env.LYKOI_STANDING_GRANTS = join(TMP, 'standing_grants.json')
+  process.env.LYKOI_PENDING_ACTIONS = join(TMP, 'pending_actions.json')
+  process.env.LYKOI_NOTIFICATIONS = join(TMP, 'notifications.json')
+  const timingOut: HostDriverLike = {
+    ...fakeDriver(),
+    async researchReadText() {
+      return { ok: false as const, error: HOST_ERRORS.timeout, detail: '45s 未回' }
+    },
+  }
+  const host = await startHost(timingOut)
+  const schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST })
+  const client = new BrowserHostClient({ socketPath: host.path })
+  const unwire = wireBrowserOrgan(client, () => {}, schema)
+  try {
+    const dispatch = createDispatch({
+      sink: { async record() {} },
+      resources: outboundOrganResources(),
+    })
+    const observation = await dispatch(
+      { type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
+      { context: { origin: 'autonomous' } }, // AUTONOMOUS_ALLOWED 里那一项
+    )
+    assert.equal(observation.success, false)
+    assert.equal(observation.error, HOST_ERRORS.timeout)
+    assert.equal(observation.data.ok, false)
+    assert.equal(observation.data.detail, '45s 未回')
+  } finally {
+    unwire()
+    clearOrganHandlers()
+    await host.close()
+  }
 })
 
 test('D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL', async () => {
