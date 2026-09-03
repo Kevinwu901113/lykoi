@@ -1,14 +1,23 @@
 /**
- * tool_calls wire 原生映射收口（M2 遗留 #13 → M3-W2）。
+ * tool_calls wire 映射（M2 遗留 #13 → M3-W2 → WO-FIX-TOOLFRAME-01 翻面）。
  *
- * 断言的是**接线层**（index.ts 的 toDshMessage）把她的合成 tool_calls 帧映成
- * dsh 词汇的原生形态：assistant 帧带 `tool-call` block、结果帧是
- * `createToolResultMessage`（callId 绑回那次调用），而不是从前那两条折文本
- * （`[tool_calls] …` / `[工具结果] …`）。折文本会把"她决定动手"从结构降级成
- * 一句散文，对面模型看到的不是一次调用。
+ * M3-W2 当年把这一跳收口成 dsh 词汇的**原生形态**（assistant 帧带 `tool-call`
+ * block、结果帧是 `createToolResultMessage`），理由是折文本会把"她决定动手"
+ * 从结构降级成散文。这条理由本身没错，但探针 v3/v4（2026-09-03）实测：历史
+ * 里一旦出现原生 tool-call/tool-result 帧，DeepSeek adapter 会退化——
+ * json_object 遇到就吐 65 个空格、reasoning_content 回传时 400、无 json 时
+ * 把 DSML 原生工具调用标记直接泄漏进 content。三病同源，根就是这一跳的原生
+ * 渲染。WO-FIX-TOOLFRAME-01 D-1 把它换回**文本帧**：assistant 一条文本帧
+ * （信封 JSON.stringify）、工具结果一条 user 文本帧（`[工具结果 <name>] …`）。
+ * `#messages` 内部形状（role 'assistant'/tool_calls、role 'tool'/
+ * tool_call_id）一字不动——只是发给 dsh-llm 那一跳换了渲染。
  *
- * 手法：注册一个**捕获型** adapter（照 lykoi-llm/mock 的形态），把每次
- * GenerateOptions 原样留下来，然后看第二次调用（第一次之后才有工具帧）。
+ * 本文件断言三层：① 接线层（index.ts 的 `toDshEnvelopeMessages`，模块级导出
+ * 纯为可测性）把合成 tool_calls/tool 帧渲染成文本帧、不再出现原生 block；
+ * ② id→工具名解析（含找不到时回退 id）与 DSML 剥净这两条防御分支；③ 用完全
+ * 绕开 index.ts 的 `makeConversation`/`FakeLlm` 夹具证明 `#messages` 本身没变
+ * （D-2）。①走真实 ctx/plugin 装配（捕获型 adapter，照 lykoi-llm/mock 的
+ * 形态），②③是轻量单测。
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -27,7 +36,8 @@ import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
-import { envelope, seedBinding } from './fixture.ts'
+import { toDshEnvelopeMessages, type ConverseMessage } from '../src/index.ts'
+import { envelope, seedBinding, makeConversation } from './fixture.ts'
 
 const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
@@ -93,7 +103,7 @@ function fakeMemory(): LykoiMemoryService {
   }
 }
 
-test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结果 → tool-result 帧（callId 成对）', async () => {
+test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本帧（信封 JSON）；tool 结果 → user 文本帧（[工具结果 <name>] 前缀）；无原生 tool-call/tool-result block；契约 system 仍最后一条', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-wire-'))
   process.env.LYKOI_APPROVAL_RULES = join(dir, 'approval_rules.json')
   process.env.LYKOI_STANDING_GRANTS = join(dir, 'standing_grants.json')
@@ -161,15 +171,56 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
   const blocks = second.messages.flatMap((m) => m.content)
   const toolCalls = blocks.filter((b) => b.type === 'tool-call')
   const toolResults = blocks.filter((b) => b.type === 'tool-result')
-  assert.ok(toolCalls.length > 0, 'assistant 帧必须带原生 tool-call block')
-  assert.equal(toolCalls.length, toolResults.length) // 成对
-  const call = toolCalls[0]!
-  assert.equal(call.name, 'research_read_text')
-  assert.equal(JSON.parse(call.arguments).url, 'https://example.com/a')
-  assert.equal(toolResults[0]!.toolCallId, call.id) // callId 绑回那次调用
-  assert.equal(toolResults[0]!.isError, false)
+  // D-1 翻面的核心断言：dsh 原生 tool-call/tool-result block 一个都不许出现——
+  // 这两种 block 正是探针 v3/v4 定位到的三病同源（json_object 遇到就空白、
+  // reasoning_content 回传 400、DSML 泄漏）。
+  assert.equal(toolCalls.length, 0, 'assistant 帧不许再带原生 tool-call block')
+  assert.equal(toolResults.length, 0, '工具结果不许再是原生 tool-result 帧')
 
-  // 折文本的两条形态**一个都不许再出现**
+  // assistant 文本帧：正文是契约 tool_call 信封形状的 JSON，内容与 cycleCall
+  // 造的那次调用一致（tool.name / tool.arguments）。用 findIndex 定位而不是
+  // 硬编码「倒数第 N 条」——`#volatileTail`（S-25：相关记忆/念头/**当前时间**/
+  // 有话没送出去/self-state）在契约之前恒插一条 `[当前时间] …` system 帧，
+  // 这条帧与本单无关但确实占了一个位置，所以「倒数第三/二条」在这份 fixture
+  // 下实测是「倒数第四/三条」——按内容定位，断言不随易变尾部的长度漂移。
+  const assistantIdx = second.messages.findIndex((m) => {
+    if (m.role !== 'assistant' || m.content.length !== 1 || m.content[0]!.type !== 'text') return false
+    try {
+      const parsed = JSON.parse((m.content[0] as { text: string }).text)
+      return parsed?.decision?.kind === 'tool_call'
+    } catch {
+      return false
+    }
+  })
+  assert.ok(assistantIdx >= 0, '必须能找到一条 assistant 文本帧，正文是 tool_call 信封')
+  const assistantMsg = second.messages[assistantIdx]!
+  const assistantEnvelope = JSON.parse((assistantMsg.content[0]! as { text: string }).text)
+  assert.equal(assistantEnvelope.decision.tool.name, 'research_read_text')
+  assert.equal(assistantEnvelope.decision.tool.arguments.url, 'https://example.com/a')
+
+  // 工具结果紧跟在 assistant 那条**正后面**（S-29：调用与结果同生共死、相邻
+  // 成对）：user 文本帧，`[工具结果 research_read_text] ` 前缀 + 工具帧原文
+  // （fixture 里 tool 帧内容 = kernel dispatch 的回执文本，本条只核前缀，不
+  // 重复断言回执正文的完整形状）。
+  const toolResultMsg = second.messages[assistantIdx + 1]!
+  assert.equal(toolResultMsg.role, 'user')
+  assert.equal(toolResultMsg.content.length, 1)
+  const toolResultText = (toolResultMsg.content[0]! as { type: 'text'; text: string }).text
+  assert.ok(
+    toolResultText.startsWith('[工具结果 research_read_text] '),
+    `期望 [工具结果 research_read_text] 前缀，实际：${toolResultText.slice(0, 60)}`,
+  )
+
+  // 最后一条：契约 system（CACHE-INVERT 不破——契约必须留在生成点前的最后
+  // 位置，不因 D-1 换了工具帧渲染就挪位）。用契约文本的固定开头核实这条
+  // 确实是契约本身，不是易变尾部的其它 system 帧。
+  const lastMsg = second.messages.at(-1)!
+  assert.equal(lastMsg.role, 'system')
+  const lastText = (lastMsg.content[0]! as { type: 'text'; text: string }).text
+  assert.ok(lastText.startsWith('上面是你此刻的全部处境'), '契约必须是生成点前最后一条')
+
+  // 折文本的三种历史形态**一个都不许再出现**：M3-W2 之前的老折文本
+  // （`[tool_calls]`）、裸 `[工具结果]`（没有 name，本单要求必须带 name）。
   const allText = JSON.stringify(second.messages)
   assert.ok(!allText.includes('[tool_calls]'))
   assert.ok(!allText.includes('[工具结果]'))
@@ -191,4 +242,91 @@ test('M2#13 收口：assistant tool_calls → dsh `tool-call` block；tool 结�
   assert.equal(seam.length, 1)
   assert.equal(seam[0]!.state, 'disabled')
   assert.equal(seam[0]!.route_set, true)
+})
+
+// --- WO-FIX-TOOLFRAME-01 D-4①②：toDshEnvelopeMessages 的两条防御分支 --------
+//
+// 直接单测这个模块级导出的纯函数（不经 ctx/plugin 装配）：provider 显式传参，
+// 输入是 ConverseMessage[]（#messages 的原生形状），断言渲染出的文本帧。
+
+test('WO-FIX-TOOLFRAME-01 D-4①：工具结果帧的 name 按 id 从预建映射解析；解析不到回退成 tool_call_id', () => {
+  const provider = { route: 'mock', model: 'mock-model' }
+
+  // 正常路：assistant tool_calls 帧就在同一份 sliced 数组里，id 对得上。
+  const paired: ConverseMessage[] = [
+    { role: 'user', content: '帮我读读那篇' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call-abc', type: 'function', function: { name: 'research_read_text', arguments: '{"url":"https://a"}' } }],
+    },
+    { role: 'tool', content: '文章正文', tool_call_id: 'call-abc' },
+  ]
+  const pairedOut = toDshEnvelopeMessages(paired, provider)
+  const pairedText = (pairedOut[2]!.content[0]! as { type: 'text'; text: string }).text
+  assert.equal(pairedText, '[工具结果 research_read_text] 文章正文')
+
+  // 找不到路：tool_call_id 在 sliced 数组里没有任何匹配的 assistant tool_calls
+  // 帧（理论上不会发生——S-29 裁剪配对成对进出，出现即说明配对被破坏了）。
+  // 回退成 tool_call_id 本身，而不是留空字符串或抛错——工具结果这一帧的语义
+  // 比好看更要紧，宁可显示一个丑 id。
+  const orphan: ConverseMessage[] = [
+    { role: 'user', content: '帮我读读那篇' },
+    { role: 'tool', content: '文章正文', tool_call_id: 'call-orphan-999' },
+  ]
+  const orphanOut = toDshEnvelopeMessages(orphan, provider)
+  const orphanText = (orphanOut[1]!.content[0]! as { type: 'text'; text: string }).text
+  assert.equal(orphanText, '[工具结果 call-orphan-999] 文章正文')
+})
+
+test('WO-FIX-TOOLFRAME-01 D-4②：工具结果含 DSML 机器标记时，user 文本帧已剥净（S-32）', () => {
+  const provider = { route: 'mock', model: 'mock-model' }
+  const dsmlContent = '<｜｜DSML｜｜tool_calls>{"name":"x","arguments":"{}"}</｜｜DSML｜｜tool_calls>剩余正文'
+  const sliced: ConverseMessage[] = [
+    { role: 'user', content: '帮我读读那篇' },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'research_read_text', arguments: '{"url":"https://a"}' } }],
+    },
+    { role: 'tool', content: dsmlContent, tool_call_id: 'call-1' },
+  ]
+  const out = toDshEnvelopeMessages(sliced, provider)
+  const text = (out[2]!.content[0]! as { type: 'text'; text: string }).text
+  assert.ok(!text.includes('｜｜DSML｜｜'), '机器标记不许经工具结果回灌回上下文')
+  assert.equal(text, '[工具结果 research_read_text] 剩余正文')
+})
+
+// --- WO-FIX-TOOLFRAME-01 D-4③：#messages 内部形状不受 D-1 影响（D-2） --------
+//
+// `makeConversation`/`FakeLlm`（test/fixture.ts）完全绕开 index.ts 的
+// wire 渲染——`h.llm.calls[i].messages` 就是 Conversation 内部喂给
+// `ConverseLlmFn` 的原始 `ConverseMessage[]`。用它直接摸 `#messages`，证明
+// `#executeCycleTool`/`#appendToolResult` 仍然 push 原生 role 'assistant'/
+// tool_calls 与 role 'tool'/tool_call_id（D-2：本单一个字都没改这一层）。
+
+test('WO-FIX-TOOLFRAME-01 D-4③：#messages 内部仍是原生 role tool / tool_calls 形状', async () => {
+  const h = makeConversation({
+    dispatchFn: async () => ({ success: true, data: { ok: true } }),
+  })
+  h.llm.push({ content: envelope({
+    decision: {
+      kind: 'tool_call',
+      tool: { name: 'research_read_text', arguments: { url: 'https://a' } },
+      reason: '他问我在不在',
+    },
+  }) })
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '看完了')
+  assert.equal(h.llm.calls.length, 2)
+
+  const secondMessages = h.llm.calls[1]!.messages
+  const toolCallMsg = secondMessages.find((m) => m.role === 'assistant' && m.tool_calls !== undefined)
+  assert.ok(toolCallMsg, 'D-2：#executeCycleTool 仍 push {role:"assistant", content:null, tool_calls:[call]}')
+  assert.equal(toolCallMsg!.content, null)
+  assert.equal(toolCallMsg!.tool_calls![0]!.function.name, 'research_read_text')
+  const callId = toolCallMsg!.tool_calls![0]!.id
+  const toolResultMsg = secondMessages.find((m) => m.role === 'tool' && m.tool_call_id === callId)
+  assert.ok(toolResultMsg, 'D-2：#appendToolResult 仍 push {role:"tool", tool_call_id, content}')
 })
