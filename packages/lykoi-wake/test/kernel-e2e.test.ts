@@ -101,7 +101,7 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     async call() {
       const text = scripted ?? ''
       scripted = null
-      return { text }
+      return { text, reasoningLength: 0 }
     },
   }
   ctx.provide('lykoiLlm', llm)

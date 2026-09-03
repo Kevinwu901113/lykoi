@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE } from '../src/index.ts'
+import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE, type LlmFn } from '../src/index.ts'
 import {
   T0, contemplateReply, fakeDispatch, fakeHeart, fakeLlm, makeStore, makeWakeDeps, rawOpen,
 } from './fixture.ts'
@@ -212,6 +212,29 @@ test('D-3a：首包非 JSON、次包合法 → 有界重试一次后 completed�
   assert.equal(retried![1].run_id, 'run-wake-test')
   assert.equal(retried![1].reason, 'not_json')
   assert.equal(typeof retried![1].content_len, 'number')
+  // WO-FIX-TOOLSTEP-01 D-2b：fakeLlm 的回包不带 reasoningLength → `?? 0`
+  // 兜底，键仍然在（不是缺席，只是这条用例里恒为 0）。
+  assert.equal(retried![1].reasoning_len, 0)
+})
+
+test('WO-FIX-TOOLSTEP-01 D-2b：LlmFn 回包带 reasoningLength → 原样透传成 autonomy_wake_retried 的 reasoning_len（假说 E 的观测面）', async () => {
+  const { store } = makeStore()
+  let calls = 0
+  const llm: LlmFn = async (messages, meta) => {
+    calls += 1
+    return calls === 1
+      ? { content: '这不是 JSON', reasoningLength: 137 }
+      : { content: '{"decision":{"kind":"rest","reason":"就想歇着"}}', reasoningLength: 0 }
+  }
+  const { deps, log } = makeWakeDeps({ store, reply: '{}', overrides: { llm } })
+  const out = await wakeOnce(deps)
+  assert.equal(out.status, 'completed')
+  assert.equal(calls, 2)
+  const retried = log.events.find(([name]) => name === 'autonomy_wake_retried')
+  assert.ok(retried)
+  // 首包的 reasoningLength=137 就是触发 not_json 重试那次的账——原样落地，
+  // 不是四舍五入、不是截断、不是被 content_len 顶替。
+  assert.equal(retried![1].reasoning_len, 137)
 })
 
 test('D-3a：两包都非 JSON → 不循环，最多重试一次，仍归入既有失败路径', async () => {

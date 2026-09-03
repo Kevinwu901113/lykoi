@@ -74,6 +74,7 @@ test('绿测：gate 放行 → 调用发生 → 恰好一次 charge，用量按 
   assert.equal(result.text, 'mock says hi')
   assert.equal(result.usage?.inputTokens, 21)
   assert.equal(result.finish?.kind, 'stop')
+  assert.equal(result.reasoningLength, 0, 'D-2b：没吐过 reasoning-delta → 长度 0（不是缺席）')
   assert.equal(adapter.calls, 1)
   assert.deepEqual(gates, ['mock'])
   assert.deepEqual(charges, [
@@ -100,16 +101,28 @@ class FinishAdapter extends LlmAdapter {
   #reason: FinishReason
   #text: string
   #usage: TokenUsage | null
+  /** WO-FIX-TOOLSTEP-01 D-2b：可选地吐一段 reasoning-delta（在 text 之前）。 */
+  #reasoning: string
 
-  constructor(reason: FinishReason, options: { text?: string; usage?: TokenUsage | null } = {}) {
+  constructor(
+    reason: FinishReason,
+    options: { text?: string; usage?: TokenUsage | null; reasoning?: string } = {},
+  ) {
     super()
     this.#reason = reason
     this.#text = options.text ?? ''
     this.#usage = options.usage === undefined ? { inputTokens: 21, outputTokens: 13 } : options.usage
+    this.#reasoning = options.reasoning ?? ''
   }
 
   async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.calls += 1
+    if (this.#reasoning !== '') {
+      // dsh-llm 的 adapterStream 是纯透传（不校验 block 生命周期，见
+      // node_modules/@deepseek-ai/dsh-llm 的 adapterStream 实现），裸发
+      // reasoning-delta 足够练到 lykoi-llm call() 的累加分支。
+      yield { type: 'reasoning-delta', index: 0, text: this.#reasoning }
+    }
     if (this.#text !== '') {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: this.#text }
@@ -207,6 +220,64 @@ test('绿测：非失败类 finish（tool-calls / max-tokens / stop）行为不�
       { route: 'mock', runId: `run-${kind}`, promptTokens: 21, completionTokens: 13 },
     ])
   }
+})
+
+// --- WO-FIX-TOOLSTEP-01 D-2b：reasoning-delta 只计码点数，正文零落地 ------------
+
+test('D-2b 绿测：reasoning-delta 累计进 reasoningLength（码点数，不是字节数），text/usage/charge 账面不受影响', async () => {
+  // 一个代理对（emoji）算一个码点——用它把「.length（UTF-16 code unit 数）」
+  // 和「[...text].length（码点数）」的分歧暴露出来：这段 reasoning 的
+  // `.length` 是 5（3 个汉字 + 1 个代理对占 2 个 unit），码点数是 4。
+  const reasoning = '想想🤔看'
+  assert.equal(reasoning.length, 5)
+  const adapter = new FinishAdapter({ kind: 'stop' }, { text: 'ok', reasoning })
+  const { budget, charges } = fakeBudget()
+  const { svc } = await setupWith(budget, adapter)
+
+  const result = await svc.call(request(), { runId: 'run-reasoning-green' })
+  assert.equal(result.reasoningLength, 4, '按码点数累加，不是 UTF-16 code unit 数')
+  // D-2b 的口径线：reasoning 正文一个字都不落地——返回值里没有任何字段带得出
+  // 「想想🤔看」这段原文（只有长度这个数字）。
+  assert.ok(!JSON.stringify(result).includes(reasoning))
+  // text / usage / charge 三样账面照旧，reasoning 的存在不改变它们。
+  assert.equal(result.text, 'ok')
+  assert.equal(result.usage?.inputTokens, 21)
+  assert.deepEqual(charges, [
+    { route: 'mock', runId: 'run-reasoning-green', promptTokens: 21, completionTokens: 13 },
+  ])
+})
+
+test('D-2b 红测：finish{error} 抛出的 LlmFinishError 也带 reasoningLength（累计到失败发生前那一刻）', async () => {
+  const reason: FinishReason = { kind: 'error', failure: NO_ADAPTER_FAILURE }
+  const reasoning = '再想一想要不要'
+  const adapter = new FinishAdapter(reason, { reasoning })
+  const { budget } = fakeBudget()
+  const { svc } = await setupWith(budget, adapter)
+
+  await assert.rejects(() => svc.call(request(), { runId: 'run-reasoning-red' }), (err: unknown) => {
+    assert.ok(err instanceof LlmFinishError)
+    assert.equal(err.reasoningLength, [...reasoning].length)
+    assert.ok(!JSON.stringify({ ...err, message: err.message }).includes(reasoning), '失败路径同一条零正文口径')
+    return true
+  })
+})
+
+test('D-2b：无 reasoning-delta 的既有路径 reasoningLength 恒 0（绿/红两侧都不因新字段而漂）', async () => {
+  const { budget: greenBudget } = fakeBudget()
+  const { svc: greenSvc } = await setupWith(greenBudget, new FinishAdapter({ kind: 'stop' }, { text: 'ok' }))
+  const green = await greenSvc.call(request(), { runId: 'run-no-reasoning-green' })
+  assert.equal(green.reasoningLength, 0)
+
+  const { budget: redBudget } = fakeBudget()
+  const { svc: redSvc } = await setupWith(
+    redBudget,
+    new FinishAdapter({ kind: 'error', failure: NO_ADAPTER_FAILURE }),
+  )
+  await assert.rejects(() => redSvc.call(request(), { runId: 'run-no-reasoning-red' }), (err: unknown) => {
+    assert.ok(err instanceof LlmFinishError)
+    assert.equal(err.reasoningLength, 0)
+    return true
+  })
 })
 
 test('mock 插件形态：经 cordis 装载注册路由，listProviders 可见', async () => {

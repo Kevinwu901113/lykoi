@@ -40,7 +40,7 @@ function stubbedContext(): Context {
   } satisfies Pick<HeartService, 'claim' | 'nextAt' | 'pending'>)
   ctx.provide('lykoiLlm', {
     async call() {
-      return { text: '' }
+      return { text: '', reasoningLength: 0 }
     },
   } satisfies Pick<LykoiLlmService, 'call'>)
   return ctx
