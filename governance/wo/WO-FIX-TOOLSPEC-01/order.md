@@ -1,6 +1,6 @@
 # WO-FIX-TOOLSPEC-01 · 工具表带参数形状，一处真相渲染进契约
 
-- 状态：**执行中**（Kevin 2026-09-04 01:40 放行，三单并行；opus 于 wt-fix-toolspec-01 / wo/fix-toolspec-01 执行，基线 main@4aec35f）
+- 状态：**复核通过，待裁合**（Kevin 2026-09-04 01:40 放行；opus 执行于 wo/fix-toolspec-01，基线 main@4aec35f，tip 351b89a；复核 PASS 03:05，见 review.md）
 - 立单：2026-09-04 01:30 CST，主治理 Agent
 - 分析：governance/docs/tool_step_structural_analysis_2026-09-04.md §1、§4
 - 包：lykoi-converse（contract.ts、prompts.ts、测试）；不动 conversation.ts 的派发逻辑，不动 kernel/器官
