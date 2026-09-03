@@ -486,6 +486,15 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-02 刷新；比下方一切条目新，先读这里）
 
+- **LANDING-K 已落（2026-09-03 17:34，产线钉 main@f449fda，一次通过）**：WO-FIX-NOTJSON-01 ——
+  DeepSeek json_object 空白输出的止血：not_json 重试从第二次起在 messages 末尾追加一条 user 引导
+  （`JSON_RETRY_NUDGE`，decide 一处真源），不再原样重发；`ENVELOPE_RETRY_MAX` 1→2；converse 的
+  u3_cycle_retried/u3_cycle_failed 补 `reasoning_len`；wake 的那一次重试同带引导。不碰温度、不关 json 模式。
+  sonnet 提交 tip 3340122，复核 PASS，裁合 f449fda，manifest 113 重签，服务器实证 cycle 19/19、wake 12/12，
+  downtime 6 秒，NRestarts 0，autonomy_runs 2595→2596。落地前账：u3_cycle_failed{not_json} 累计 2，
+  最近三条 retried 全是 `first_char:empty` attempt 1。**待验**：落地后 retried 应出现 attempt 2 与
+  reasoning_len 字段，not_json 失败日计应归零或接近零；wake retried→failed 比例。
+  未入单观察：搜索引擎结果页对无头 research 器官基本不给正文（百度 0 字、bing 167 字）。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
