@@ -594,12 +594,49 @@ export function receiptsPresentInContext(assembled: readonly ConverseMessage[]):
   return false
 }
 
+// --- 工具派发闸（GK-14 单一真源；#buildAction 的两道判定与 cycleRecord 共用） ---
+
+/** `toolDispatchGate` 的判定结果：真到达 kernel 才是 `'pass'`。 */
+export type DispatchGate = 'pass' | 'unknown_tool' | 'not_wired'
+
+/**
+ * 一个工具名会不会被 `#buildAction` 真派发到 kernel —— 纯函数、零副作用，
+ * 是词表外/未接线两道闸的**唯一真源**。`#buildAction` 与 `cycleRecord` 都调
+ * 它，判定逻辑不许在两处各写一份（GK-14：此前 `cycleRecord` 自己的口径只看
+ * 「点没点名」，与这里的真实判定各说各话，导致自称与到达永远同步却谁都没
+ * 校验过闸）。
+ *
+ * - 词表外（`TOOL_TO_ACTION[name]` 未定义）→ `'unknown_tool'`。
+ * - 在词表但未接线（给了 `wiredActions` 且不含该动作类型）→ `'not_wired'`。
+ * - 不给 `wiredActions`（未接线口径缺省关）时第二道闸永不触发 ——
+ *   与 `#buildAction` 原有行为逐字节不变。
+ * - 其余 → `'pass'`：这一个名字会真的被派发。
+ */
+export function toolDispatchGate(
+  name: string,
+  wiredActions?: ReadonlySet<string>,
+): DispatchGate {
+  const actionType = TOOL_TO_ACTION[name]
+  if (actionType === undefined) return 'unknown_tool'
+  if (wiredActions !== undefined && !wiredActions.has(actionType)) return 'not_wired'
+  return 'pass'
+}
+
 // --- 一周期一账（cycle_record；conversation_cycle.py:564-608 逐字） -------------
 
 /**
  * 一次**真周期**的事件载荷。隐私口径（D-08 同向）：工具参数**只记条数**，
- * 回复**只记字数**，她说的话与工具参数一个字节都不进事件流。sent_chars /
- * dispatched 是事实不是意向（影子期的 would_* 前缀随影子一起退役）。
+ * 回复**只记字数**，她说的话与工具参数一个字节都不进事件流。
+ *
+ * 三个工具相关字段各管各的事实（GK-14 改口，替换此前「sent_chars /
+ * dispatched 是事实不是意向」那段——旧口径的 `dispatched` 其实只记了「点没点
+ * 名」，与真派发脱节）：
+ * - `tool_named`：她点了什么名字，tool_call 时恒为工具名，不看任何闸。
+ * - `dispatch_gate`：`toolDispatchGate` 的判定结果本身
+ *   （`'pass'|'unknown_tool'|'not_wired'`）；非 tool_call 时为 `null`。
+ * - `dispatched`：**到达了 kernel 的事实** —— 仅当 `dispatch_gate === 'pass'`
+ *   才记工具名，否则为 `null`；`dispatched_arg_count` 同步（未派发记 0）。
+ * 影子期的 would_* 前缀随影子一起退役，不在此列。
  */
 export function cycleRecord(
   decision: Decision,
@@ -608,11 +645,14 @@ export function cycleRecord(
     assembled: readonly ConverseMessage[]
     step: number
     innerApplied: boolean
+    wiredActions?: ReadonlySet<string>
   },
 ): Record<string, unknown> {
   const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
   const isToolCall = decision.kind === TOOL_CALL && tool !== null && tool !== undefined
   const text = decision.kind === REPLY ? decision.content : ''
+  const dispatchGate = isToolCall ? toolDispatchGate(tool.name, opts.wiredActions) : null
+  const dispatched = dispatchGate === 'pass' ? tool!.name : null
   const record: Record<string, unknown> = {
     elapsed_ms: opts.elapsedMs,
     step: opts.step,
@@ -621,8 +661,10 @@ export function cycleRecord(
     demote_why: decision.demote_why,
     original_kind: decision.original_kind,
     sent_chars: (text || '').length,
-    dispatched: isToolCall ? tool.name : null,
-    dispatched_arg_count: isToolCall ? Object.keys(tool.arguments).length : 0,
+    tool_named: isToolCall ? tool!.name : null,
+    dispatch_gate: dispatchGate,
+    dispatched,
+    dispatched_arg_count: dispatched !== null ? Object.keys(tool!.arguments).length : 0,
     pulse: (decision.envelope.pulse as string[] | undefined) || [],
     inner_thoughts: (decision.inner.thoughts || []).length,
     inner_resolve: (decision.inner.resolve || []).length,
