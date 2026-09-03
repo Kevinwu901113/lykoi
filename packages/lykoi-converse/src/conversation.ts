@@ -917,8 +917,10 @@ export class Conversation {
       // DeepSeek 判 400 的绕行，而那个根因已由 WO-FIX-TOOLFRAME-01 消除
       // （工具帧改走文本帧，assistant 帧不再需要回传 reasoning_content；
       // 探针 v4 已证文本帧下思考开着也干净）。绕行留着的代价是档位有两个
-      // 主人、且其中一个隐式：profile 不配 → vendor 兜底 HIGH，converse 又
-      // 在半路改口，读数（step 0 的 85 s）没法归因到任何一处。
+      // 主人、且其中一个隐式：profile `llm-deepseek` 不配 config 时 vendor 的
+      // resolveThinking 返回空对象 —— thinking/reasoning_effort 两个键在 wire
+      // body 上根本不出现，档位落到供应商侧的模型缺省（读数上是 HIGH）；
+      // converse 又在半路改口，于是 step 0 的 85 s 归不到任何一处。
     })
   }
 
