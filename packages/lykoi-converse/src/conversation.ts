@@ -205,12 +205,15 @@ export type ConverseLlmFn = (
      */
     signal?: AbortSignal
     /**
-     * WO-FIX-TOOLSTEP-01 D-1：工具步之后那一跳关思考。DeepSeek v4-flash 默认
-     * 开思考；紧接工具帧的那一跳若开着思考，assistant 帧回传缺 reasoning_content
-     * 会被 DeepSeek 直接 400（探针 A）——关思考（`thinking:{type:'disabled'}`）
-     * 让那一跳变回普通 completion（探针 B）。只在 `step >= 1` 带这个键；
-     * `step === 0` 与 summary 调用恒不带（字节不变，测试断言"没有这个键"而不是
-     * undefined）。
+     * 推理档位的**接缝**（`GenerateOptions.reasoningEffort` 的转接位；缺席 =
+     * 键根本不出现在 wire body 上，同 responseFormat/signal 的口径）。
+     *
+     * WO-FIX-THINKPOLICY-01 D-3 起 Conversation **不再设它**（任何 step 都不）：
+     * 推理策略归 adapter 一处，由 profile `llm-deepseek` 的显式档位决定。此前
+     * WO-FIX-TOOLSTEP-01 D-1 在 `step >= 1` 塞 `'off'`，是原生工具帧缺
+     * reasoning_content 被 DeepSeek 判 400 的绕行；那个根因已由
+     * WO-FIX-TOOLFRAME-01（工具帧改文本帧）消除。接缝本身留着 —— 它是
+     * lykoi-converse 与 dsh 之间那一位的类型，不是策略。
      */
     reasoningEffort?: 'off'
   },
@@ -898,7 +901,7 @@ export class Conversation {
    * attempt 0（`nudge` 缺省/false）维持 `envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT
    * : null` 不变——这一支从未被本单触碰，字节逐字节不变。
    */
-  async #completion(step: number, signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
+  async #completion(signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
     const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
     return await this.#deps.llm(messages, {
@@ -907,9 +910,15 @@ export class Conversation {
       runId: this.#lastRunId,
       // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
       ...(signal === undefined ? {} : { signal }),
-      // WO-FIX-TOOLSTEP-01 D-1：只有工具步之后的那一跳（step >= 1）关思考——
-      // step 0（历史里还没有工具帧）不带这个键，字节不变。
-      ...(step >= 1 ? { reasoningEffort: 'off' as const } : {}),
+      // WO-FIX-THINKPOLICY-01 D-3：这里**不再**碰推理档位（任何 step 都不带
+      // reasoningEffort 键）。推理策略只许有一个主人 —— adapter 那一处
+      // （profile `llm-deepseek` 的显式 config 档位）；此前这里的 per-step
+      // 覆盖（WO-FIX-TOOLSTEP-01 D-1：step >= 1 关思考）是原生工具帧被
+      // DeepSeek 判 400 的绕行，而那个根因已由 WO-FIX-TOOLFRAME-01 消除
+      // （工具帧改走文本帧，assistant 帧不再需要回传 reasoning_content；
+      // 探针 v4 已证文本帧下思考开着也干净）。绕行留着的代价是档位有两个
+      // 主人、且其中一个隐式：profile 不配 → vendor 兜底 HIGH，converse 又
+      // 在半路改口，读数（step 0 的 85 s）没法归因到任何一处。
     })
   }
 
@@ -939,7 +948,7 @@ export class Conversation {
         // WO-FIX-JSONMODE-01 D-1：attempt ≥ 1（nudge）同时去 json 模式——
         // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
         const nudge = attempt >= 1
-        const result = await this.#completion(step, signal, nudge)
+        const result = await this.#completion(signal, nudge)
         lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
