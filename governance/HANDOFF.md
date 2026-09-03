@@ -514,6 +514,15 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   ExecStartPre 门 FAIL、服务不起（verify.ts:checkEnvPins，fail closed 本意）。Kevin 照我的命令加 drop-in 后大脑
   进 auto-restart 循环，18:40 起离线，已让 Kevin 删 override 恢复。正道 = 改签名源码缺省（contract.ts:84
   fallback true→false，或仅重试跳不带 response_format）+ manifest 重签，需立单落地。教训：给 root 命令前先查钉面表。**18:49:02 恢复**（删 override 后门过，deploy_event downtime 记 1 秒，实际离线约 9 分钟，NRestarts 累计 57）。WO-FIX-JSONMODE-01 已立单并放行（bdf0193，重试跳去 json_object，attempt 0 不动），sonnet tip 5167e46，复核 PASS（2c34c33），Kevin 裁合 5e6bf02，落地稿 landing-l-jsonmode.sh（8a9a382）待 Kevin 跑。瑕疵：K 稿 §7 governance-ops 记账行的 wo/detail 沿用了 J 的文字（action 正确为 landing-k-notjson），服务器 ops 日志里那条 detail 失实，以本 HANDOFF 为准；L 稿已改为整行生成。
+  **L 落地 19:15:14（产线 5e6bf02，downtime 5 秒；§6 服务器单测慢约 10 分钟，Kevin 输出待贴）。落地后前 3 条 Telegram
+  （19:18–19:21）：2 闭环 1 沉默**。①苹果发布会（18:39 沉默的同题）：step 1 json 首答空 → 去 json 重试 3.8 s 出
+  reply 196 字，闭环 13 s；②猫眼奥德赛票：step 1 json 首答空 → 去 json 两次都是 29 token/102 字符的散文
+  （first_char:other，prompt 3 token 缓存复现）→ silence；③「在吗」：step 0 brace 重试一次、step 1 json 空 →
+  去 json 出 cjk 散文 → 第三跳出 JSON，reply 206 字，37 s。**硬读数：今日关思考后 step ≥ 1 的 json 首答 6/6 全空**；
+  去 json 后 4 次重试 2 次散文 2 次 JSON。结论：step ≥ 1「关思考 + json_object」组合稳定给空，去 json 只是把空换成
+  一半概率的散文。接地缺口：①器官 bad_request 0 字、动作层记 success，回执系统把「我刚查了」判为有据（unbacked_claim
+  false）——失败查询被算成回执，苹果那条正文实为往年规律推断。探针 v3 已备（~/Documents/lykoi/probe-deepseek-toolstep-v3.sh，
+  F 关思考无 json / G 关思考 json / H 思考默认+回传 reasoning_content 无 json / I 同上+json，各跑两次），Kevin root 跑后定下一单。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
