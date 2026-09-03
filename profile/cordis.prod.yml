@@ -83,6 +83,15 @@
 - id: llm-deepseek
   name: lykoi-llm-deepseek
   # 启用。root 供给：/home/lykoi/secrets/llm.env（禁区①，她永不可达）
+  # WO-FIX-THINKPOLICY-01 D-2：推理档位只有这一个主人。此前不配 config 时
+  # wire 上 thinking/reasoning_effort 两个键都不出现，档位落到供应商侧的模型
+  # 缺省（读数上是 HIGH，隐式）；converse 又按 step 改口，85 s 归不到任何一处。
+  # 档位由探针 v5（2026-09-04）按 D-4 规则定：low —— step 0 ≤ 15 s、
+  # step ≥ 1 ≤ 5 s、信封合法率 100%；off 在 step 0 会放弃工具（「没法查」），
+  # high 与 low 时延无稳定差别且 reasoning 更长。改档位改这里，不改代码。
+  config:
+    thinking: enabled
+    reasoningEffort: low
 
 # ---- 记忆（她的 state 库）---------------------------------------------------
 # **R-01 硬规则**：M4 切换窗里新旧体绝不同时写 state。旧体停稳之前这一条
