@@ -131,7 +131,6 @@ grep '"u3_cycle_retried"' "$AUDIT" | tail -n 3 | cut -c1-300 || echo 'INFO: 无 
 echo '== 7 · 记账 =='
 mkdir -p /home/lykoi-gov/reports
 printf '%s\n' '{"ts":"'"$(date -Iseconds)"'","actor":"root-paste","action":"landing-l-jsonmode","wo":"WO-FIX-JSONMODE-01","detail":"零迁移零装配落地：产线树 main@f449fda→main@5e6bf02；信封 not_json 重试跳去 json_object 靠 extractJson 抠信封（attempt 0 字节不变）；retried/failed 事件补 json_mode；manifest 113 重签；宿主未动"}' >> /home/lykoi-gov/reports/governance-ops.jsonl
-  >> /home/lykoi-gov/reports/governance-ops.jsonl
 echo '== 落地稿 L 完成：产线钉点 main@5e6bf02，schema 仍 17，宿主未动 =='
 
 # ---- ROLLBACK（§4 门红 / §5 大脑起不来时手动执行；库未动，不需恢复备份）----
