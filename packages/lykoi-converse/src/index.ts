@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { resolve } from 'node:path'
 import {
-  CallId, createAssistantMessage, createMessage, createToolResultMessage,
+  createAssistantMessage, createMessage,
   createUserMessage, ReasoningEffortId, type Message,
 } from '@deepseek-ai/dsh-llm'
 import { LlmFinishError } from 'lykoi-llm'
@@ -60,6 +60,7 @@ import {
 } from './vision.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
 import { D01_DEFAULTS, runInterpretWithDeadline } from './deadline.ts'
+import { stripMarkup } from './hygiene.ts'
 
 export * from './contract.ts'
 export * from './conversation.ts'
@@ -185,6 +186,102 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+// --- LLM seam → lykoiLlm（gate 前置 / charge 后置的结构保证在那一层） ---
+// WO-FIX-TOOLFRAME-01 D-1：assistant/tool_calls 帧与 tool 结果帧不再映成
+// dsh 词汇的原生形态（ToolCallBlock / tool-result 帧）——那是 M3-W2 收口
+// （M2 遗留 #13）当时的落点，理由本身没错（折文本把"她决定动手"从结构降
+// 级成散文，回填对不上号），但探针 v3/v4（2026-09-03 19:30-19:42）实测：
+// 历史里一旦出现这种原生工具帧，DeepSeek adapter 三病同源地退化——
+// json_object 遇到就吐 65 个空格（v3）、reasoning_content 回传时对着这段
+// 历史 400（J）、无 json 时把 DSML 原生工具调用标记直接泄漏进 content
+// （19:19 沉默）。J/K/L 三次分头止血都是在下游猜代偿，这一单换根：把工具
+// 步渲染回契约信封本就要求的**文本**形状——assistant 一条文本帧（信封
+// JSON.stringify）、工具结果一条 user 文本帧（`[工具结果 <name>] …`）。
+// 不声明 tools（本来也没声明）。v4 验证：思考×json 四组合各两次，八次全部
+// 合法信封。`#messages` 内部形状（S-29 裁剪配对、回执探针、CallId 成对）
+// 一字不动（D-2）——只是发给 dsh-llm 那一跳换了渲染，回填结果如何解析成
+// 提示词块与 dsh-llm 完全无关。
+//
+// 模块级导出（而非留在 `apply()` 内的闭包）纯为可测性：provider 显式传参、
+// 不捕获 `config`，方便 test/wire.test.ts 直接单测 id→name 回退与 DSML 剥净
+// 两条防御分支——真实调用路径（下面 `apply()` 里的 `llm`）与测试走的是
+// 同一份实现，不是复刻一份影子逻辑。
+export function toDshEnvelopeMessages(
+  sliced: readonly ConverseMessage[],
+  provider: { route: string; model: string },
+): Message[] {
+  // id → 工具名，供下面 tool 结果帧的 `[工具结果 <name>]` 解析——文本帧下
+  // dsh-llm wire 上不再有原生 CallId 可看，工具名只能从这张预建表回查；
+  // 找不到（理论上不会，除非历史被截断只留半截）就回退成 tool_call_id。
+  const toolNameById = new Map<string, string>()
+  for (const mm of sliced) {
+    if (mm.role === 'assistant' && mm.tool_calls) {
+      for (const c of mm.tool_calls) toolNameById.set(c.id, c.function.name)
+    }
+  }
+  const out: Message[] = []
+  for (const m of sliced) {
+    if (m.role === 'user') {
+      out.push(createUserMessage({
+        content: [{ type: 'text', text: m.content ?? '' }],
+        source: { kind: 'user' },
+      }))
+      continue
+    }
+    if (m.role === 'assistant') {
+      if (m.tool_calls !== undefined && m.tool_calls.length > 0) {
+        // 多 call 时按顺序各渲染一条 assistant 文本帧（现实里 cycleCall
+        // 一次只造一条 call，这里仍按数组处理，不假设长度恒为 1）。
+        for (const c of m.tool_calls) {
+          let parsedArgs: unknown
+          try {
+            parsedArgs = JSON.parse(c.function.arguments)
+          } catch {
+            // 解析失败（理论上不会，call 本就是我们自己 JSON.stringify 出
+            // 来的）：把原字符串塞进 arguments，不许整条渲染失败。
+            parsedArgs = c.function.arguments
+          }
+          const text = JSON.stringify({
+            decision: {
+              kind: 'tool_call',
+              tool: { name: c.function.name, arguments: parsedArgs },
+            },
+          })
+          out.push(createAssistantMessage({
+            content: [{ type: 'text', text }],
+            source: { provider: provider.route, model: provider.model },
+          }))
+        }
+        continue
+      }
+      out.push(createAssistantMessage({
+        content: [{ type: 'text', text: m.content ?? '' }],
+        source: { provider: provider.route, model: provider.model },
+      }))
+      continue
+    }
+    if (m.role === 'tool') {
+      const name = toolNameById.get(m.tool_call_id ?? '') ?? (m.tool_call_id ?? '')
+      // stripMarkup：库里已落的 DSML 机器标记不许经工具结果回灌回上下文
+      // （hygiene.ts 头注 S-32 半面）。
+      const text = `[工具结果 ${name}] ${stripMarkup(m.content ?? '')}`
+      out.push(createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: 'lykoi-converse' },
+      }))
+      continue
+    }
+    // 中/尾部 system（收尾提示、信封契约 —— 契约必须留在生成点前的最后位置，
+    // CACHE-INVERT；不并进 system 槽）。
+    out.push(createMessage({
+      role: 'system',
+      content: [{ type: 'text', text: m.content ?? '' }],
+      source: { kind: 'plugin', plugin: 'lykoi-converse' },
+    }))
+  }
+  return out
+}
+
 export function apply(ctx: Context, config: Config) {
   const logEvent: LogEvent = (eventName, fields) => {
     // 事件流是遥测不是控制流 —— 写失败不打断回合。
@@ -277,53 +374,6 @@ export function apply(ctx: Context, config: Config) {
   }
 
   // --- LLM seam → lykoiLlm（gate 前置 / charge 后置的结构保证在那一层） ---
-  const toDshMessage = (m: ConverseMessage): Message => {
-    if (m.role === 'user') {
-      return createUserMessage({
-        content: [{ type: 'text', text: m.content ?? '' }],
-        source: { kind: 'user' },
-      })
-    }
-    if (m.role === 'assistant') {
-      // M3-W2 收口（M2 遗留 #13）：tool_calls 合成帧走 dsh 词汇的**原生形态**
-      // （ToolCallBlock），不再折成 `[tool_calls] …` 文本。折文本把"她决定动手"
-      // 从结构降级成一句散文 —— 对面模型看到的不是一次调用，回填的 tool 结果
-      // 也就对不上号。原生映射后 assistant/tool 两帧由 CallId 成对，id 就是
-      // 信封周期里 `cycleCall` 造的那个。
-      if (m.tool_calls !== undefined && m.tool_calls.length > 0) {
-        return createAssistantMessage({
-          content: m.tool_calls.map((c) => ({
-            type: 'tool-call' as const,
-            id: CallId(c.id),
-            name: c.function.name,
-            arguments: c.function.arguments,
-          })),
-          source: { provider: config.route, model: config.model },
-        })
-      }
-      return createAssistantMessage({
-        content: [{ type: 'text', text: m.content ?? '' }],
-        source: { provider: config.route, model: config.model },
-      })
-    }
-    if (m.role === 'tool') {
-      // 同上：结果帧走 createToolResultMessage（callId 绑回上面那次调用），
-      // 不再折成 `[工具结果] …` 的 user 文本帧。
-      return createToolResultMessage({
-        callId: CallId(m.tool_call_id ?? ''),
-        content: [{ type: 'text', text: m.content ?? '' }],
-        isError: false,
-      })
-    }
-    // 中/尾部 system（收尾提示、信封契约 —— 契约必须留在生成点前的最后位置，
-    // CACHE-INVERT；不并进 system 槽）。
-    return createMessage({
-      role: 'system',
-      content: [{ type: 'text', text: m.content ?? '' }],
-      source: { kind: 'plugin', plugin: 'lykoi-converse' },
-    })
-  }
-
   const llm: ConverseLlmFn = async (messages, opts): Promise<ConverseLlmResult> => {
     // 前导 system 段收进单一 system 槽（'\n\n' 连接，装配序保持）；其余逐条映射。
     let i = 0
@@ -344,7 +394,7 @@ export function apply(ctx: Context, config: Config) {
       provider: config.route,
       model: config.model,
       ...(systemParts.length > 0 ? { system: systemParts.join('\n\n') } : {}),
-      messages: messages.slice(i).map(toDshMessage),
+      messages: toDshEnvelopeMessages(messages.slice(i), { route: config.route, model: config.model }),
       ...(opts.maxTokens === undefined ? {} : { maxTokens: opts.maxTokens }),
       ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
       ...(opts.responseFormat === null || opts.responseFormat === undefined
