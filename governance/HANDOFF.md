@@ -505,7 +505,11 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   （completion 67/62/52 token，failed 记 content_chars 51 = 一字符一 token 的换行/空格退化态；重试 prompt 仅
   162/34 token，引导语确已进上下文）→ silence。结论：引导语对「吞进 reasoning」与偶发空白有效（当日救回 4 次），
   对 json_object 退化态无效。下一单候选（Kevin 裁）：重试跳去掉 response_format 靠 extractJson 抠 JSON（首答不动），
-  或整体弃用 json_object。
+  或整体弃用 json_object。紧接着的第三条（18 字）step 0 也三跳全空（reasoning 159/501/1081 递增、content 恒 51 字符）
+  → silence；K 后当日对话 4 条：2 闭环 2 沉默，两次沉默 content_chars 都是 51。**零代码候选**：converse 已有钮
+  `LYKOI_U3_ENVELOPE_JSON_MODE`（contract.ts:83，默认开，读在调用点），解析器 classifyFailure 本就走 extractJson
+  含花括号切片容错 → root 加 systemd drop-in `Environment=LYKOI_U3_ENVELOPE_JSON_MODE=0` 重启即可试，可逆。
+  wake 路径 json_object 写死（wake/index.ts:280）不受此钮管，另议。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
