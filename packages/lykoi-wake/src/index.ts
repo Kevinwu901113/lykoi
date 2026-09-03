@@ -53,7 +53,7 @@ import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
-  extractJson, getPersona, OrganInventoryCache, serializeDecision,
+  extractJson, getPersona, JSON_RETRY_NUDGE, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
@@ -293,7 +293,11 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
         // 答案吞进 reasoning_content、content 落空）——只记数，不动 wake 其余口径。
         reasoning_len: reply.reasoningLength ?? 0,
       })
-      reply = await deps.llm(messages, llmMeta)
+      // WO-FIX-NOTJSON-01 D-5：重试不再原样重发——末尾追加一条临时引导
+      // （同一处真源 JSON_RETRY_NUDGE，与 converse 共用）；这条消息只存在于
+      // 这一次调用，不并回 `messages`，仍只重试一次（WO-FIX-LOOP-01 D-3a
+      // 「不做循环」不变）。
+      reply = await deps.llm([...messages, { role: 'user', content: JSON_RETRY_NUDGE }], llmMeta)
     }
     decision = evaluateMessage({ content: reply.content }, candidates, {
       injectedThoughtIds,

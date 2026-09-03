@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { JSON_RETRY_NUDGE } from 'lykoi-decide'
 import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE, type LlmFn } from '../src/index.ts'
 import {
   T0, contemplateReply, fakeDispatch, fakeHeart, fakeLlm, makeStore, makeWakeDeps, rawOpen,
@@ -215,6 +216,14 @@ test('D-3a：首包非 JSON、次包合法 → 有界重试一次后 completed�
   // WO-FIX-TOOLSTEP-01 D-2b：fakeLlm 的回包不带 reasoningLength → `?? 0`
   // 兜底，键仍然在（不是缺席，只是这条用例里恒为 0）。
   assert.equal(retried![1].reasoning_len, 0)
+  // WO-FIX-NOTJSON-01 D-5：重试那次调用的 messages = 首次 messages + 末尾一条
+  // user 引导（逐字 JSON_RETRY_NUDGE）；首次调用 messages 不含引导。
+  const [first, second] = llm.calls
+  assert.equal(first!.messages.some((m) => m.content === JSON_RETRY_NUDGE), false)
+  assert.deepEqual(second!.messages.slice(0, -1), first!.messages)
+  assert.deepEqual(second!.messages[second!.messages.length - 1], {
+    role: 'user', content: JSON_RETRY_NUDGE,
+  })
 })
 
 test('WO-FIX-TOOLSTEP-01 D-2b：LlmFn 回包带 reasoningLength → 原样透传成 autonomy_wake_retried 的 reasoning_len（假说 E 的观测面）', async () => {
