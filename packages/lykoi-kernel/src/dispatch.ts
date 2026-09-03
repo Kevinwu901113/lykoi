@@ -386,6 +386,28 @@ async function _executeDecision(
     // resource-boundary failure -> normal failed observation
     return { success: false, data: {}, error: redact(exc instanceof Error ? exc.message : String(exc)) }
   }
+  // WO-FIX-ORGANOK-01：器官说 `ok:false` 时内核听它的。
+  //
+  // SK-10 原本只认一种失败 ——「handler 抛了」；可抛错路径的 `data:{}` 会把细节
+  // 全丢掉，器官宿主为了不让她读到一团黑（organ-browser 红线 #5）刻意**返回**
+  // `{ok:false, error, detail}` 而不抛。两套成功词汇在这条缝上错接：超时/拦截
+  // 一路记 `success:true`，白皮书 37.8 的回执背书因此在超时上失效（「我刚查了」
+  // 被判有据）。器官已经用 `ok` 说了真话，这里补上内核的耳朵。
+  //
+  // 一条规则、一处：返回值是 plain object 且 `ok === false` → 失败观察。data
+  // 整体保留（`detail` 仍交给认知读，这正是器官不抛的理由），error 取 data.error
+  // 的字符串、没有就 'organ_failed'。不带 `ok` 的返回值、`ok:true`、以及上面的
+  // 抛错路径逐字节不变。
+  if (typeof data === 'object' && data !== null && !Array.isArray(data)
+    && (data as Record<string, unknown>).ok === false) {
+    const reason = (data as Record<string, unknown>).error
+    return {
+      success: false,
+      data: redactObj(data) as Record<string, unknown>,
+      // error 与 data 同过 redact：观察里的两处错误串不该一处遮一处不遮。
+      error: typeof reason === 'string' ? redact(reason) : 'organ_failed',
+    }
+  }
   // Everything handed back to cognition is redacted first.
   return { success: true, data: redactObj(data) as Record<string, unknown>, error: null }
 }
