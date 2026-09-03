@@ -205,12 +205,15 @@ export type ConverseLlmFn = (
      */
     signal?: AbortSignal
     /**
-     * WO-FIX-TOOLSTEP-01 D-1：工具步之后那一跳关思考。DeepSeek v4-flash 默认
-     * 开思考；紧接工具帧的那一跳若开着思考，assistant 帧回传缺 reasoning_content
-     * 会被 DeepSeek 直接 400（探针 A）——关思考（`thinking:{type:'disabled'}`）
-     * 让那一跳变回普通 completion（探针 B）。只在 `step >= 1` 带这个键；
-     * `step === 0` 与 summary 调用恒不带（字节不变，测试断言"没有这个键"而不是
-     * undefined）。
+     * 推理档位的**接缝**（`GenerateOptions.reasoningEffort` 的转接位；缺席 =
+     * 键根本不出现在 wire body 上，同 responseFormat/signal 的口径）。
+     *
+     * WO-FIX-THINKPOLICY-01 D-3 起 Conversation **不再设它**（任何 step 都不）：
+     * 推理策略归 adapter 一处，由 profile `llm-deepseek` 的显式档位决定。此前
+     * WO-FIX-TOOLSTEP-01 D-1 在 `step >= 1` 塞 `'off'`，是原生工具帧缺
+     * reasoning_content 被 DeepSeek 判 400 的绕行；那个根因已由
+     * WO-FIX-TOOLFRAME-01（工具帧改文本帧）消除。接缝本身留着 —— 它是
+     * lykoi-converse 与 dsh 之间那一位的类型，不是策略。
      */
     reasoningEffort?: 'off'
   },
@@ -898,7 +901,7 @@ export class Conversation {
    * attempt 0（`nudge` 缺省/false）维持 `envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT
    * : null` 不变——这一支从未被本单触碰，字节逐字节不变。
    */
-  async #completion(step: number, signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
+  async #completion(signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
     const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
     return await this.#deps.llm(messages, {
@@ -907,9 +910,17 @@ export class Conversation {
       runId: this.#lastRunId,
       // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
       ...(signal === undefined ? {} : { signal }),
-      // WO-FIX-TOOLSTEP-01 D-1：只有工具步之后的那一跳（step >= 1）关思考——
-      // step 0（历史里还没有工具帧）不带这个键，字节不变。
-      ...(step >= 1 ? { reasoningEffort: 'off' as const } : {}),
+      // WO-FIX-THINKPOLICY-01 D-3：这里**不再**碰推理档位（任何 step 都不带
+      // reasoningEffort 键）。推理策略只许有一个主人 —— adapter 那一处
+      // （profile `llm-deepseek` 的显式 config 档位）；此前这里的 per-step
+      // 覆盖（WO-FIX-TOOLSTEP-01 D-1：step >= 1 关思考）是原生工具帧被
+      // DeepSeek 判 400 的绕行，而那个根因已由 WO-FIX-TOOLFRAME-01 消除
+      // （工具帧改走文本帧，assistant 帧不再需要回传 reasoning_content；
+      // 探针 v4 已证文本帧下思考开着也干净）。绕行留着的代价是档位有两个
+      // 主人、且其中一个隐式：profile `llm-deepseek` 不配 config 时 vendor 的
+      // resolveThinking 返回空对象 —— thinking/reasoning_effort 两个键在 wire
+      // body 上根本不出现，档位落到供应商侧的模型缺省（读数上是 HIGH）；
+      // converse 又在半路改口，于是 step 0 的 85 s 归不到任何一处。
     })
   }
 
@@ -928,6 +939,10 @@ export class Conversation {
       }
       let decision: Decision | null = null
       let elapsedMs = 0
+      // WO-FIX-THINKPOLICY-01 D-0：最终成立的那一次调用的回包 —— 与 elapsedMs
+      // 同样要活过 attempt 循环（cycleRecord 在循环外记账）。失败路不用它：
+      // `u3_cycle_failed` 在循环内就地拿得到 result，三个字段本就齐了。
+      let lastResult: ConverseLlmResult | null = null
       for (let attempt = 0; ; attempt += 1) {
         const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
         // WO-FIX-NOTJSON-01 D-2：attempt 0 原样重发；attempt ≥ 1 带引导——
@@ -935,7 +950,8 @@ export class Conversation {
         // WO-FIX-JSONMODE-01 D-1：attempt ≥ 1（nudge）同时去 json 模式——
         // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
         const nudge = attempt >= 1
-        const result = await this.#completion(step, signal, nudge)
+        const result = await this.#completion(signal, nudge)
+        lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
@@ -997,6 +1013,12 @@ export class Conversation {
         step,
         innerApplied,
         wiredActions: this.#deps.wiredActions,
+        // WO-FIX-THINKPOLICY-01 D-0：成立那一跳的三个读数（elapsed_ms 单独一个
+        // 数分不开「思考长」与「前缀缓存未命中」）。缺席交给 cycleRecord 兜底：
+        // usage 两项 null、reasoning_len 0。
+        promptTokens: lastResult?.promptTokens ?? null,
+        completionTokens: lastResult?.completionTokens ?? null,
+        reasoningLength: lastResult?.reasoningLength ?? 0,
       }))
       if (decision.demoted && decision.original_kind === TOOL_CALL) {
         // D-03：她想动手却被闸掉 ≠ 她本来就想沉默 —— 独立告警。
