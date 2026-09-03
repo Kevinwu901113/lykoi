@@ -1,7 +1,7 @@
 # WO-FIX-TOOLFRAME-01 · 派工单
 
 - 立单：主治理 Agent，2026-09-03 19:45 CST
-- 状态：**执行中**（Kevin 19:50 放行；sonnet 于 wt-fix-toolframe-01 / wo/fix-toolframe-01 执行）
+- 状态：**已落地**（LANDING-M，2026-09-03 23:49 CST，产线钉 main@91a47cf，一次通过；复核 PASS main@7b5a15b；裁合 91a47cf；执行分支 wo/fix-toolframe-01 tip d5400ec）
 - 来源：探针 v3/v4（Kevin root 跑，2026-09-03 19:30–19:42）。v3：历史含原生 tool_calls/tool 帧时，json_object 必退化为 65 个空格（思考开关无关）；思考默认 + 回传 reasoning_content + 无 json 时 content 是 DSML 原生工具调用标记泄漏。v4：把同一工具步改写成**文本帧**（assistant = 信封 JSON 原文，user = 工具结果说明），思考×json 四组合各两次，**八次全部合法信封**。结论：J（reasoning_content 400）、K/L（json 空白）、19:19 沉默（DSML 泄漏 102 字）三病同源 —— seam 把工具步以 dsh 原生 ToolCallBlock / tool-result 帧发上 wire（M3-W2 定案，index.ts:288-316）。
 - 基线：main@（本单提交）；代码树 = 产线钉点 5e6bf02；全仓 1021 / 1010 / 0 / 11，tsc 净
 - 执行：sonnet（seam 一处映射 + 一张测试翻面 + 新增测试）

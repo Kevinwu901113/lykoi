@@ -537,6 +537,17 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   文本帧（assistant=信封原文，user=工具结果），J/K/L/M = 思考×json 四组合，待 Kevin root 跑后立单。**v4 结果（19:42）：文本帧下 J/K/L/M 八次全部合法信封**（J 思考默认+json_object 亦干净，
   reasoning 正常）。假说成立：病根 = seam 以原生 ToolCallBlock/tool-result 帧上 wire（M3-W2）。已立
   WO-FIX-TOOLFRAME-01（只改 seam 渲染为文本帧，#messages 内部不动，J/K/L 落点原样保留为安全网），待 Kevin 放行。
+- **LANDING-M 已落（2026-09-03 23:49 CST，产线钉 main@91a47cf，一次通过）**：WO-FIX-TOOLFRAME-01 ——
+  出线缝处工具帧改文本帧：`index.ts` 新导出 `toDshEnvelopeMessages`，assistant tool_calls → assistant 文本帧
+  （信封 JSON `{decision:{kind:'tool_call',tool:{name,arguments}}}`），tool 结果 → user 文本帧 `[工具结果 <name>] …`
+  （name 按 id 预建映射，缺则回退 id；stripMarkup 剥 DSML）；原生 tool-call/tool-result block 映射整体删除。
+  conversation.ts 零改动（落地稿 §3 用 git diff 断言），#messages 内部形状与 J/K/L 三处逻辑原样。执行方 sonnet
+  （5c32da7 D-1 + 5b91e7b D-4），report.md 由主治理代写入库（d5400ec，harness 不让子 Agent 写报告）。
+  偏差一处接受：D-4 定位因 S-25 `[当前时间]` 挥发帧改用 findIndex。服务器 §6：wire 4/4、cycle 20/20、e2e 4/4，
+  downtime 7 秒，NRestarts 0，manifest 113，备份 backup-pre-toolframe-20260903T234932（13.97 MB）。
+  §7 记账行整行重写、路径写死，本次正常落账。落地前累计：u3_cycle_retried first_char:other 1、u3_cycle_failed
+  not_json 5——落地后 step ≥ 1 的 first_char:other 与 DSML 泄漏应归零，这是 M 的验收读数。**待 Kevin 另裁**：
+  TOOLFRAME 落地后 J 的 step ≥ 1 `reasoningEffort:'off'` 是否回退（探针 v4 显示文本帧下思考开也干净）。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
