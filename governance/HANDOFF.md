@@ -510,6 +510,10 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   `LYKOI_U3_ENVELOPE_JSON_MODE`（contract.ts:83，默认开，读在调用点），解析器 classifyFailure 本就走 extractJson
   含花括号切片容错 → root 加 systemd drop-in `Environment=LYKOI_U3_ENVELOPE_JSON_MODE=0` 重启即可试，可逆。
   wake 路径 json_object 写死（wake/index.ts:280）不受此钮管，另议。
+  **纠错（18:44）**：drop-in 路不通——该钮在 GK-6 env 钉面表登记为 knob 类（surface.ts:114），unit 环境覆盖即
+  ExecStartPre 门 FAIL、服务不起（verify.ts:checkEnvPins，fail closed 本意）。Kevin 照我的命令加 drop-in 后大脑
+  进 auto-restart 循环，18:40 起离线，已让 Kevin 删 override 恢复。正道 = 改签名源码缺省（contract.ts:84
+  fallback true→false，或仅重试跳不带 response_format）+ manifest 重签，需立单落地。教训：给 root 命令前先查钉面表。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
