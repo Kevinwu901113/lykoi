@@ -512,7 +512,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   使单元卸载、`InactiveEnterTimestamp` 丢失，downtime 结构性为 null——**H 稿起 service
   改用 `systemctl stop`**（保持 enabled），D-4 代码不动。次日读 `decision_ungrounded`
   日频、`autonomy_wake_retried`、`capability_gap{not_wired}` 的 `wanted` 分布（M5 输入）。
-  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644，出网闸两条对照闭环）→ `WO-GK14-DISPATCHED-01` 已裁合（main@04bef07，Kevin 2026-09-03 动手）→ LANDING-I 待 Kevin 执行**；init-state.ts 755 漂移根因已定（bin 目标，随本单入库 100755）。
+  现行队列：**`WO-M5-ORGAN-BROWSER` 已裁合落地（LANDING-H，2026-09-03 00:21，产线钉 main@482d644，出网闸两条对照闭环）→ `WO-GK14-DISPATCHED-01` 已裁合（main@04bef07，Kevin 2026-09-03 动手）→ LANDING-I 已落地（2026-09-03 12:50，产线钉 main@04bef07，一次通过）**；init-state.ts 755 漂移根因已定（bin 目标，随本单入库 100755）。
 - **WO-M5-ORGAN-BROWSER 派工（2026-09-02，Kevin"开 M5 browser 的单"）**：spec 四决断
   Kevin 拍板——空白名单+逐域首次审批（kernel 既有 domain scope）；只读两项
   `browser.navigate/get_text` + 一次性 `research_browser.read_text`；独立 OS 用户
@@ -559,6 +559,9 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 - **LANDING-I 备好（2026-09-03）**：产线 main@482d644 → main@04bef07；零迁移零装配零 unit，manifest 仍 113 重签；
   宿主不动。稿 `wo/WO-GK14-DISPATCHED-01/landing-i-gk14.sh`（sha 1ab7f7bb…05e9），Mac 副本 `~/Documents/lykoi/`；
   bundle 已上服务器 `/tmp/lykoi-landing-i.bundle`（sha 8208a9f1…8fa4）。§3 内含根因修复验证点：npm ci 后树应直接净。
+- **LANDING-I 落地（2026-09-03 12:50 CST，一次通过）**：产线 main@04bef07；npm ci 后树直接净（init-state.ts
+  100755 根因修复实证）；manifest 113 重签 gate OK；contract 单测服务器 14/14；deploy_event downtime「5 秒」；
+  NRestarts 0；宿主未动。记录 `wo/LANDING-I-20260903/record.md`。待读：`dispatch_gate` 分布。
 - **LANDING-E 已落（2026-09-02 15:09）**：017 施加，mind_schema **17**，产线首次
   直接钉 main@89b04dd（记录 `wo/LANDING-E-20260902/record.md`）。
 - **D-PERS-2 · `wo/WO-PERS-OVERLAY-01` 复核 PASS → Kevin 裁合 → LANDING-F 已落

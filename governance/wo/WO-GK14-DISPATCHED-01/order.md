@@ -1,6 +1,7 @@
 # WO-GK14-DISPATCHED-01 · 派工单
 
 - 立单：主治理 Agent，2026-09-03
+- 状态：**已落地**（复核 PASS tip bb3cb31 → 裁合 main@04bef07 → LANDING-I 2026-09-03 12:50）
 - 来源：WO-FIX-LOOP-01 执行方在 `approval-e2e.test.ts:362-371` 留下的附注（GK-14 新例外），治理层判定需要单独一单
 - 基线：main@0fb2a10（代码树 = 产线钉点 482d644）；全仓 995 / 984 / 0 / 11，tsc 净
 - 执行：sonnet（纯函数改口 + 测试，改动面小）
