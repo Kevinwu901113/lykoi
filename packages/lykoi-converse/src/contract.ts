@@ -22,7 +22,7 @@
  * D-03 降级后果写进契约 + u3_cycle_tool_demoted；D-08 全部事件只记长度/哈希。
  */
 import {
-  evaluateMessage, extractJson,
+  evaluateMessage, extractJson, JSON_RETRY_NUDGE,
   type AssessmentEntry, type Candidate, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { CAUSES } from 'lykoi-regulation'
@@ -56,11 +56,15 @@ export const TOOL_ARGS_CHARS_MAX = 2000
 export const MAX_TOOL_STEPS = 8
 
 /**
- * D-01（G-10 修正版）：信封契约失败的**有界重试**次数（总调用 = 重试 + 1）。
- * 只对 FAIL_NOT_JSON 重试 —— unknown_kind / missing_content 是模型理解偏差，
- * 重试大概率复现；空回复/截断是采样偶发，重试有实际收益（SPEC-CONV §6a）。
+ * D-01（G-10 修正版；WO-FIX-NOTJSON-01 D-3 改口）：信封契约失败的**有界重试**
+ * 次数（总调用 = 重试 + 1）。只对 FAIL_NOT_JSON 重试 —— unknown_kind /
+ * missing_content 是模型理解偏差，重试大概率复现；空回复/截断是采样偶发，
+ * 重试有实际收益（SPEC-CONV §6a）。1 → 2：实证同一前缀上温度 1.0 两次采样都
+ * 退化成同样长度的空白（同源退化，不是随机噪声），重试**至多两次、且从第二次
+ * 起带引导语**（JSON_RETRY_NUDGE）—— 原样重发已证对这种退化无效，改变前缀
+ * 才是杠杆。
  */
-export const ENVELOPE_RETRY_MAX = 1
+export const ENVELOPE_RETRY_MAX = 2
 
 // --- 环境钮（S-52） ------------------------------------------------------------
 
@@ -264,12 +268,22 @@ export interface ToolCall {
  * 唯一追加的是生成点上的**任务契约**（与自主路径 DECIDE_SYSTEM_PROMPT 同一
  * 地位）；放在最后是因为三段带的易变尾部已占住生成点前的位置，契约插中间会把
  * U2 理顺的缓存边界又顶回去（CACHE-INVERT）。上面的十二块一个字节都不动。
+ *
+ * WO-FIX-NOTJSON-01 D-2：第三个入参 `nudge` 缺省/false 时逐字节不变（attempt 0
+ * 的请求形状）；`true` 时在契约消息之后再追加**一条**临时引导
+ * （`{role:'user', content: JSON_RETRY_NUDGE}`）—— 这条消息只活在这一次返回值
+ * 里，调用点不把它并回 `#messages`，历史/摘要/下一步装配都看不到它。
  */
 export function buildEnvelopeMessages(
   assembled: readonly ConverseMessage[],
   wiredActions?: ReadonlySet<string>,
+  nudge?: boolean,
 ): ConverseMessage[] {
-  return [...assembled, { role: 'system', content: envelopeSystemPrompt(wiredActions) }]
+  const withContract: ConverseMessage[] =
+    [...assembled, { role: 'system', content: envelopeSystemPrompt(wiredActions) }]
+  return nudge === true
+    ? [...withContract, { role: 'user', content: JSON_RETRY_NUDGE }]
+    : withContract
 }
 
 // --- 情境专属字段的消毒（S-42/S-43） -------------------------------------------

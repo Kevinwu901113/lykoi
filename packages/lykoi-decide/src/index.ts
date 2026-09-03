@@ -543,6 +543,15 @@ function cpSlice(text: string, limit: number): string {
 }
 
 /**
+ * WO-FIX-NOTJSON-01 D-1：not_json 重试的引导语，一处真源（converse 与 wake
+ * 各 import 一次，不许各抄一份）。DeepSeek 文档自陈 json_object 模式下「可能
+ * 偶发返回空内容，建议改提示词缓解」——这句逐字含「JSON」，满足其建议。
+ */
+export const JSON_RETRY_NUDGE =
+  '你上一次的输出是空的，或者不是一个 JSON 对象。现在只输出那一个 JSON 对象：'
+  + '以 { 开始、以 } 结束，不要代码块，不要任何别的字。'
+
+/**
  * SA-18 两段式解析：先整体 JSON.parse；失败则取首 `{` 到末 `}` 的切片再试；
  * 两次都失败 → 抛错，消息含 content[:200] 的 repr。
  */

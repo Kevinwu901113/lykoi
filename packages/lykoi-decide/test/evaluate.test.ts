@@ -12,6 +12,7 @@ import {
   groundedEntries,
   normalizeForGrounding,
   GROUND_FRAGMENT_CHARS,
+  JSON_RETRY_NUDGE,
   type Candidate,
   type LogEvent,
 } from '../src/index.ts'
@@ -358,4 +359,10 @@ test('SA-18：两段式解析 —— 前后有杂文时取首 { 到末 } 的切�
   const d = evaluateMessage({ content: wrapped }, CANDS, { injectedConcernIds: [7] })
   assert.equal(d.kind, 'explore')
   assert.deepEqual(extractJson('{"a": 1}'), { a: 1 })
+})
+
+test('WO-FIX-NOTJSON-01 D-1：JSON_RETRY_NUDGE 非空、含「JSON」四字（DeepSeek 建议提示词里出现 json 才稳定）', () => {
+  assert.equal(typeof JSON_RETRY_NUDGE, 'string')
+  assert.ok(JSON_RETRY_NUDGE.length > 0)
+  assert.ok(JSON_RETRY_NUDGE.includes('JSON'), 'DeepSeek 文档要求提示词里出现 json 才稳定')
 })
