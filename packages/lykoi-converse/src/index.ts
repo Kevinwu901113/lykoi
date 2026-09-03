@@ -24,9 +24,9 @@ import Schema from '@deepseek-ai/schemastery'
 import { resolve } from 'node:path'
 import {
   CallId, createAssistantMessage, createMessage, createToolResultMessage,
-  createUserMessage, type Message,
+  createUserMessage, ReasoningEffortId, type Message,
 } from '@deepseek-ai/dsh-llm'
-import type {} from 'lykoi-llm'
+import { LlmFinishError } from 'lykoi-llm'
 import type { InboundMessage, TelegramAdapterService } from 'lykoi-adapter-telegram'
 import {
   OutboundOrgan, markUndeliveredSurfaced, outboundOrganResources,
@@ -353,6 +353,13 @@ export function apply(ctx: Context, config: Config) {
       // D-01（M4-W1）：周期那条边的 signal 一路递到 wire —— 周期撞线时这一跳
       // **真的断**，而不只是上面不等了（连接与 tokens 都不再挂着）。
       ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+      // WO-FIX-TOOLSTEP-01 D-1：工具步之后那一跳关思考 —— `GenerateOptions.
+      // reasoningEffort` 本就存在，这里只做 opaque brand 的转换（不改调用
+      // 签名）。缺席 = 键根本不出现在 wire body 上，同 responseFormat/signal 的
+      // 口径。
+      ...(opts.reasoningEffort === undefined
+        ? {}
+        : { reasoningEffort: ReasoningEffortId(opts.reasoningEffort) }),
     }, { runId: opts.runId })
     return {
       content: result.text,
@@ -569,6 +576,23 @@ async function handleTurn(
       await ctx.audit.record({
         type: 'converse/turn_failed', runId, updateId: message.updateId,
         error: 'ContextBudgetError', kind: 'context_budget',
+      })
+      return
+    }
+    if (err instanceof LlmFinishError) {
+      // WO-FIX-TOOLSTEP-01 D-2a：工具步之后的第二跳零 token 失败（DeepSeek
+      // reasoning_content 400 的事故现场）此前只在事件流里留下"LlmFinishError"
+      // 五个字——code/status 一个都没落。这里补上非内容的失败元数据；S-21
+      // 口径不变（不记 message/requestId，那两栏可能带 URL 或供应商原文）。
+      await ctx.audit.record({
+        type: 'converse/turn_failed', runId, updateId: message.updateId,
+        error: err.name,
+        kind: 'llm_finish',
+        finish_code: err.reason.failure.code,
+        finish_status: err.reason.failure.status ?? null,
+        route: err.route,
+        text_len: err.textLength,
+        reasoning_len: err.reasoningLength,
       })
       return
     }

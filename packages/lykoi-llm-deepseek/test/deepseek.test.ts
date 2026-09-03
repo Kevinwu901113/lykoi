@@ -230,3 +230,55 @@ test('加派项⑥ 钮关：wire body 里**根本没有** response_format 这个
   assert.equal('response_format' in body, false, '钮关 = 键不存在')
   assert.equal(requests[0]!.body.includes('response_format'), false)
 })
+
+// ============================================================================
+// WO-FIX-TOOLSTEP-01 D-1：真身 wire 落地实证——`reasoningEffort:'off'` 经
+// vendor 的 resolveThinking()（vendor/index.js:56-66）译成 wire body 的
+// `thinking:{type:'disabled'}`（vendor/index.js:268）。这是根因结构本身：
+// 工具步之后关思考，关的就是这一位；不关 = thinking 保持 v4-flash 的默认
+// enabled，assistant 帧带 tool_calls 却没跟 reasoning_content 回灌就是那个
+// 400。本测试只读 wire，vendor 代码本身在 D-4 不动清单上，不作任何改动。
+
+test('WO-FIX-TOOLSTEP-01 D-1 真身实证：reasoningEffort:\'off\' → wire body 带 thinking:{type:"disabled"}', async (t) => {
+  process.env[KEY_ENV] = FAKE_KEY
+  t.after(() => delete process.env[KEY_ENV])
+  const { server, baseURL, requests } = await startMockDeepSeek([
+    JSON.stringify({ choices: [{ index: 0, delta: { content: '好' } }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  ])
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+  const ctx = await setupAdapter(baseURL)
+  await consume(ctx, { ...request('工具步之后的第二跳'), reasoningEffort: 'off' } as GenerateOptions)
+
+  const body = JSON.parse(requests[0]!.body) as Record<string, unknown>
+  assert.deepEqual(body.thinking, { type: 'disabled' })
+  // off 档在 wire 上不额外带 reasoning_effort 字段（vendor 的
+  // resolveThinking：effort==='off' 只返回 { thinking: 'disabled' }，
+  // reasoningEffort 键只在 low/high/max 才出现）。
+  assert.equal('reasoning_effort' in body, false)
+})
+
+test('WO-FIX-TOOLSTEP-01 D-1 对照组：不给 reasoningEffort、部署也没配 thinking/reasoningEffort 默认 → wire body 落 thinking:{type:"enabled"}+reasoning_effort:"high"——这就是根因本身（v4-flash 缺省 thinking 开）', async (t) => {
+  process.env[KEY_ENV] = FAKE_KEY
+  t.after(() => delete process.env[KEY_ENV])
+  const { server, baseURL, requests } = await startMockDeepSeek([
+    JSON.stringify({ choices: [{ index: 0, delta: { content: '好' } }] }),
+    JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }),
+    '[DONE]',
+  ])
+  t.after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+
+  const ctx = await setupAdapter(baseURL)
+  // 注意：这里不是 adapter 自己在「不给就补 enabled」——是 dsh-llm 的
+  // LlmRuntime.resolveCallWithInfo() 在 adapterStream 之前，把 adapter.
+  // resolveModel() 报告的 `reasoning.defaultEffort`（部署未配时落 HIGH，
+  // vendor/index.js:1406）材化进了 options.reasoningEffort，adapter 自己的
+  // resolveThinking() 收到的已经是 'high'、不是 undefined 了。
+  await consume(ctx, request('第一步，还没有工具帧'))
+
+  const body = JSON.parse(requests[0]!.body) as Record<string, unknown>
+  assert.deepEqual(body.thinking, { type: 'enabled' }, '这正是事故的根因本身：默认档位不是关的')
+  assert.equal(body.reasoning_effort, 'high')
+})

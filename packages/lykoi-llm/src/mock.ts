@@ -9,8 +9,8 @@
  * 用量固定可配 → profile 红测的算术是确定性的。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { LlmAdapter } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 
 export interface MockAdapterOptions {
@@ -18,6 +18,9 @@ export interface MockAdapterOptions {
   promptTokens: number
   completionTokens: number
 }
+
+/** 照抄真身（lykoi-llm-deepseek vendor）的 off 档形态，供 resolveModel 声明。 */
+const OFF_REASONING_EFFORT = ReasoningEffortId('off')
 
 export class MockAdapter extends LlmAdapter {
   /** 实际发生的 stream 次数——「gate 拒绝时调用不发生」的观测点。 */
@@ -27,6 +30,28 @@ export class MockAdapter extends LlmAdapter {
   constructor(options: MockAdapterOptions) {
     super()
     this.#options = options
+  }
+
+  /**
+   * D-1（WO-FIX-TOOLSTEP-01）：真身 adapter 在 resolveModel 里报告
+   * `reasoning.efforts` 含 'off'，call() 才允许传 `reasoningEffort:'off'`
+   * （dsh-llm 的 resolveCallWithInfo 会拒未声明的档位）。mock 照样声明，
+   * 否则任何经过工具步（step>=1）的红测都会在这里假摔。
+   */
+  resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    return Promise.resolve({
+      provider,
+      id: model,
+      name: model,
+      // 故意不给 defaultEffort：真身的默认策略是生产配置的事（不在本 WO 范围
+      // 内），mock 只需要证明「off 档位存在、可被显式请求」——给了
+      // defaultEffort 会让 dsh-llm 在**没被请求**时也把 reasoningEffort 材
+      // 化进 resolved config，把 D-1「step 0 一个字都不带」的断言测到错的
+      // 那一层（dsh-llm 自己的默认化，而不是 lykoi-converse 的请求内容）。
+      reasoning: {
+        efforts: [{ id: OFF_REASONING_EFFORT, name: 'off' }],
+      },
+    })
   }
 
   async *stream(_options: GenerateOptions): AsyncIterable<StreamChunk> {
