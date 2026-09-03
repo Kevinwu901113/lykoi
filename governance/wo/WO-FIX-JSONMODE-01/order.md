@@ -1,7 +1,7 @@
 # WO-FIX-JSONMODE-01 · 派工单
 
 - 立单：主治理 Agent，2026-09-03 18:50 CST
-- 状态：**执行中**（Kevin 18:49 放行；sonnet 于 wt-fix-jsonmode-01 / wo/fix-jsonmode-01 执行）
+- 状态：**已落地**（LANDING-L，2026-09-03 19:15 CST，产线钉 main@5e6bf02；§0–§6 全绿：cycle 20/20、e2e 4/4，downtime 5 秒，NRestarts 0；§7 记账行因脚本 `$OPS` 未定义未写入，Kevin 手工补记；落地后前 4 条 Telegram 3 闭环 1 沉默）
 - 来源：LANDING-K 验收反例（2026-09-03 18:39 CST）。Kevin 两条 Telegram 各三跳全空 → silence：一条 step 1（关思考），completion 67/62/52 token；一条 step 0（思考 high），reasoning 159/501/1081 递增。两次 `u3_cycle_failed` 都记 content_chars 51、first_char:empty、finish stop —— 一字符一 token 的换行/空格退化态。带引导的重试 prompt 只 34–162 token（前文全命中缓存），引导语确已入上下文仍无效。K 的引导只治「答案吞进 reasoning」与偶发空白（当日救回 4 次），对 json_object 退化态无效。
 - 已排除的路：`LYKOI_U3_ENVELOPE_JSON_MODE` 是 GK-6 knob 钉（surface.ts:114），unit 环境覆盖即门 FAIL（18:44 实证，大脑离线约十分钟）。旋钮只能改签名源码 + 重签。
 - 基线：main@3cdf1c8（代码树 = 产线钉点 f449fda）；全仓 1015+ / 0 fail，tsc 净（K 复核数）

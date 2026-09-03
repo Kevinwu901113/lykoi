@@ -522,7 +522,10 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
   去 json 后 4 次重试 2 次散文 2 次 JSON。结论：step ≥ 1「关思考 + json_object」组合稳定给空，去 json 只是把空换成
   一半概率的散文。接地缺口：①器官 bad_request 0 字、动作层记 success，回执系统把「我刚查了」判为有据（unbacked_claim
   false）——失败查询被算成回执，苹果那条正文实为往年规律推断。探针 v3 已备（~/Documents/lykoi/probe-deepseek-toolstep-v3.sh，
-  F 关思考无 json / G 关思考 json / H 思考默认+回传 reasoning_content 无 json / I 同上+json，各跑两次），Kevin root 跑后定下一单。
+  F 关思考无 json / G 关思考 json / H 思考默认+回传 reasoning_content 无 json / I 同上+json，各跑两次），Kevin root 跑后定下一单。第 4 条「那是电影」：step 0 一次空重试（reasoning 711）→ 39 s 出 reply 222 字，闭环。
+  **L 稿瑕疵**：§7 记账行我整行重写时写成 `$OPS`（set -u 下 unbound）→ §7 未写、末行「完成」未打；§0–§6 全部成立，
+  产线状态正确。已让 Kevin 手工补一条 ops 记录；仓库内脚本已改为写死路径（与 K 稿同）。Kevin 19:10 先跑过一次
+  （deploy_event 11:10:13Z），§6 慢中断后 19:15 重跑，前验容忍 HEAD∈{OLD,NEW}，幂等成立。
 - **LANDING-J 已落（2026-09-03 16:11，产线钉 main@47fb05a，一次通过）**：WO-FIX-TOOLSTEP-01 ——
   Kevin 4 条 Telegram 全沉默的根因是工具步之后的第二跳：DeepSeek v4-flash 默认思考开（wire 实为
   thinking enabled + reasoning_effort high，dsh-llm 用 adapter 申报的 defaultEffort 兜底），带 tool_calls
