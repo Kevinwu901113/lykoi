@@ -6,7 +6,7 @@
 # 宿主 lykoi-browser.service 不动、不重启。停机形态同 G/H/I：大脑 `systemctl stop`（保持 enabled）。
 # 用法：先落盘再执行：
 #   sha256sum /tmp/landing-l-jsonmode.sh   # 须 = 治理侧给出的值
-#   sudo bash /tmp/landing-l-jsonmode.sh 2>&1 | tee /root/landing-k-$(date +%Y%m%dT%H%M%S).log
+#   sudo bash /tmp/landing-l-jsonmode.sh 2>&1 | tee /root/landing-l-$(date +%Y%m%dT%H%M%S).log
 set -euo pipefail
 NODE=/opt/node-v24.18.0/bin/node
 NPM=/opt/node-v24.18.0/bin/npm
