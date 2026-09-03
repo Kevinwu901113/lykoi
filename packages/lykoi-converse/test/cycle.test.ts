@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { GAP_NOT_WIRED } from 'lykoi-decide'
+import { GAP_NOT_WIRED, JSON_RETRY_NUDGE } from 'lykoi-decide'
 import {
   composeSurfaceReply, CYCLE_CLOSING_NOTE, CYCLE_TOOL_UNWIRED_EVENT, MAX_TOOL_STEPS,
 } from '../src/index.ts'
@@ -70,27 +70,118 @@ test('silence 路：有账没话 —— 空回复、history reply=""、无 assis
   assert.equal(composeSurfaceReply('有话', 0, false), '有话')
 })
 
-test('D-01 有界重试：not_json 重试恰一次（u3_cycle_retried）；仍败 → u3_cycle_failed 带非内容元数据', async () => {
+test('WO-FIX-NOTJSON-01 D-2/D-3：not_json 有界重试至多两次、带引导；三次全空 → u3_cycle_retried 两条，u3_cycle_failed.attempts===3', async () => {
   const h = makeConversation()
-  h.llm.push({ content: '我直接开口说话了', finishReason: 'stop', promptTokens: 100, completionTokens: 5 })
-  h.llm.push({ content: '', finishReason: 'stop', promptTokens: 100, completionTokens: 42, extraKeys: ['reasoning_content'] })
+  h.llm.push({ content: '', finishReason: 'stop', promptTokens: 100, completionTokens: 5 })
+  h.llm.push({ content: '', finishReason: 'stop', promptTokens: 17, completionTokens: 6, extraKeys: ['reasoning_content'] })
+  h.llm.push({ content: '', finishReason: 'stop', promptTokens: 17, completionTokens: 7, extraKeys: ['reasoning_content'] })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '', '降级沉默')
-  assert.equal(h.llm.calls.length, 2, '总调用 = 重试 + 1')
-  const retried = lastEvent(h.events, 'u3_cycle_retried')!
-  assert.deepEqual(retried, { reason: 'not_json', detail: 'first_char:cjk', step: 0, attempt: 1 })
+  assert.equal(h.llm.calls.length, 3, '总调用 = 重试(至多两次) + 1')
+
+  const retriedEvents = h.events.filter(([n]) => n === 'u3_cycle_retried').map(([, f]) => f)
+  assert.equal(retriedEvents.length, 2)
+  assert.deepEqual(
+    retriedEvents[0],
+    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1, reasoning_len: 0 },
+  )
+  assert.deepEqual(
+    retriedEvents[1],
+    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 2, reasoning_len: 0 },
+  )
+
   const failed = lastEvent(h.events, 'u3_cycle_failed')!
   assert.equal(failed.reason, 'not_json')
-  assert.equal(failed.detail, 'first_char:empty', 'U3 缺陷①的那张脸：有 tokens、content 空')
-  assert.equal(failed.attempts, 2)
+  assert.equal(failed.attempts, 3, '至多两次重试 + 首发 = 3')
   assert.equal(failed.content_chars, 0)
-  assert.equal(failed.has_content, true)
-  assert.equal(failed.finish_reason, 'stop')
-  assert.equal(failed.completion_tokens, 42, '与失败同一事件可关联（活体两事件间无关联字段）')
-  assert.equal(failed.prompt_tokens, 100)
-  assert.deepEqual(failed.other_message_keys, ['reasoning_content'], 'reasoning_content 的存在可见，内容不泄')
+  assert.equal(failed.completion_tokens, 7, '最后一次尝试的账')
+  assert.equal(failed.prompt_tokens, 17)
+  assert.equal(failed.reasoning_len, 0)
+
+  // 第 1 次末尾是 system 契约；第 2/3 次末尾是 {role:'user', content: JSON_RETRY_NUDGE}。
+  const [call0, call1, call2] = h.llm.calls
+  assert.equal(call0!.messages[call0!.messages.length - 1]!.role, 'system')
+  assert.deepEqual(
+    call1!.messages[call1!.messages.length - 1],
+    { role: 'user', content: JSON_RETRY_NUDGE },
+  )
+  assert.deepEqual(
+    call2!.messages[call2!.messages.length - 1],
+    { role: 'user', content: JSON_RETRY_NUDGE },
+  )
+  // 除末尾这一条引导外，三次 messages 逐字相等（attempt 0 本就没有引导，
+  // 是 attempt 1/2 的公共前缀 —— 引导是唯一追加，不改上面任何一块）。
+  assert.deepEqual(call1!.messages.slice(0, -1), call0!.messages)
+  assert.deepEqual(call2!.messages.slice(0, -1), call0!.messages)
+  // options（purpose/responseFormat/reasoningEffort/signal）三次相等。
+  for (const key of ['purpose', 'responseFormat', 'reasoningEffort', 'signal'] as const) {
+    assert.deepEqual(call1!.opts[key], call0!.opts[key])
+    assert.deepEqual(call2!.opts[key], call0!.opts[key])
+  }
   // 静默不发但回合成立：history reply=""。
   assert.equal(JSON.parse(h.store.getRecentHistoryOfType('conversation', 1)[0]!.content).reply, '')
+})
+
+test('WO-FIX-NOTJSON-01 D-2：首次空、次成功 → 单条 retried + 正常回复；引导不进历史（下一轮首次调用不含它）', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: '', finishReason: 'stop' })
+  h.llm.push({ content: envelope() })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '在的，怎么了？')
+  assert.equal(h.llm.calls.length, 2)
+  const retriedEvents = h.events.filter(([n]) => n === 'u3_cycle_retried')
+  assert.equal(retriedEvents.length, 1)
+  assert.deepEqual(
+    retriedEvents[0]![1],
+    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1, reasoning_len: 0 },
+  )
+  // 第二次调用带引导。
+  const secondMsgs = h.llm.calls[1]!.messages
+  assert.deepEqual(secondMsgs[secondMsgs.length - 1], { role: 'user', content: JSON_RETRY_NUDGE })
+
+  // 下一轮：首次调用 messages 里不含引导语（引导没有 push 进 #messages，不进历史）。
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '还在', reason: '他问我在不在' } }) })
+  await h.conversation.send('还在吗', { runId: 'r2' })
+  const nextFirstMsgs = h.llm.calls[2]!.messages
+  assert.equal(nextFirstMsgs.some((m) => m.content === JSON_RETRY_NUDGE), false)
+})
+
+test('WO-FIX-NOTJSON-01 D-2 × WO-FIX-TOOLSTEP-01 D-1：step ≥ 1 的重试同时带 reasoningEffort:off 与引导', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) }) // step 0：工具步
+  h.llm.push({ content: '', finishReason: 'stop' }) // step 1 attempt 0：空
+  h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '好', reason: '他问我在不在' } }) }) // step 1 attempt 1
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '好')
+  assert.equal(h.llm.calls.length, 3)
+  const step1Retry = h.llm.calls[2]!
+  assert.equal(step1Retry.opts.reasoningEffort, 'off')
+  assert.deepEqual(
+    step1Retry.messages[step1Retry.messages.length - 1],
+    { role: 'user', content: JSON_RETRY_NUDGE },
+  )
+  const retried = lastEvent(h.events, 'u3_cycle_retried')!
+  assert.equal(retried.step, 1)
+})
+
+test('WO-FIX-NOTJSON-01 D-4：converse 侧回包带 reasoningLength → u3_cycle_retried.reasoning_len 原样透传', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: '', finishReason: 'stop', reasoningLength: 137 })
+  h.llm.push({ content: envelope() })
+  await h.conversation.send('在吗', { runId: 'r1' })
+  const retried = lastEvent(h.events, 'u3_cycle_retried')!
+  assert.equal(retried.reasoning_len, 137)
+})
+
+test('WO-FIX-NOTJSON-01 D-4：三次都带 reasoningLength → u3_cycle_failed.reasoning_len 为最后一次的值', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: '', finishReason: 'stop', reasoningLength: 50 })
+  h.llm.push({ content: '', finishReason: 'stop', reasoningLength: 80 })
+  h.llm.push({ content: '', finishReason: 'stop', reasoningLength: 137 })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '')
+  const failed = lastEvent(h.events, 'u3_cycle_failed')!
+  assert.equal(failed.reasoning_len, 137)
 })
 
 test('D-01 边界：unknown_kind 不重试（理解偏差重试大概率复现）—— attempts=1 直接失败', async () => {

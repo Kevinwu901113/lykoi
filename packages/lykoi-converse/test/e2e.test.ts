@@ -217,7 +217,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   }
 })
 
-test('失败路（红）：契约失败 → 重试一次 → 仍失败 → 降级沉默 + 失败事件元数据；不发、不横幅', async () => {
+test('失败路（红）：契约失败 → 有界重试至多两次、带引导 → 仍失败 → 降级沉默 + 失败事件元数据；不发、不横幅（WO-FIX-NOTJSON-01 D-3 改口）', async () => {
   const { audit, transport, telegram } = await assemble('她这次没有输出 JSON，直接开口说话了')
   transport.queueUpdate({
     updateId: 1,
@@ -230,21 +230,29 @@ test('失败路（红）：契约失败 → 重试一次 → 仍失败 → 降�
     'telegram/inbound',
     'converse/received',
     'budget/charge', //     第一次调用
-    'u3_cycle_retried', //  D-01：有界重试一次
-    'budget/charge', //     第二次调用
+    'u3_cycle_retried', //  D-01/D-3：有界重试至多两次（第 1 条）
+    'budget/charge', //     第二次调用（带引导）
+    'u3_cycle_retried', //  第 2 条
+    'budget/charge', //     第三次调用（带引导）
     'u3_cycle_failed', //   仍失败 → 归因 + 元数据
     'inner_outer_pair', //  回合成立（reply=""）
     'converse/silence', //  设备侧不发
   ])
-  const retried = audit.events.find((e) => e.type === 'u3_cycle_retried')!
-  assert.equal(retried.reason, 'not_json')
-  assert.equal(retried.attempt, 1)
+  const retriedEvents = audit.events.filter((e) => e.type === 'u3_cycle_retried')
+  assert.equal(retriedEvents.length, 2, 'mock LLM 每次都回同一份非 JSON 文本 → 两次重试都打满')
+  assert.equal(retriedEvents[0]!.reason, 'not_json')
+  assert.equal(retriedEvents[0]!.attempt, 1)
+  assert.equal(retriedEvents[1]!.attempt, 2)
+  // mock adapter 不带 reasoningLength → `?? 0` 兜底，键仍在。
+  assert.equal(retriedEvents[0]!.reasoning_len, 0)
+  assert.equal(retriedEvents[1]!.reasoning_len, 0)
   const failed = audit.events.find((e) => e.type === 'u3_cycle_failed')!
   assert.equal(failed.reason, 'not_json')
   assert.equal(failed.detail, 'first_char:cjk')
-  assert.equal(failed.attempts, 2)
+  assert.equal(failed.attempts, 3)
   assert.equal(failed.finish_reason, 'stop')
   assert.equal(failed.completion_tokens, 34, 'U3 缺陷①消灭：tokens 与失败同事件可关联')
+  assert.equal(failed.reasoning_len, 0)
   assert.equal(String(failed.error_type ?? ''), 'Error')
   // 正文零泄漏（detail 只是模板组合）。
   for (const event of audit.events) {

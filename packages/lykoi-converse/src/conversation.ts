@@ -181,6 +181,12 @@ export interface ConverseLlmResult {
   completionTokens?: number | null
   /** 原始响应 role/content 之外的键名（能暴露 reasoning_content 的存在，不泄内容）。 */
   extraKeys?: readonly string[]
+  /**
+   * WO-FIX-NOTJSON-01 D-4：来自 lykoi-llm 的 `LlmCallResult.reasoningLength`
+   * ——只透传数，与 wake 的 `autonomy_wake_retried.reasoning_len` 同口径。
+   * 缺省 fake 不带这个键也成立（`?? 0`）。
+   */
+  reasoningLength?: number
 }
 
 export type ConverseLlmFn = (
@@ -878,9 +884,15 @@ export class Conversation {
 
   // --- 一次 completion（S-52 的 json 钮只在信封那一次生效） --------------------
 
-  async #completion(step: number, signal?: AbortSignal): Promise<ConverseLlmResult> {
+  /**
+   * WO-FIX-NOTJSON-01 D-2：`nudge` 缺省/false → attempt 0 的请求字节逐字节
+   * 不变；`true` → 契约末尾追加一条临时引导（contract.ts 的
+   * buildEnvelopeMessages 第三参）——这条消息只存在于这一次返回的 messages
+   * 里，不 push 进 `#messages`，不进历史/摘要/下一步装配。
+   */
+  async #completion(step: number, signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions)
+    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null,
@@ -897,7 +909,8 @@ export class Conversation {
 
   /**
    * 一个 inbound 回合 = 一串信封周期。每周期四选一；失败方向 = 沉默（不变量 3）
-   * + D-01 有界重试一次（只对 not_json）。这条路上没有一个新的对外副作用出口。
+   * + D-01 有界重试（WO-FIX-NOTJSON-01 D-3 改口：至多两次，带引导，只对
+   * not_json）。这条路上没有一个新的对外副作用出口。
    */
   async #runCycle(signal?: AbortSignal): Promise<string> {
     for (let step = 0; step <= MAX_TOOL_STEPS; step += 1) {
@@ -909,7 +922,9 @@ export class Conversation {
       let elapsedMs = 0
       for (let attempt = 0; ; attempt += 1) {
         const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
-        const result = await this.#completion(step, signal)
+        // WO-FIX-NOTJSON-01 D-2：attempt 0 原样重发；attempt ≥ 1 带引导——
+        // 前一次原样重发已证对这种退化无效，改前缀才是杠杆。
+        const result = await this.#completion(step, signal, attempt >= 1)
         elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
         try {
@@ -923,9 +938,16 @@ export class Conversation {
           // 契约失败 = 这一轮沉默，不是回合崩掉。
           const [reason, detail] = classifyFailure(exc, result.content)
           if (attempt < ENVELOPE_RETRY_MAX && reason === FAIL_NOT_JSON) {
-            // D-01：只对 not_json 有界重试一次 —— 空回复/截断是采样偶发，
-            // 重试有实际收益；unknown_kind/missing_content 是理解偏差，重试复现。
-            this.#log(CYCLE_RETRY_EVENT, { reason, detail, step, attempt: attempt + 1 })
+            // D-01（WO-FIX-NOTJSON-01 D-3 改口）：只对 not_json 有界重试，
+            // 至多两次、且从第二次起带引导语 —— 空回复/截断在同一前缀上是
+            // 确定性退化而非采样偶发，原样重发无效，改前缀才有收益；
+            // unknown_kind/missing_content 是理解偏差，重试大概率复现，不带。
+            this.#log(CYCLE_RETRY_EVENT, {
+              reason, detail, step, attempt: attempt + 1,
+              // WO-FIX-NOTJSON-01 D-4：与 wake 的 autonomy_wake_retried 同口径
+              // ——「答案被吞进 reasoning」在对话路径上也可读数。
+              reasoning_len: result.reasoningLength ?? 0,
+            })
             continue
           }
           // D-01/D-08：失败事件带**非内容**元数据 —— 长度/键名/finish_reason，
@@ -943,6 +965,8 @@ export class Conversation {
             completion_tokens: result.completionTokens ?? null,
             prompt_tokens: result.promptTokens ?? null,
             other_message_keys: [...(result.extraKeys ?? [])],
+            // WO-FIX-NOTJSON-01 D-4：同上，最后一次尝试的 reasoning_len。
+            reasoning_len: result.reasoningLength ?? 0,
           })
           return ''
         }
