@@ -1,6 +1,6 @@
 # WO-FIX-THINKPOLICY-01 · 推理策略回到一处（adapter 显式档位），先量后定
 
-- 状态：**待放行**（探针 v5 先行，代码后行）
+- 状态：**执行中**（Kevin 2026-09-04 01:40 放行，三单并行；opus 于 wt-fix-thinkpolicy-01 / wo/fix-thinkpolicy-01 执行，基线 main@4aec35f）
 - 立单：2026-09-04 01:30 CST，主治理 Agent
 - 分析：governance/docs/tool_step_structural_analysis_2026-09-04.md §3
 - 包：profile/cordis.prod.yml、lykoi-converse（conversation.ts 一行删除 + 事件字段）、探针脚本
