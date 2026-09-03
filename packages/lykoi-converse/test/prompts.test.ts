@@ -14,7 +14,7 @@ import {
   THOUGHTS_HEADER, THOUGHTS_LINE_SKELETON, TIME_SKELETON, UNDELIVERED_HEADER,
   UNDELIVERED_LINE_SKELETON, envelopeSystemPrompt, envelopeToolNames,
   ASK_FALLBACK, DELEGATED_ASK_FIELDS,
-  renderSystemPrompt, TOOL_TO_ACTION, buildEnvelopeMessages,
+  renderSystemPrompt, TOOL_TO_ACTION, renderToolTable, buildEnvelopeMessages,
 } from '../src/index.ts'
 
 function sha(text: string): string {
@@ -26,8 +26,10 @@ function cps(text: string): number {
 }
 
 test('§3.2 A 表：系统提示词逐字（chars + sha256 全等）', () => {
-  assert.equal(cps(SYSTEM_PROMPT), 1418)
-  assert.equal(sha(SYSTEM_PROMPT), '72a3c1c128b63def708fdd5fedd89792098b821071662e164f511bc7e6a81314')
+  // WO-FIX-TOOLSPEC-01 D-3：逐工具散文行 + notify_owner 两句 + query 句删除后
+  // 的新钉（旧 1418 / 72a3c1c1… → 新 891 / 075d4282…）。
+  assert.equal(cps(SYSTEM_PROMPT), 891)
+  assert.equal(sha(SYSTEM_PROMPT), '075d4282f604f93dc74f9caf6d4a5963d65e449cdd49daf8206975606dc1bc17')
   assert.equal(cps(SUMMARIZE_SYSTEM_PROMPT), 142)
   assert.equal(sha(SUMMARIZE_SYSTEM_PROMPT), '3eb2679bd75cfd812bbbf0ffaf1156d284c771f0e1e59dac2daa40173ee32759')
   assert.equal(cps(CYCLE_CLOSING_NOTE), 92)
@@ -96,15 +98,17 @@ test('新 raw sha 记录（旧 9d4f169e… → 新；随 G-2 sha 变更表同一
     sha(ENVELOPE_SYSTEM_PROMPT),
     '88587c8e3d923969d16a92e4cb996b6d45d5e2e077ac7af00ff016a39c0be14a',
   )
-  // 渲染后（causes+tools 已代入）：旧 1960/739494ec… → 新 2245/f063714f…。
-  assert.equal(cps(envelopeSystemPrompt()), 2245)
+  // 渲染后（causes+tools 已代入）：旧 1960/739494ec… → G-10 2245/f063714f… →
+  // WO-FIX-TOOLSPEC-01 D-2（{tools} 从裸名 join 变成带签名与用途的表）
+  // 2984/29f13777…。契约文本变了 = 稳定前缀缓存失效一次，属预期。
+  assert.equal(cps(envelopeSystemPrompt()), 2984)
   assert.equal(
     sha(envelopeSystemPrompt()),
-    'f063714f530496695ee1a2fc95dd952b2f64e2d195312dacf99e0808d5ff80ee',
+    '29f1377755b5890c14ab151f269ecb55a97e749e0fbe401546da30538786988f',
   )
 })
 
-test('渲染代入：{causes} = 15 名排序 join（sha ad676bb0…）；{tools} = TOOL_TO_ACTION 投影 + 三 in-cognition', () => {
+test('渲染代入：{causes} = 15 名排序 join（sha ad676bb0…）；{tools} = 工具表（名字 + 签名 + 用途）', () => {
   const rendered = envelopeSystemPrompt()
   assert.equal(rendered.includes('{causes}'), false)
   assert.equal(rendered.includes('{tools}'), false)
@@ -118,7 +122,8 @@ test('渲染代入：{causes} = 15 名排序 join（sha ad676bb0…）；{tools}
   const tools = envelopeToolNames()
   assert.equal(tools.length, 13)
   assert.deepEqual(tools.slice(-3), ['vision_describe', 'promise_followup', 'post_progress'])
-  assert.ok(rendered.includes(tools.join(', ')))
+  // WO-FIX-TOOLSPEC-01 D-2：代入的不再是裸名 join，而是逐行的表；13 行同序。
+  assert.ok(rendered.includes(renderToolTable().split('\n').join('\n  ')))
 })
 
 test('§2 D 段（M3-W2 迁入）：ASK_FALLBACK 逐字 —— 15 字 / sha 66b17e24…', () => {
@@ -184,54 +189,64 @@ test('D-3b：renderSystemPrompt() 与 renderSystemPrompt(全接线) 都恒等于
   assert.equal(renderSystemPrompt(fullWired), SYSTEM_PROMPT)
 })
 
-test('D-3b：renderSystemPrompt(生产接线集) 只改工具行两处，其余逐行字节不变（chars=1325，sha 665a4399…）', () => {
-  const rendered = renderSystemPrompt(PROD_WIRED)
-  assert.equal(cps(rendered), 1325)
-  assert.equal(sha(rendered), '665a4399002c1f786dcb27f963c3fd2bf3ffac7acad60bff2be9bd77b223690c')
-
-  const origLines = SYSTEM_PROMPT.split('\n')
-  const newLines = rendered.split('\n')
-  assert.equal(newLines.length, origLines.length, '过滤只改行内内容，不增删行')
-
-  // 恰两行变化（研究浏览器行 / 常驻浏览器行），其余逐行 === 原文。
-  const changed = origLines
-    .map((line, i) => [i, line, newLines[i]] as const)
-    .filter(([, o, n]) => o !== n)
-  assert.equal(changed.length, 2)
-  assert.equal(
-    changed[0]![1],
-    '- research_open / research_read_text / research_extract_links'
-    + '（一次性只读浏览器：查资料、搜索、读网页优先用它——免审批、即开即用；它没有登录态，读完即焚）',
-  )
-  assert.equal(
-    changed[0]![2],
-    '- research_read_text（一次性只读浏览器：查资料、搜索、读网页优先用它——免审批、即开即用；它没有登录态，读完即焚）',
-  )
-  assert.equal(
-    changed[1]![1],
-    '- browser_navigate / browser_click / browser_type / browser_screenshot / browser_get_text'
-    + '（常驻桌面浏览器：真实浏览器环境，防爬验证拦 research 时换它。'
-    + '导航/点击/读页/截图免审批；browser_type 输入会问 Kevin——输入是密码、付款的必经之路）',
-  )
-  assert.equal(
-    changed[1]![2],
-    '- browser_navigate / browser_get_text（常驻桌面浏览器：真实浏览器环境，防爬验证拦 research 时换它。'
-    + '导航/点击/读页/截图免审批；browser_type 输入会问 Kevin——输入是密码、付款的必经之路）',
-  )
+test('TOOLSPEC D-3：SYSTEM_PROMPT 里工具枚举行没了 → renderSystemPrompt 对任何接线集都恒等于原文', () => {
+  // D-3 把逐工具散文行删了，接线过滤只剩契约 {tools} 那一处。D-3b 的过滤器
+  // 因此没有作用对象——空集这种最狠的入参也一行都删不掉。
+  assert.equal(renderSystemPrompt(PROD_WIRED), SYSTEM_PROMPT)
+  assert.equal(renderSystemPrompt(new Set()), SYSTEM_PROMPT)
 })
 
-test('D-3b：接线集为空 → 三条工具枚举行整行省略（filtered.length===0 分支），其余行照旧', () => {
-  // SYSTEM_PROMPT 里符合「- 名字（…）」形态且名字全在 TOOL_TO_ACTION 里的
-  // 恰三行：research 一次性浏览器 / browser 常驻浏览器 / notify_owner 单名
-  // 那一行。三行全空过滤，行数从 31 掉到 28（不是留三条空行）。
-  const rendered = renderSystemPrompt(new Set())
-  const origLines = SYSTEM_PROMPT.split('\n')
-  const newLines = rendered.split('\n')
-  assert.equal(newLines.length, origLines.length - 3, '三条工具行整行消失（不是留一条空行）')
-  assert.ok(!rendered.includes('research_read_text'))
-  assert.ok(!rendered.includes('browser_navigate'))
-  assert.ok(!newLines.includes('- notify_owner（主动联系 Kevin）'), '枚举行没了')
-  // 同一个名字在别处的散文提及（非枚举行、不匹配「- 名字（…）」形态）不受
-  // 这个函数管——renderSystemPrompt 只过滤白名单枚举行，不做全文改写。
-  assert.ok(rendered.includes('直接用 notify_owner 问他'), '散文提及不受枚举过滤影响（函数职责边界）')
+test('TOOLSPEC D-3：逐工具散文与 query 句都不在了，保留的两句还在（工具描述只剩契约那一处）', () => {
+  for (const gone of [
+    'research_open', 'research_read_text', 'research_extract_links',
+    'browser_navigate', 'browser_click', 'browser_screenshot', 'browser_get_text',
+    'vision_describe', 'notify_owner', 'query',
+  ]) {
+    assert.ok(!SYSTEM_PROMPT.includes(gone), `${gone} 不该再出现在 SYSTEM_PROMPT 里`)
+  }
+  // 保留项：审批语义那句仍点名 browser_type / terminal_exec（它讲的是审批分级，
+  // 不是工具描述）；虚拟电脑一句与结构化来源一句原样留着。
+  assert.ok(SYSTEM_PROMPT.includes('会找他确认的只剩输入（browser_type）和终端（terminal_exec）'))
+  assert.ok(SYSTEM_PROMPT.includes('你有一台自己的虚拟电脑'))
+  assert.ok(SYSTEM_PROMPT.includes('优先找结构化来源'))
+  assert.ok(SYSTEM_PROMPT.includes('自己换检索词重搜'))
+})
+
+// --- WO-FIX-TOOLSPEC-01 D-4：工具表渲染进契约（表本身的投影不变量在 contract.test.ts） ---
+
+test('D-2：{tools} 每行都是 name(签名) — 用途；notify_owner 那行带 content 且写明与 reply 的分工', () => {
+  const rendered = envelopeSystemPrompt()
+  const lines = renderToolTable().split('\n')
+  assert.equal(lines.length, 13)
+  for (const line of lines) {
+    assert.match(line, /^[a-z_]+\(.*\) — .+$/, `工具行形状不对：${line}`)
+    assert.ok(rendered.includes(line), `渲染后的契约里缺这一行：${line}`)
+  }
+  const notify = lines.find((l) => l.startsWith('notify_owner'))!
+  assert.ok(notify.includes('(content)'), 'notify_owner 的参数名必须写出来（她猜错过）')
+  assert.ok(notify.includes('reply'), 'notify_owner 与 reply 的分工必须写在用途里')
+  // research_read_text 只收 url：旧散文里的 query 参数在表里没有对应物。
+  const research = lines.find((l) => l.startsWith('research_read_text'))!
+  assert.ok(research.includes('(url, max_chars?)'))
+  assert.ok(!research.includes('query('))
+})
+
+test('D-2：给了 wiredActions → 未接线工具整行不出现；三个 in-cognition 工具恒在', () => {
+  const lines = renderToolTable(PROD_WIRED).split('\n')
+  assert.deepEqual(lines.map((l) => l.slice(0, l.indexOf('('))), [
+    'browser_get_text', 'browser_navigate', 'notify_owner', 'research_read_text', 'terminal_exec',
+    'vision_describe', 'promise_followup', 'post_progress',
+  ])
+  const text = lines.join('\n')
+  for (const gone of [
+    'research_open', 'research_extract_links', 'browser_click', 'browser_type', 'browser_screenshot',
+  ]) {
+    assert.ok(!text.includes(gone), `${gone} 未接线，不该出现在她能点名的表里`)
+  }
+  // 空接线集：dispatch 那 10 项一个不剩，in-cognition 三项照旧在（不受这道闸管）。
+  const none = renderToolTable(new Set()).split('\n')
+  assert.equal(none.length, 3)
+  assert.deepEqual(none.map((l) => l.slice(0, l.indexOf('('))), [
+    'vision_describe', 'promise_followup', 'post_progress',
+  ])
 })

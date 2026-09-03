@@ -9,7 +9,7 @@ import {
   cycleRecord, ENVELOPE_FIELDS, FAIL_MISSING_CONTENT, FAIL_NO_DECISION_OBJECT,
   FAIL_NOT_JSON, FAIL_UNKNOWN_KIND, FAILURE_REASONS, firstCharClass, kindToken,
   parseEnvelope, receiptsPresentInContext, sanitizePulse, sanitizeTool,
-  TOOL_TO_ACTION, toolDispatchGate,
+  TOOL_TO_ACTION, TOOL_TABLE, toolDispatchGate,
   type ConverseMessage,
 } from '../src/index.ts'
 import { envelope } from './fixture.ts'
@@ -20,6 +20,28 @@ test('S-35：kinds 恰 4 项 / content 必填恰 2 项 / SAFE=silence / ENVELOPE
   assert.equal(CONVERSATION_SAFE_KIND, 'silence')
   assert.deepEqual([...ENVELOPE_FIELDS], ['tool', '情绪脉冲'])
   assert.equal(Object.keys(TOOL_TO_ACTION).length, 10) // S-55
+})
+
+test('WO-FIX-TOOLSPEC-01 D-1：TOOL_TO_ACTION 是 TOOL_TABLE 的投影（逐项相等），in-cognition 三项同表不入投影', () => {
+  const projected = Object.fromEntries(
+    Object.entries(TOOL_TABLE)
+      .filter(([, spec]) => spec.action !== null)
+      .map(([name, spec]) => [name, spec.action]),
+  )
+  assert.deepEqual({ ...TOOL_TO_ACTION }, projected)
+  // 三个 in-cognition 工具与其余工具同表同形，但 action 为 null —— 它们不过
+  // dispatch，所以不该进投影（`toolDispatchGate` 的词表判定语义不许变）。
+  for (const name of ['vision_describe', 'promise_followup', 'post_progress']) {
+    assert.ok(Object.hasOwn(TOOL_TABLE, name), `${name} 该在表里`)
+    assert.equal(TOOL_TABLE[name]!.action, null)
+    assert.ok(!Object.hasOwn(TOOL_TO_ACTION, name), `${name} 不该进 TOOL_TO_ACTION 投影`)
+  }
+  assert.equal(Object.keys(TOOL_TABLE).length, 13)
+  // 每一项都填了签名位与用途（signature 空串 = 无参，也算填了）。
+  for (const [name, spec] of Object.entries(TOOL_TABLE)) {
+    assert.equal(typeof spec.signature, 'string', `${name} 缺 signature`)
+    assert.ok(spec.purpose.length > 0, `${name} 缺 purpose`)
+  }
 })
 
 test('候选表：静态四条恒在，权重/cost/note 逐字（对话轮无"预算耗尽摘候选"的对应物）', () => {
