@@ -663,6 +663,16 @@ export function toolDispatchGate(
  * - `dispatched`：**到达了 kernel 的事实** —— 仅当 `dispatch_gate === 'pass'`
  *   才记工具名，否则为 `null`；`dispatched_arg_count` 同步（未派发记 0）。
  * 影子期的 would_* 前缀随影子一起退役，不在此列。
+ *
+ * WO-FIX-THINKPOLICY-01 D-0（观测先行）：成功周期此前只有 `elapsed_ms`，
+ * 于是 step 0 的 85 s 到底是「思考很长」还是「前缀缓存没命中、prompt 全量
+ * 重算」无从分辨——两种解释指向完全不同的修法。`prompt_tokens` /
+ * `completion_tokens` / `reasoning_len` 三个数把这两条解释分开：它们在
+ * `LlmCallResult`（`usage` 与 `reasoningLength`）里本就存在，此前只在失败
+ * 事件（`u3_cycle_failed`）里记，成功路上白丢。仍是零正文口径——只记数，
+ * 不记她想了什么。缺席语义与失败事件对齐：usage 两项缺席记 `null`
+ * （「没报量」≠「花了 0」），`reasoning_len` 缺席记 `0`（没有 reasoning-delta
+ * 就是真的没有）。
  */
 export function cycleRecord(
   decision: Decision,
@@ -672,6 +682,12 @@ export function cycleRecord(
     step: number
     innerApplied: boolean
     wiredActions?: ReadonlySet<string>
+    /** D-0：`LlmCallResult.usage.inputTokens`（vendor 已减去缓存命中部分）。 */
+    promptTokens?: number | null
+    /** D-0：`LlmCallResult.usage.outputTokens`。 */
+    completionTokens?: number | null
+    /** D-0：`LlmCallResult.reasoningLength`（reasoning-delta 码点数）。 */
+    reasoningLength?: number
   },
 ): Record<string, unknown> {
   const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
@@ -697,6 +713,11 @@ export function cycleRecord(
     inner_applied: Boolean(opts.innerApplied),
     assessment_entries: decision.meaning_assessment.length,
     grounded: decision.meaning_assessment.length > 0 && !decision.demoted,
+    // WO-FIX-THINKPOLICY-01 D-0：三个新字段追加在既有字段之后 —— 既有字段的
+    // 名字与相对次序一个都不动（下游读数按名取值，但对表用例逐字比过）。
+    prompt_tokens: opts.promptTokens ?? null,
+    completion_tokens: opts.completionTokens ?? null,
+    reasoning_len: opts.reasoningLength ?? 0,
   }
   const receiptAvailable = isToolCall || receiptsPresentInContext(opts.assembled)
   record.receipt_backing = annotateReceiptBacking(text || '', { receiptAvailable })

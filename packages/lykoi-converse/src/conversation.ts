@@ -928,6 +928,10 @@ export class Conversation {
       }
       let decision: Decision | null = null
       let elapsedMs = 0
+      // WO-FIX-THINKPOLICY-01 D-0：最终成立的那一次调用的回包 —— 与 elapsedMs
+      // 同样要活过 attempt 循环（cycleRecord 在循环外记账）。失败路不用它：
+      // `u3_cycle_failed` 在循环内就地拿得到 result，三个字段本就齐了。
+      let lastResult: ConverseLlmResult | null = null
       for (let attempt = 0; ; attempt += 1) {
         const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
         // WO-FIX-NOTJSON-01 D-2：attempt 0 原样重发；attempt ≥ 1 带引导——
@@ -936,6 +940,7 @@ export class Conversation {
         // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
         const nudge = attempt >= 1
         const result = await this.#completion(step, signal, nudge)
+        lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
         const injected = new Set(this.#lastInjectedThoughtIds)
@@ -997,6 +1002,12 @@ export class Conversation {
         step,
         innerApplied,
         wiredActions: this.#deps.wiredActions,
+        // WO-FIX-THINKPOLICY-01 D-0：成立那一跳的三个读数（elapsed_ms 单独一个
+        // 数分不开「思考长」与「前缀缓存未命中」）。缺席交给 cycleRecord 兜底：
+        // usage 两项 null、reasoning_len 0。
+        promptTokens: lastResult?.promptTokens ?? null,
+        completionTokens: lastResult?.completionTokens ?? null,
+        reasoningLength: lastResult?.reasoningLength ?? 0,
       }))
       if (decision.demoted && decision.original_kind === TOOL_CALL) {
         // D-03：她想动手却被闸掉 ≠ 她本来就想沉默 —— 独立告警。
