@@ -26,3 +26,15 @@
 ## 4 · 验收
 
 - 落地后连续 10 条 Telegram：step 0 时延分布、reasoning_len 分布、信封首跳合法率；对照 M 后基线（85/10/69 s）。
+
+## 5 · 探针 v5 结果（2026-09-04 02:05 CST，Kevin root 跑，14/14 信封合法）
+
+| 形态 | high | low | off |
+|---|---|---|---|
+| S0 真 persona 871 tok 首跑/次跑 | 8.1 / 3.3 s（reasoning 1677 / 729） | 9.3 / 1.4 s（5114 / 530） | 0.9 / 0.8 s |
+| S0P 长前缀 14.5k tok 首跑/次跑 | 20.7 / 2.3 s（4919 / 192；cache_hit 0 → 14464） | 11.8 / 5.9 s（1914 / 1244） | — |
+| S1 文本帧工具步后 | — | 1.6 / 1.1 s（reasoning ≈ 30） | 1.1 / 1.1 s |
+
+读解：①前缀缓存命中与否是最大单项（5–18 s）；②high/low 的 reasoning 长度噪声大、不单调（S0 首跑 low 5114 > high 1677）；③生成约 105 tok/s，产线 85 s ≈ 9k 输出 token，探针任何档位未复现，产线 step 0 长输出来自完整契约 + 思考，须 D-0 落地后读真数；④off 在 S0 两次中一次选 reply「没法查」而非工具，step 0 不取 off。
+
+**D-4 定档：low**（step 0 ≤ 15 s、step ≥ 1 ≤ 5 s、合法率 100% 三条均过）。D-0 追加：事件同时记 `cache_hit_tokens`（DeepSeek usage `prompt_cache_hit_tokens`，adapter 若不透传则记 null 并在报告说明）。前缀缓存失效率作为落地后读数之一。
