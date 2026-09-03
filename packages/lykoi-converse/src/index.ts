@@ -367,6 +367,10 @@ export function apply(ctx: Context, config: Config) {
       promptTokens: result.usage?.inputTokens ?? null,
       completionTokens: result.usage?.outputTokens ?? null,
       extraKeys: [], // dsh-llm 面拿不到原始响应键集（reasoning_content 探测归 M3 adapter）
+      // WO-FIX-NOTJSON-01 D-4：lykoiLlm.call 的 LlmCallResult 已带
+      // reasoningLength（WO-FIX-TOOLSTEP-01 D-2b）——原样透传，供
+      // u3_cycle_retried/u3_cycle_failed 记账。
+      reasoningLength: result.reasoningLength,
     }
   }
 
