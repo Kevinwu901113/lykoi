@@ -1,6 +1,6 @@
 # PROBE-CAP-01 · 产线模型能力基线探针（目标 → 组合 → 委托 → 验证）
 
-- 状态：**脚本与评分表已就绪（`probe-cap.sh`、`rubric.md`，主治理 Agent 2026-09-04 写；Kevin 改令后不再派 GPT），待 Kevin 跑**。执行方：主治理 Agent 写脚本与评分表；**Kevin 在服务器以 lykoi 账号跑**（探针 v3–v5 同法：脚本入工单目录，`set -a; . /home/lykoi/secrets/llm.env`）；读数回填 report；复核：主治理 Agent。
+- 状态：**已跑并评分（Kevin 2026-09-04 深夜以 lykoi 跑；主治理 Agent 填 `report.md`）**。P4B-3-off 一项待 Kevin 从 log 补；排序修正建议在 report §6 待裁。执行方：主治理 Agent 写脚本与评分表；**Kevin 在服务器以 lykoi 账号跑**（探针 v3–v5 同法：脚本入工单目录，`set -a; . /home/lykoi/secrets/llm.env`）；读数回填 report；复核：主治理 Agent。
 - 立单：2026-09-04，主治理 Agent。
 - 依据：`governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` 第一节第 4 点与 §四.1（全程前置：先用产线模型跑"目标→组合→委托→验证"探针，读数决定每层厚度）；Kevin 裁定 R-C（探针先行）；GPT 修订：C1 加直接基线；主治理 Agent 校正：delegation tax 真实数字出在 C2，C1 只按评分表预测委托提示充分度。
 - 前置事实：产线模型 deepseek-v4-flash。LANDING-J～O 读数：工具帧上 wire 必 400；json_object 在工具帧后退化空白；step 0 思考 10–85 s；low 档 completion 中位 2536；缓存命中差 5–18 s。探针形态沿 `governance/wo/WO-FIX-THINKPOLICY-01/probe-v5.sh`（S0 / S0P / S1 三形态、档位循环、parse 函数、只打印前 160 字）。
