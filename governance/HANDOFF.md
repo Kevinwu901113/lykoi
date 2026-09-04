@@ -503,6 +503,20 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
+- **队列 #11 #12 已做完（2026-09-05，主治理 Agent 自执行，各在自己的分支待 Kevin 合并）**：
+  - `wo/r2-newbody-01` — WO-R2-NEWBODY-01，9.4 重评 R2 四前置实证。**3 达成 1 未达，37.5 不解锁。**
+    前置 1 劈快照已有断言（`packages/lykoi-snapshot/test/read.test.ts:255`）；前置 2 推演零写补一条覆盖 LLM 跳与
+    not_json 重试整段；前置 4 费用闸达成并补 cap=0 边界用例。**前置 3 WAL 未达**：`packages/lykoi-memory/src/rw.ts:19`
+    C-29 明文不设 journal_mode，全树无设置点。实测（`governance/wo/WO-R2-NEWBODY-01/wal-contention.mjs`）rollback
+    journal 下开着的读事务把写方顶满 busy_timeout（10.4 s）后失败，WAL 下 0.5 ms 通过。**限定**：现行推演不持跨 LLM
+    读事务，今天碰不到；它约束的是 R2 的 N 分支并行设计——**要么先切 WAL，要么把"分支不持事务"写成 R2 硬约束**。
+    Kevin 一条只读命令待跑（report §3.1）。1106/pass 1095/fail 0/skip 11（基线 +2）。
+  - `wo/kinds-01` — WO-KINDS-01，KINDS 评估与收敛。**建议甲案**（抽共同 `ACTION_TABLE`，两枚举派生，争取提示词 sha 不变）。
+    差异分「路径性质决定」三条（有无对端、候选表接地、demote vs 重试——乙案要逐条重建，风险高）与「只是历史」四条
+    （notify 两名两参、explore url 取值位置、promise_followup 两处、工具面 8:1 不对等）。**不建 delegate kind**
+    （PROBE-CAP-01 §5.3：模型 0/12 主动选它）。产线计数待 Kevin 跑 `governance/wo/WO-KINDS-01/count-kinds.sh`（只读）。
+    四条待裁在 analysis.md §5。
+
 - **白皮书 v1.3 措辞稿已写（2026-09-05）**：`docs/whitepaper_v1.3_wording_draft_2026-09-05.md`。
   五条给出可直接粘贴的正文——C-3 出站分段与"通道上限归通道、不进契约"（37.3 增补）、C-4 入站先落盘与重放合并（37.3 增补）、
   C-6 角色≠运行时≠身体（8 章新增 8.7，合写 P-D1/P-D2/P-D3 与 09-03 定调，37.4 加交叉引用）、C-7 契约诚实
