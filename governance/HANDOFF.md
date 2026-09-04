@@ -484,8 +484,16 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-09-02 刷新；比下方一切条目新，先读这里）
+### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
+- **LANDING-N 落地后读数（2026-09-04 14:53 CST 读，13.4 h 窗）**：复评稿 `docs/landing_n_readout_2026-09-04.md`。
+  ①对话路径零样本：落地后 `telegram/inbound` 0（最后一条 16:44Z 09-03，落地前），N 的四项验收读数
+  （research success:false / unbacked_claim、step 0 elapsed 对 token、step≥1 first_char:other、notify_owner 误用）本次不能判定，
+  需 Kevin 发几条要查资料的消息。②醒拍路径 27 拍 0 failed 1 retried（reasoning 1095 / content 0，引导救回）；
+  profile low 档位生效：每拍 completionTokens 中位 7792→2536、p90 13957→4180；后窗 explore/initiate_chat 0（夜间窗，样本 27，看满一天再判）。
+  ③新发现：getUpdates 收 HTTP 502 时无退避——01:17:10–21Z 38 次 502 间隔 290 ms；transport `#postApi` 对 api_error 直接返回
+  ok:false、production `poll()` 转空批不抛、index.ts 循环退避只在 catch 里，两层各自把退避交给对方。非特权层，候选小单待裁。
+  ④订正：LANDING-N 落地 ts `2026-09-03T17:28:36Z` = 01:28 CST 09-04，下方 N 条目「01:28 UTC / 09:28 CST」是时区标错。
 - **LANDING-K 已落（2026-09-03 17:34，产线钉 main@f449fda，一次通过）**：WO-FIX-NOTJSON-01 ——
   DeepSeek json_object 空白输出的止血：not_json 重试从第二次起在 messages 末尾追加一条 user 引导
   （`JSON_RETRY_NUDGE`，decide 一处真源），不再原样重发；`ENVELOPE_RETRY_MAX` 1→2；converse 的
