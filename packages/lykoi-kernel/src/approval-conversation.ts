@@ -143,6 +143,8 @@ export interface ApprovalConversation {
       replyTo?: string | null
       origin?: string
       runId?: string | null
+      run_id?: string | null
+      turn_id?: string | null
       actionId?: string | null
       correlationId?: string | null
       now?: Date
@@ -267,10 +269,22 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
    * decide-信封动作的那一刻起承重，因为那时一句没盖章的问句会对自己 gate。
    * 结构来源标记：盖章的是**这条代码路径**，不是问句的内容。
    */
-  async function _send(contextId: string, text: string, replyTo: string | null): Promise<SendResult> {
+  async function _send(
+    contextId: string,
+    text: string,
+    replyTo: string | null,
+    turnContext: { run_id?: string | null; turn_id?: string | null } = {},
+  ): Promise<SendResult> {
     const observation = await deps.dispatch(
       { type: 'messenger.send', params: { text, context_id: contextId, reply_to: replyTo } },
-      { context: { origin: 'interactive', exemption: approvalMachinery() } },
+      {
+        context: {
+          origin: 'interactive',
+          exemption: approvalMachinery(),
+          ...(turnContext.run_id === undefined ? {} : { run_id: turnContext.run_id }),
+          ...(turnContext.turn_id === undefined ? {} : { turn_id: turnContext.turn_id }),
+        },
+      },
     )
     const data = (typeof observation.data === 'object' && observation.data !== null)
       ? observation.data as Record<string, unknown>
@@ -320,6 +334,8 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
       replyTo?: string | null
       origin?: string
       runId?: string | null
+      run_id?: string | null
+      turn_id?: string | null
       actionId?: string | null
       correlationId?: string | null
       // 静默期判定的时钟（缺省真钟；与 handleOwnerAnswer.now 同形）。recentDenial
@@ -363,7 +379,11 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
 
     // ③ 先发
     const text = questionText(actionType, params)
-    const delivery = await _send(contextId, text, replyTo)
+    const turnContext = {
+      ...(opts.run_id === undefined ? {} : { run_id: opts.run_id }),
+      ...(opts.turn_id === undefined ? {} : { turn_id: opts.turn_id }),
+    }
+    const delivery = await _send(contextId, text, replyTo, turnContext)
     if (!delivery.sent) {
       await interpreter.auditEvent(AUDIT_QUESTION, {
         stage: 'undelivered',
@@ -390,7 +410,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
         actionId: opts.actionId ?? null,
         correlationId: opts.correlationId ?? null,
         origin: opts.origin ?? 'interactive',
-        runId: opts.runId ?? null,
+        runId: opts.run_id !== undefined ? opts.run_id : opts.runId ?? null,
         questionMessageId: delivery.message_id,
         questionText: text,
       })
@@ -403,6 +423,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
         contextId,
         RETRACT_TEMPLATE.replace('{reason}', exc instanceof Error ? exc.name : 'Error'),
         replyTo,
+        turnContext,
       )
       await interpreter.auditEvent(AUDIT_QUESTION, {
         stage: 'retracted',

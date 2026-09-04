@@ -84,7 +84,7 @@ export const DUAL_NAMES: readonly string[] = Object.freeze([
  * | 面 | 成员 | 口径 | 正文可否在行内 |
  * |---|---|---|---|
  * | 特权层账 | `IMMUTABLE_TYPES` 三名 | SK-05 | **可**（`redactObj` 之后的副本；她做了什么、参数在内） |
- * | 对话面账 | `converse/*`、`u3_cycle_*`、`inner_outer_pair` | D-08 | 否（只记长度/哈希；正文归 history 表 = 她的记忆） |
+ * | 对话面账 | `converse/*`、`u3_cycle_*`、`turn/*`、`continuation/*`、`inner_outer_pair` | D-08 | 否（只记长度/哈希；正文归 history 表 = 她的记忆） |
  * | 遥测 | 其余全部 `logEvent` 名 | D-08 同向 | 否 |
  *
  * 运行期承重面在 `lykoi-converse/test/e2e.test.ts`（「对话面 audit 行零正文」
@@ -94,6 +94,8 @@ export const DUAL_NAMES: readonly string[] = Object.freeze([
 export const CONVERSATION_FACING_PREFIXES: readonly string[] = Object.freeze([
   'converse/',
   'u3_cycle_',
+  'turn/', // WO-OUTCOME-01：回合终局正本（turn/terminal、turn/route_failed、turn/notice_failed）
+  'continuation/', // WO-CONTINUATION-01：跟进终局正本（continuation/terminal、register_failed、notice_failed、runner_failed、scan_failed）
 ])
 export const CONVERSATION_FACING_NAMES: readonly string[] = Object.freeze([
   'inner_outer_pair',

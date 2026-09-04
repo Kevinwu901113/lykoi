@@ -79,6 +79,7 @@ export const STATE_FIXTURE_DDL = STATE_SCHEMA_DDL + stateBaselineDdl({
     { version: 15, appliedAt: '2026-08-24T00:00:00.000Z' },
     { version: 16, appliedAt: '2026-09-01T00:00:00.000Z' },
     { version: 17, appliedAt: '2026-09-02T00:00:00.000Z' },
+    { version: 18, appliedAt: '2026-09-04T00:00:00.000Z' },
   ],
   regulationUpdatedAt: '2026-08-20T00:00:00+00:00',
   learningSetAt: '2026-08-24T00:00:00+00:00',

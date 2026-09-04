@@ -113,6 +113,12 @@ export type DispatchOrigin = 'interactive' | 'autonomous' | 'scheduler' | 'syste
  */
 export interface DispatchContext {
   origin: DispatchOrigin
+  /**
+   * D-2d：认知回合关联的 snake_case ID。`runId` 保留给既有调用方；当两种
+   * 拼法同时出现时，snake_case 值只作为审计透传的显式新值（包括 null）。
+   */
+  run_id?: string | null
+  turn_id?: string | null
   runId?: string | null
   exemption?: unknown
   delegation?: DelegationRef | null
@@ -326,6 +332,20 @@ function _delegationAuditFields(context: DispatchContext): Record<string, unknow
   }
 }
 
+/**
+ * D-2d：把 DispatchContext 的回合 ID 映射到 immutable action 账。
+ *
+ * `runId` 是既有 camelCase 输入，继续映射到既有 `run_id` 栏；新 snake_case
+ * `run_id` 在被显式提供时优先，因而显式 null 不会被旧值覆盖。`turn_id` 不
+ * 参与判定，也不在调用方未提供时制造一个新字段（JSONL 序列化结果保持不变）。
+ */
+function _turnAuditFields(context: DispatchContext): Record<string, unknown> {
+  return {
+    run_id: context.run_id !== undefined ? context.run_id : context.runId ?? null,
+    ...(context.turn_id === undefined ? {} : { turn_id: context.turn_id }),
+  }
+}
+
 // --- dispatch ----------------------------------------------------------------
 
 export type PolicyDecision = 'allow' | 'ask' | 'deny' | 'pre_approved'
@@ -469,7 +489,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
         action_id: actionId,
         correlation_id: correlationId,
         origin: context.origin,
-        run_id: context.runId ?? null,
+        ..._turnAuditFields(context),
         reason: 'delegation_required',
       }
       await _immutableAudit(deps.sink, refusal) // 已经是拒绝路径：sink 不可用不会放宽任何东西
@@ -498,7 +518,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
       action_id: actionId,
       correlation_id: correlationId,
       origin: context.origin,
-      run_id: context.runId ?? null,
+      ..._turnAuditFields(context),
       params: safeParams,
       decision,
       pre_approved: preApproved,
@@ -529,7 +549,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
       action_id: actionId,
       correlation_id: correlationId,
       origin: context.origin,
-      run_id: context.runId ?? null,
+      ..._turnAuditFields(context),
       decision,
       success: observation.success,
       error: observation.error,

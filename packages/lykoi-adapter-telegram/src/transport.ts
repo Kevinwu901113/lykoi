@@ -138,6 +138,8 @@ export function recordUndelivered(opts: {
   attempts?: number
   source?: string
   now?: Date
+  /** 内部标记：缺省 true；系统失败回执传 false。 */
+  recordUndeliveredExperience?: boolean
 }): UndeliveredRecord {
   const text = opts.text ?? ''
   const record = appendUndelivered({
@@ -160,7 +162,9 @@ export function recordUndelivered(opts: {
     attempts: record.attempts,
     source: record.source,
   })
-  _recordUndeliveredExperience(record)
+  if (opts.recordUndeliveredExperience ?? true) {
+    _recordUndeliveredExperience(record)
+  }
   return record
 }
 
@@ -217,6 +221,14 @@ export type HttpPost = (
 ) => Promise<HttpResponse>
 
 export type SleepFn = (seconds: number) => Promise<void>
+
+/**
+ * 设备内部的出站标记，不是配置项：未注明时仍记录未送达经验；只有系统失败回执
+ * 明确关闭经验回灌，同时保留未送达账本与 telegram 传输审计。
+ */
+export interface TelegramSendOptions {
+  recordUndeliveredExperience?: boolean
+}
 
 export interface PostResult {
   ok: boolean
@@ -408,7 +420,7 @@ export class BotApiTransport {
     contextId: string
     text: string
     replyTo?: string | null
-  }): Promise<{
+  } & TelegramSendOptions): Promise<{
     message_id: string | null
     context_id: string
     sent?: boolean
@@ -435,6 +447,7 @@ export class BotApiTransport {
         ambiguous: Boolean(result.ambiguous),
         attempts: Number(result.attempts ?? 1),
         source: 'telegram_transport.send_message',
+        recordUndeliveredExperience: opts.recordUndeliveredExperience,
       })
       return {
         message_id: null,

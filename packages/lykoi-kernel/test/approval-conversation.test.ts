@@ -204,17 +204,22 @@ test('SK-30 asked：问句文本 = QUESTION_TEMPLATE∘describeAction；队列�
   const ac = createApprovalConversation({ dispatch })
   const params = { command: 'ls -la' }
   const out = await ac.requestApproval('terminal.exec', params, {
-    contextId: CTX, replyTo: 'inbound-9', origin: 'interactive', actionId: 'act-1', correlationId: 'corr-1',
+    contextId: CTX, replyTo: 'inbound-9', origin: 'interactive',
+    run_id: 'converse-9-90', turn_id: 'tg:9',
+    actionId: 'act-1', correlationId: 'corr-1',
   })
   assert.equal(out.status, 'asked')
   assert.equal(out.scope_key, null) // terminal.exec 不可 scope
   const send = sends()[0]!
   assert.equal(send.action.params.text, questionText('terminal.exec', params))
   assert.equal(send.action.params.reply_to, 'inbound-9') // reply_to 原样带下去（打扰纪律）
+  assert.equal(send.context.run_id, 'converse-9-90')
+  assert.equal(send.context.turn_id, 'tg:9')
   const row = findPending('act-1')!
   assert.equal(row.question_message_id, 'msg-1')
   assert.equal(row.question_text, questionText('terminal.exec', params))
   assert.equal(row.correlation_id, 'corr-1')
+  assert.equal(row.run_id, 'converse-9-90')
   assert.equal(row.origin, 'interactive')
   const asked = stageAudit(sink, 'asked')!
   assert.equal(asked.outcome, 'asked')

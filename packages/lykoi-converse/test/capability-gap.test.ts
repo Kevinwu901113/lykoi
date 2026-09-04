@@ -36,7 +36,9 @@ test('位点④：表外工具名 → capability_gap(unknown_action, converse, r
 
   // 原语义：cycle_unknown_tool 照落、error 结果照回填、周期照继续。
   assert.equal(reply, '查不了，我换个说法')
-  assert.deepEqual(lastEvent(h.events, 'cycle_unknown_tool'), { name: 'web_search' })
+  assert.deepEqual(lastEvent(h.events, 'cycle_unknown_tool'), {
+    name: 'web_search', run_id: 'r1', turn_id: null,
+  })
   const toolResult = h.llm.calls[1]!.messages.find((m) => m.role === 'tool')!
   assert.deepEqual(JSON.parse(toolResult.content!), {
     success: false, error: "unknown tool 'web_search'",

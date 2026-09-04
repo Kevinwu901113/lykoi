@@ -324,6 +324,28 @@ export const STATE_SCHEMA_DDL = `
     );
     CREATE INDEX IF NOT EXISTS idx_execution_receipts_contract ON execution_receipts(contract_id);
 
+    -- WO-CONTINUATION-01（mind_schema 18，D-1）：promise_followup 的消费者账簿。
+    -- 五个语义字段（origin_turn_id / goal / due_at / state / created_at）对应工单
+    -- 允许清单；id / origin_run_id / run_id / terminal_reason / updated_at 是账簿
+    -- 字段。**不加** parent / depends_on / attempts / artifacts / priority —— 那是
+    -- Task Runtime（E2），本表不是。goal 是她答应的事的原文（state 库 = 她的记忆，
+    -- 不是审计）。迁移件 018 的 DDL 与本段逐字一致
+    -- （governance/wo/WO-CONTINUATION-01/migrations/018_pending_continuations.up.sql）。
+    CREATE TABLE IF NOT EXISTS pending_continuations (
+      id TEXT PRIMARY KEY,
+      origin_turn_id TEXT NOT NULL,
+      origin_run_id TEXT,
+      goal TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'pending'
+        CHECK (state IN ('pending','running','completed','failed','expired')),
+      terminal_reason TEXT,
+      run_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pending_continuations_due ON pending_continuations(state, due_at);
+
     -- ====================== 生产 schema 补齐面（AUDIT-FIX-2026-09-02） ======================
     -- 以下对象在 M2 写层的移植面之外，因此此前不在夹具里；DDL 从 schema 16 的生产库
     -- sqlite_master 原样取回（列序、CHECK、触发器消息逐字）。造库入口必须落全，

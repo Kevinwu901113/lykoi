@@ -322,14 +322,31 @@ test('SK-79 可投递 kind = (proactive, followup)；GK-8 开启才加 notificat
 
 /** fake dispatch：记下每次派发；可注入失败。 */
 function organDispatch(mode: 'ok' | 'fail' = 'ok') {
-  const calls: { type: string; params: Record<string, unknown>; origin?: string; exemption?: unknown }[] = []
+  const calls: {
+    type: string
+    params: Record<string, unknown>
+    origin?: string
+    exemption?: unknown
+    run_id?: string | null
+    turn_id?: string | null
+  }[] = []
   let n = 0
   const dispatch = (async (action: { type: string; params: Record<string, unknown> }, opts?: {
-    context?: { origin?: string; exemption?: unknown }
+    context?: {
+      origin?: string
+      exemption?: unknown
+      run_id?: string | null
+      turn_id?: string | null
+    }
   }): Promise<Observation> => {
     calls.push({
       type: action.type, params: action.params,
-      ...(opts?.context === undefined ? {} : { origin: opts.context.origin, exemption: opts.context.exemption }),
+      ...(opts?.context === undefined ? {} : {
+        origin: opts.context.origin,
+        exemption: opts.context.exemption,
+        run_id: opts.context.run_id,
+        turn_id: opts.context.turn_id,
+      }),
     })
     if (mode === 'fail') return { success: false, data: {}, error: 'boom' }
     n += 1
@@ -436,8 +453,8 @@ test('SK-77 形状校验：action_type 非空 str + params 是 dict，**不对�
     dispatch: organDispatch().dispatch,
     ownerChannelKey: () => '1001',
     approval: {
-      requestApproval: async (t, p) => {
-        asked.push([t, p])
+      requestApproval: async (t, p, o) => {
+        asked.push([t, p, o])
         return { status: 'asked', pending_id: 'p-1' }
       },
       handleOwnerAnswer: async () => ({ outcome: 'ignored', executed: false }),
@@ -460,10 +477,17 @@ test('SK-77 形状校验：action_type 非空 str + params 是 dict，**不对�
   // 形状对的照问，且 reply_to = 当轮入站 id
   const ok = await organ.askAbout(
     { action_type: 'terminal.exec', params: { command: 'ls' }, action_id: 'a1', correlation_id: 'c1' },
-    { contextId: '1001', replyTo: '500' },
+    { contextId: '1001', replyTo: '500', run_id: 'converse-7-70', turn_id: 'tg:7' },
   )
   assert.equal(ok.asked, true)
-  assert.deepEqual(asked, [['terminal.exec', { command: 'ls' }]])
+  assert.deepEqual(asked, [[
+    'terminal.exec',
+    { command: 'ls' },
+    {
+      contextId: '1001', replyTo: '500', origin: 'interactive',
+      run_id: 'converse-7-70', turn_id: 'tg:7', actionId: 'a1', correlationId: 'c1',
+    },
+  ]])
 })
 
 test('SK-77 设备层**不自己写队列、不重试**（排队只在 requestApproval 里发生）', async () => {
@@ -524,15 +548,18 @@ test('SK-78 E2 盖章唯一点：送达 / 未送达补记 / needs_approval（排
     ownerChannelKey: () => '1001',
     approval: {
       requestApproval: async (t, p, o) => {
-        asked.push([t, o.replyTo, o.actionId])
+        asked.push([t, o.replyTo, o.actionId, o.run_id, o.turn_id])
         return { status: 'asked', pending_id: 'a1' }
       },
       handleOwnerAnswer: async () => ({ outcome: 'ignored', executed: false }),
     },
   })
-  assert.deepEqual(await organ.sendReply({ contextId: '1001', text: 'x', replyTo: '500' }),
+  assert.deepEqual(await organ.sendReply({
+    contextId: '1001', text: 'x', replyTo: '500',
+    run_id: 'converse-8-80', turn_id: 'tg:8',
+  }),
     { outcome: 'needs_approval' })
-  assert.deepEqual(asked, [['messenger.send', '500', 'a1']])
+  assert.deepEqual(asked, [['messenger.send', '500', 'a1', 'converse-8-80', 'tg:8']])
   assert.equal(undelivered().length, before, '排队等批 ≠ 未送达')
 
   // ④ dispatch 本身失败（transport 从未被调用）→ 同样不许静默
@@ -541,6 +568,18 @@ test('SK-78 E2 盖章唯一点：送达 / 未送达补记 / needs_approval（排
   assert.deepEqual(await organ.sendReply({ contextId: '1001', text: 'x', replyTo: '500' }),
     { outcome: 'dispatch_failed' })
   assert.equal(undelivered().at(-1)!.error, 'boom')
+})
+
+test('WO-OUTCOME-01 D-2：sendReply 可带回合 ID，且只进入 kernel context', async () => {
+  isolate()
+  const d = organDispatch()
+  const organ = new OutboundOrgan({ dispatch: d.dispatch, ownerChannelKey: () => '1001' })
+  assert.deepEqual(await organ.sendReply({
+    contextId: '1001', text: 'x', replyTo: '500', run_id: 'converse-7-70', turn_id: 'tg:7',
+  }), { outcome: 'delivered' })
+  assert.equal(d.calls[0]!.run_id, 'converse-7-70')
+  assert.equal(d.calls[0]!.turn_id, 'tg:7')
+  assert.deepEqual(d.calls[0]!.params, { text: 'x', context_id: '1001', reply_to: '500' })
 })
 
 // ============================== SK-82 S-08 三级路由 ==============================
@@ -571,17 +610,17 @@ test('SK-82 三级路由：审批答复 → 建议答复 → 普通对话；**�
 
   // ①第一级消费 → 第二级根本不跑
   seq.length = 0
-  assert.equal(await organWith('granted', 'accepted').routeOwnerMessage(args), true)
+  assert.equal(await organWith('granted', 'accepted').routeOwnerMessage(args), 'approval_answer')
   assert.deepEqual(seq, ['approval'])
 
   // ②第一级 ignored → 落到第二级；第二级消费
   seq.length = 0
-  assert.equal(await organWith('ignored', 'accepted').routeOwnerMessage(args), true)
+  assert.equal(await organWith('ignored', 'accepted').routeOwnerMessage(args), 'suggestion_answer')
   assert.deepEqual(seq, ['approval', 'suggestion'])
 
   // ③两级都 ignored → 不消费，落普通对话
   seq.length = 0
-  assert.equal(await organWith('ignored', 'ignored').routeOwnerMessage(args), false)
+  assert.equal(await organWith('ignored', 'ignored').routeOwnerMessage(args), null)
   assert.deepEqual(seq, ['approval', 'suggestion'])
 })
 

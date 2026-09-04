@@ -405,6 +405,147 @@ test('SK-11/12：action_result 不带 data/params 正文；无委托的行没有
   for (const record of sink.records) assert.ok(!('delegation' in record))
 })
 
+test('WO-OUTCOME-01 D-2d：snake_case run_id/turn_id 透传到 action_dispatch 与 action_result', async () => {
+  isolateKernelState()
+  const sink = fakeSink()
+  const dispatch = createDispatch({ sink, resources: echoResources() })
+  const observation = await dispatch(
+    { type: 'messenger.read', params: {} },
+    {
+      context: { origin: 'autonomous', run_id: 'run-snake', turn_id: 'turn-1' },
+      actionId: 'action-1',
+      correlationId: 'correlation-1',
+    },
+  )
+  assert.equal(observation.success, true)
+
+  const actionRows = sink.records.filter(
+    (record) => record.type === 'action_dispatch' || record.type === 'action_result',
+  )
+  assert.equal(actionRows.length, 2)
+  for (const record of actionRows) {
+    assert.equal(record.run_id, 'run-snake')
+    assert.equal(record.turn_id, 'turn-1')
+    assert.equal(record.action_id, 'action-1')
+    assert.equal(record.correlation_id, 'correlation-1')
+  }
+})
+
+test('WO-OUTCOME-01 D-2d：拒绝与资源失败路径也保留 snake_case ID，且不影响判定', async () => {
+  isolateKernelState()
+  const sink = fakeSink()
+  const dispatch = createDispatch({ sink, resources: echoResources() })
+  const denied = await dispatch(
+    { type: 'browser.navigate', params: { url: 'https://example.com' } },
+    {
+      context: { origin: 'interactive', run_id: 'run-denied', turn_id: 'turn-denied' },
+      actionId: 'action-denied',
+      correlationId: 'correlation-denied',
+    },
+  )
+  assert.equal(denied.error, 'needs_approval')
+
+  const failureSink = fakeSink()
+  const failureDispatch = createDispatch({
+    sink: failureSink,
+    resources: {
+      messenger: {
+        read: async () => {
+          throw new Error('resource failed')
+        },
+      },
+    },
+  })
+  const failed = await failureDispatch(
+    { type: 'messenger.read', params: {} },
+    {
+      context: { origin: 'autonomous', run_id: 'run-failed', turn_id: 'turn-failed' },
+      actionId: 'action-failed',
+      correlationId: 'correlation-failed',
+    },
+  )
+  assert.equal(failed.success, false)
+  assert.equal(failed.error, 'resource failed')
+
+  for (const [records, expected] of [
+    [sink.records, { run_id: 'run-denied', turn_id: 'turn-denied', action_id: 'action-denied', correlation_id: 'correlation-denied' }],
+    [failureSink.records, { run_id: 'run-failed', turn_id: 'turn-failed', action_id: 'action-failed', correlation_id: 'correlation-failed' }],
+  ] as const) {
+    const actionRows = records.filter(
+      (record) => record.type === 'action_dispatch' || record.type === 'action_result',
+    )
+    assert.equal(actionRows.length, 2)
+    for (const record of actionRows) {
+      assert.equal(record.run_id, expected.run_id)
+      assert.equal(record.turn_id, expected.turn_id)
+      assert.equal(record.action_id, expected.action_id)
+      assert.equal(record.correlation_id, expected.correlation_id)
+    }
+  }
+  assert.equal(sink.records.find((record) => record.type === 'action_dispatch')!.decision, 'ask')
+  assert.equal(failureSink.records.find((record) => record.type === 'action_result')!.success, false)
+})
+
+test('WO-OUTCOME-01 D-2d：缺失委托上下文的拒绝审计也透传 snake_case ID', async () => {
+  isolateKernelState()
+  const sink = fakeSink()
+  const dispatch = createDispatch({ sink, resources: echoResources() })
+  const refused = await dispatch(
+    { type: 'messenger.read', params: {} },
+    {
+      context: { origin: 'delegated', run_id: 'run-refused', turn_id: 'turn-refused' },
+      actionId: 'action-refused',
+      correlationId: 'correlation-refused',
+    },
+  )
+  assert.equal(refused.error, 'delegation_required')
+  assert.deepEqual(sink.records.map((record) => record.type), ['delegation_context_invalid'])
+  assert.deepEqual(sink.records[0], {
+    type: 'delegation_context_invalid',
+    ts: sink.records[0]!.ts,
+    action_type: 'messenger.read',
+    action_id: 'action-refused',
+    correlation_id: 'correlation-refused',
+    origin: 'delegated',
+    run_id: 'run-refused',
+    turn_id: 'turn-refused',
+    reason: 'delegation_required',
+  })
+})
+
+test('WO-OUTCOME-01 D-2d：旧 runId 兼容；未提供新字段时审计形状不新增 turn_id', async () => {
+  isolateKernelState()
+  const legacySink = fakeSink()
+  const legacyDispatch = createDispatch({ sink: legacySink, resources: echoResources() })
+  await legacyDispatch(
+    { type: 'messenger.read', params: {} },
+    { context: { origin: 'autonomous', runId: 'run-legacy' } },
+  )
+  const legacyRows = legacySink.records.filter(
+    (record) => record.type === 'action_dispatch' || record.type === 'action_result',
+  )
+  assert.equal(legacyRows.length, 2)
+  for (const record of legacyRows) {
+    assert.equal(record.run_id, 'run-legacy')
+    assert.ok(!('turn_id' in record))
+  }
+
+  const emptySink = fakeSink()
+  const emptyDispatch = createDispatch({ sink: emptySink, resources: echoResources() })
+  await emptyDispatch(
+    { type: 'messenger.read', params: {} },
+    { context: { origin: 'autonomous' } },
+  )
+  const emptyRows = emptySink.records.filter(
+    (record) => record.type === 'action_dispatch' || record.type === 'action_result',
+  )
+  assert.equal(emptyRows.length, 2)
+  for (const record of emptyRows) {
+    assert.equal(record.run_id, null)
+    assert.ok(!('turn_id' in record))
+  }
+})
+
 test('豁免栏（SK-05 附）：E 章免问不免账 —— audit 行 exemption 栏多一栏；非标记恒 null', async () => {
   isolateKernelState()
   const { approvalMachinery } = await import('../src/index.ts')

@@ -31,7 +31,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
-  applyInner, buildPersonaKernel, buildPersonaPrompt,
+  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
   emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
@@ -63,10 +63,11 @@ import {
 } from './hygiene.ts'
 import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
-  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
+  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER,
   SUMMARIZE_SYSTEM_PROMPT,
   SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt,
 } from './prompts.ts'
+import type { CycleOutcome } from './outcome.ts'
 
 // --- Context governance 常量（S-28；conversation.py:72-107 逐字，env 可覆写） ----
 
@@ -228,7 +229,11 @@ export interface ConverseObservation {
 /** kernel dispatch 接口位（M3 真 kernel；origin 由实现方盖章，永不由模型给）。 */
 export type ConverseDispatchFn = (
   action: { type: string; params: Record<string, unknown> },
-  context: { origin: 'interactive' },
+  context: {
+    origin: 'interactive'
+    run_id?: string | null
+    turn_id?: string | null
+  },
 ) => Promise<ConverseObservation>
 
 // --- WO-FIX-APPROVAL-UX ②：老横幅退役（cognition/conversation.py:428 迁入） ----
@@ -381,6 +386,8 @@ export class Conversation {
   #background = false
   #cycleInner: string | null = null
   #lastRunId = ''
+  #lastTurnId: string | null = null
+  #lastCycleOutcome: CycleOutcome | null = null
   /** S-56：截图路径永不交给模型 —— 只发不透明 attachment id（进程内注册表）。 */
   #attachments = new Map<string, string>()
 
@@ -401,7 +408,26 @@ export class Conversation {
   }
 
   #log(name: string, fields: Fields): void {
-    this.#deps.logEvent(name, fields)
+    this.#deps.logEvent(name, {
+      ...fields,
+      run_id: this.#lastRunId || null,
+      turn_id: this.#lastTurnId,
+    })
+  }
+
+  /** 当前认知尝试的 run_id；无当前回合时返回 null。 */
+  currentRunId(): string | null {
+    return this.#lastRunId || null
+  }
+
+  /** 当前用户回合的 turn_id；未由调用方提供时返回 null。 */
+  currentTurnId(): string | null {
+    return this.#lastTurnId
+  }
+
+  /** 最近一次 send 成立返回的周期结局；下一次 send 开始前会清空。 */
+  lastCycleOutcome(): CycleOutcome | null {
+    return this.#lastCycleOutcome
   }
 
   #innerEnabled(): boolean {
@@ -478,26 +504,20 @@ export class Conversation {
    * 读失败 → 一条事件 + 零字节：读不到就是这一层今天不叠，不是整轮对话失败。
    */
   #relationshipOverlaySection(): string {
-    const subject = this.#deps.store.ownerPrimaryUserId()
-    if (subject === null) return ''
-    let rows: RawRowLike[]
-    try {
-      rows = this.#deps.store.promotedRelationshipInsights(subject)
-    } catch (exc) {
+    // WO-OVERLAY-WAKE-01 D-1：渲染规则的唯一真源在 lykoi-decide/overlay.ts（wake
+    // 走同一个函数）；这里只剩落账。事件名与字段不变，加 origin 分辨两路。
+    const overlay = buildRelationshipOverlay(this.#deps.store)
+    if (overlay.error !== undefined) {
       this.#log('relationship_overlay_read_failed', {
-        error_type: exc instanceof Error ? exc.name : 'Error',
+        error_type: overlay.error, origin: 'converse',
       })
       return ''
     }
-    const lines = rows
-      .map((row) => String(row.content ?? '').trim())
-      .filter((content) => content.length > 0)
-      .map((content) => `- ${content}`)
-    if (lines.length === 0) return ''
+    if (overlay.count === 0) return ''
     this.#log('relationship_overlay_injected', {
-      count: lines.length, subject_user_id: subject,
+      count: overlay.count, subject_user_id: overlay.subject, origin: 'converse',
     })
-    return RELATIONSHIP_OVERLAY_HEADER + lines.join('\n')
+    return overlay.text
   }
 
   /** 重启回灌：最近的 history(conversation) 行（自旧到新），每侧裁 400 字。 */
@@ -1000,6 +1020,7 @@ export class Conversation {
             // WO-FIX-JSONMODE-01 D-2：同上，最后一次尝试是否带了 json_object。
             json_mode: jsonMode,
           })
+          this.#lastCycleOutcome = { kind: 'envelope_failed', step }
           return ''
         }
       }
@@ -1031,15 +1052,18 @@ export class Conversation {
       const kind = decision.kind
       if (kind === SILENCE) {
         // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
+        this.#lastCycleOutcome = { kind: 'silence', step }
         return ''
       }
       if (kind === REPLY) {
         this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#lastCycleOutcome = { kind: 'reply', step }
         return decision.content ?? ''
       }
       if (kind === PROMISE_FOLLOWUP) {
         this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
         this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#lastCycleOutcome = { kind: 'followup', step }
         return decision.content ?? ''
       }
       // --- tool_call ---
@@ -1053,17 +1077,23 @@ export class Conversation {
           detail: 'tool:none',
           step,
         })
+        this.#lastCycleOutcome = { kind: 'missing_tool', step }
         return ''
       }
       if (closing) {
         // 超界。不再执行、不硬编总结 —— 收尾周期已被告知走接力，她仍要动手，
         // 落账收在安全侧。
         this.#log(CYCLE_TOOL_BUDGET_EVENT, { tool: tool.name, steps: MAX_TOOL_STEPS })
+        this.#lastCycleOutcome = { kind: 'tool_budget', step }
         return ''
       }
       const outcome = await this.#executeCycleTool(step, tool)
-      if (outcome !== null) return outcome // 撞了审批门：这一轮的结局由那条腿交代
+      if (outcome !== null) {
+        this.#lastCycleOutcome = { kind: 'ask_pending', step }
+        return outcome // 撞了审批门：这一轮的结局由那条腿交代
+      }
     }
+    this.#lastCycleOutcome = { kind: 'silence', step: MAX_TOOL_STEPS }
     return '' // 不可达（closing 那一周期必然 return），安全侧兜底
   }
 
@@ -1375,6 +1405,11 @@ export class Conversation {
 
   // --- 回合骨架（S-12..S-17） --------------------------------------------------
 
+  /** 只读查看本轮是否登记了 follow-up；不消费请求。 */
+  hasFollowupRequest(): boolean {
+    return this.#followupRequest !== null
+  }
+
   /** 取走并清空本轮登记的跟进任务（S-60：取走即清）。 */
   takeFollowupRequest(): string | null {
     const task = this.#followupRequest
@@ -1409,6 +1444,7 @@ export class Conversation {
       background?: boolean
       replyToNotification?: ReplyToNotification | null
       runId?: string
+      turnId?: string | null
     } = {},
   ): Promise<string> {
     this.#deps.markActive?.() // S-17：开头一次（M3 接真锁）
@@ -1419,7 +1455,9 @@ export class Conversation {
       this.#followupRequest = null
       this.#delegatedAsk = null
       this.#cycleInner = null
+      this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
+      this.#lastTurnId = opts.turnId ?? null
       const checkpoint = this.#messages.length
       this.#messages.push({ role: 'user', content: message })
       // 来话即探针 —— 一轮一次检索，结果贴进易变尾部（零 LLM）。
@@ -1438,7 +1476,6 @@ export class Conversation {
             elapsed_ms: exc.elapsedMs,
             timeout_ms: exc.timeoutMs,
             reason: 'cycle_timeout',
-            run_id: this.#lastRunId,
           })
         }
         // S-14：失败回合整轮回滚 —— 消息列表永不带半截轮（未应答的 tool_call
@@ -1463,7 +1500,7 @@ export class Conversation {
       // （她的记忆），不归事件流。活体在这里写明文正文，与 u3_* 的隐私口径
       // 自相矛盾；出生规格统一成严的那一侧。
       this.#log('inner_outer_pair', {
-        turn_id: historyId,
+        history_id: historyId,
         reply_chars: [...reply].length,
         reply_sha16: sha16(reply),
         inner_chars: appliedInner === null ? 0 : [...appliedInner].length,
