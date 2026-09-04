@@ -61,6 +61,7 @@ function fakeConversation(options: FakeConversationOptions): {
       return options.reply ?? ''
     },
     hasFollowupRequest: () => options.followup === true,
+    takeFollowupRequest: () => (options.followup === true ? 'FOLLOWUP_GOAL_SENTINEL' : null),
     lastCycleOutcome: () => options.cycleKind === undefined
       ? null
       : { kind: options.cycleKind, step: 0 },

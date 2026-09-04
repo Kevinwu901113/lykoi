@@ -58,11 +58,13 @@ import {
 import {
   VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
 } from './vision.ts'
+import { ContinuationRunner, type ContinuationsService } from './continuation.ts'
+import { failureReason } from './failure.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
-import { D01_DEFAULTS, DeadlineExceededError, runInterpretWithDeadline } from './deadline.ts'
+import { D01_DEFAULTS, runInterpretWithDeadline } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
 import {
-  SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome,
+  SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome, type TurnStatus,
 } from './outcome.ts'
 
 export * from './contract.ts'
@@ -70,6 +72,8 @@ export * from './conversation.ts'
 export * from './deadline.ts'
 export * from './exemption.ts'
 export * from './hygiene.ts'
+export * from './continuation.ts'
+export * from './failure.ts'
 export * from './outcome.ts'
 export * from './prompts.ts'
 export * from './vision.ts'
@@ -187,6 +191,8 @@ export interface ConverseService {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     converse: ConverseService
+    /** WO-CONTINUATION-01：跟进消费者（wake 的 cheap tick 经它扫描）。 */
+    continuations: ContinuationsService
   }
 }
 
@@ -592,6 +598,33 @@ export function apply(ctx: Context, config: Config) {
 
   ctx.provide('converse', { conversation, approval, suggestion })
 
+  // --- WO-CONTINUATION-01：promise_followup 的消费者 ---
+  // 登记发生在 handleTurn.finally（回合终局之后）；扫描由 wake 的 cheap tick
+  // （600 s）与登记后的 kick 驱动；启动时先把上个进程留下的 running 行收账。
+  const continuations = new ContinuationRunner({
+    store,
+    conversation,
+    audit: ctx.audit,
+    telegram: () => ctx.get('telegram') as TelegramAdapterService | undefined,
+    postProgress: (content) => { appendOutbox(content, 'followup', { logEvent }) },
+    now: () => new Date(),
+    onError: (where, err) => {
+      ctx.logger.error('lykoi-converse: continuation %s failed: %s', where, String(err))
+      logEvent('continuation/runner_failed', { where, error_name: err instanceof Error ? err.name : 'unknown' })
+    },
+  })
+  ctx.provide('continuations', continuations)
+  ctx.effect(() => {
+    const now = new Date()
+    continuations.recoverOnStartup(now)
+      .then(() => continuations.scan(new Date()))
+      .catch((err) => {
+        ctx.logger.error('lykoi-converse: continuation startup failed: %s', String(err))
+        logEvent('continuation/runner_failed', { where: 'startup', error_name: err instanceof Error ? err.name : 'unknown' })
+      })
+    return () => {}
+  }, 'lykoi-converse continuation startup')
+
   // --- M3-W3 接线：出站器官装进设备层（SK-77/78/79/82；D-07） ---
   // **晚绑定**：设备层与认知层互为对方的下游（活体用 `messenger._TRANSPORT =
   // transport` 的同一手法在启动时打通）。telegram 默认 disabled 时这段整段不跑，
@@ -609,7 +642,7 @@ export function apply(ctx: Context, config: Config) {
   }
 
   ctx.on('lykoi/telegram/inbound', async (message) => {
-    await handleTurn(ctx, conversation, message)
+    await handleTurn(ctx, conversation, message, continuations)
   })
 }
 
@@ -648,23 +681,20 @@ function resolveTurnOutcome(input: TurnResolution): Pick<TurnOutcome, 'status' |
   return { status: 'intentional_silence', reason: null }
 }
 
-function failureReason(err: unknown): TurnFailReason {
-  if (err instanceof ContextBudgetError) return 'context_budget'
-  if (err instanceof LlmFinishError) return 'llm_failed'
-  if (err instanceof DeadlineExceededError) return 'deadline_exceeded'
-  if (err instanceof Error && err.name === 'BudgetExceeded') return 'budget_exceeded'
-  return 'unknown'
-}
-
 const NOTICE_REASONS = new Set<TurnFailReason>([
   'envelope_failed', 'missing_tool', 'tool_budget_exhausted', 'llm_failed',
   'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown',
 ])
 
+/** WO-CONTINUATION-01 D-2：只有这三种终局的 followup 才登记（失败回合的承诺不算数）。 */
+const CONTINUATION_ELIGIBLE_STATUSES: ReadonlySet<TurnStatus>
+  = new Set<TurnStatus>(['replied', 'intentional_silence', 'deferred'])
+
 export async function handleTurn(
   ctx: Context,
   conversation: Conversation,
   message: InboundMessage,
+  continuations?: ContinuationsService,
 ): Promise<void> {
   const started = performance.now()
   const inboundId = `tg:${message.updateId}`
@@ -832,6 +862,15 @@ export async function handleTurn(
     await sendFailureNotice(reason)
   } finally {
     const outcome = terminal ?? resolveTurnOutcome({ kind: 'failure', reason: 'unknown' })
+    // WO-CONTINUATION-01 D-2：终局落定后才登记（取走即清，S-60）；登记失败由
+    // runner 自己落账并返回 null，终局照常。
+    let continuationId: string | null = null
+    if (continuations !== undefined && CONTINUATION_ELIGIBLE_STATUSES.has(outcome.status)) {
+      const goal = conversation.takeFollowupRequest()
+      if (goal !== null) {
+        continuationId = continuations.register({ originTurnId: turnId, originRunId: runId, goal })
+      }
+    }
     await ctx.audit.record({
       type: 'turn/terminal',
       turn_id: turnId,
@@ -849,6 +888,8 @@ export async function handleTurn(
       notice_sent: noticeSent,
       reply_chars: replyChars,
       elapsed_ms: Math.max(0, Math.round(performance.now() - started)),
+      continuation_id: continuationId,
     })
+    if (continuationId !== null) continuations!.kick()
   }
 }

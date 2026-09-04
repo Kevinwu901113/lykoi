@@ -165,6 +165,24 @@ export interface AutonomyRunRow {
   notificationCount: number | null
 }
 
+/** WO-CONTINUATION-01 D-1：pending_continuations 的一行（列名 snake_case 原样）。 */
+export interface PendingContinuationRow {
+  id: string
+  origin_turn_id: string
+  origin_run_id: string | null
+  goal: string
+  due_at: string
+  state: ContinuationState
+  terminal_reason: string | null
+  run_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type ContinuationState = 'pending' | 'running' | 'completed' | 'failed' | 'expired'
+export const CONTINUATION_TERMINAL_STATES: readonly ContinuationState[]
+  = Object.freeze(['completed', 'failed', 'expired'])
+
 export interface FinishAutonomyRunOptions {
   /** autonomy_runs.status 注释级枚举（C 契约 §1.2：无 CHECK，纪律在 API 层）。 */
   status: 'completed' | 'failed' | 'stale'
@@ -2643,6 +2661,106 @@ export class ReadWriteMemory {
       cooldown_until_cycle: opts.cooldownUntilCycle ?? null,
     })
     return moved
+  }
+
+  // ============================== pending_continuations（WO-CONTINUATION-01） ==============================
+
+  /**
+   * D-2：登记一条待续跑的承诺。id 由调用方铸（`cont-<origin_turn_id>-<ms>`），
+   * 撞主键即抛（同一回合登记两次是调用方的错，不静默）。
+   */
+  registerContinuation(row: {
+    id: string
+    originTurnId: string
+    originRunId: string | null
+    goal: string
+    dueAt: Date
+    now: Date
+  }): void {
+    if (typeof row.id !== 'string' || row.id.length === 0) {
+      throw new TypeError('lykoi-memory: continuation id must be a non-empty string')
+    }
+    if (typeof row.goal !== 'string' || row.goal.trim().length === 0) {
+      throw new TypeError('lykoi-memory: continuation goal must be a non-empty string')
+    }
+    const moment = formatPyIso(row.now)
+    this.#tx(() => {
+      this.#db.prepare(
+        `INSERT INTO pending_continuations
+           (id, origin_turn_id, origin_run_id, goal, due_at, state, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      ).run(row.id, row.originTurnId, row.originRunId, row.goal, formatPyIso(row.dueAt), moment, moment)
+    })
+    this.#log('continuation_registered', { continuation_id: row.id, goal_chars: [...row.goal].length })
+  }
+
+  /** D-3：到期的 pending 行（due_at ≤ now），按 due_at 升序，最多 limit 条。 */
+  dueContinuations(now: Date, limit: number): PendingContinuationRow[] {
+    return this.#db.prepare(
+      `SELECT id, origin_turn_id, origin_run_id, goal, due_at, state, terminal_reason, run_id,
+              created_at, updated_at
+         FROM pending_continuations
+        WHERE state = 'pending' AND due_at <= ?
+        ORDER BY due_at ASC, created_at ASC
+        LIMIT ?`,
+    ).all(formatPyIso(now), limit) as unknown as PendingContinuationRow[]
+  }
+
+  /** D-3 启动扫描：进程死在半路留下的 running 行。 */
+  runningContinuations(): PendingContinuationRow[] {
+    return this.#db.prepare(
+      `SELECT id, origin_turn_id, origin_run_id, goal, due_at, state, terminal_reason, run_id,
+              created_at, updated_at
+         FROM pending_continuations
+        WHERE state = 'running'
+        ORDER BY updated_at ASC`,
+    ).all() as unknown as PendingContinuationRow[]
+  }
+
+  /**
+   * D-4：pending → running 的 CAS（rowcount 租约，R3 范式）。返回 false = 已被别的
+   * 扫描拿走或已终局，调用方跳过。
+   */
+  claimContinuation(id: string, runId: string, now: Date): boolean {
+    return this.#tx(() => {
+      const info = this.#db.prepare(
+        `UPDATE pending_continuations
+            SET state = 'running', run_id = ?, updated_at = ?
+          WHERE id = ? AND state = 'pending'`,
+      ).run(runId, formatPyIso(now), id)
+      return Number(info.changes) === 1
+    })
+  }
+
+  /**
+   * D-5：收账到三种终局之一。只允许从 pending / running 出发（终局是一次性的：
+   * 已终局的行再收账 = 0 行受影响，返回 false，不抛 —— 两个扫描撞上同一行时后者
+   * 静默让位）。
+   */
+  finishContinuation(
+    id: string, state: 'completed' | 'failed' | 'expired', reason: string | null, now: Date,
+  ): boolean {
+    if (!CONTINUATION_TERMINAL_STATES.includes(state)) {
+      throw new Error(`lykoi-memory: invalid continuation terminal state '${String(state)}'`)
+    }
+    return this.#tx(() => {
+      const info = this.#db.prepare(
+        `UPDATE pending_continuations
+            SET state = ?, terminal_reason = ?, updated_at = ?
+          WHERE id = ? AND state IN ('pending','running')`,
+      ).run(state, reason, formatPyIso(now), id)
+      return Number(info.changes) === 1
+    })
+  }
+
+  /** 读一行（测试与观测用）。 */
+  getContinuation(id: string): PendingContinuationRow | null {
+    const row = this.#db.prepare(
+      `SELECT id, origin_turn_id, origin_run_id, goal, due_at, state, terminal_reason, run_id,
+              created_at, updated_at
+         FROM pending_continuations WHERE id = ?`,
+    ).get(id) as unknown as PendingContinuationRow | undefined
+    return row ?? null
   }
 
   close(): void {

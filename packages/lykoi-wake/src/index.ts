@@ -235,6 +235,41 @@ function recordWakeClock(deps: WakeDeps, moment: Date): void {
  * `relationship_overlay_read_failed`，非空一条 `relationship_overlay_injected`，
  * 两者都带 `origin:'wake'`；空态零字节零事件。
  */
+/** WO-CONTINUATION-01：wake 看到的跟进扫描面（converse 提供 `continuations` 服务）。 */
+export interface ContinuationScanner {
+  scan(now: Date): Promise<unknown>
+}
+
+/**
+ * 一次 cheap tick 的实体（从 interval 回调抽出来好测）：SA-67 的 cheapTick +
+ * 跟进账簿扫描。两段互不牵连 —— cheapTick 抛了扫描照扫，扫描拒绝只落
+ * `continuation/scan_failed`。扫描是异步的，本函数不等它。
+ */
+export function runCheapTick(input: {
+  store: Parameters<typeof cheapTick>[0]['store']
+  notifications: NotificationsView
+  now: Date
+  logEvent: LogEvent
+  continuations?: ContinuationScanner | undefined
+}): void {
+  try {
+    cheapTick({ store: input.store, notifications: input.notifications, now: input.now, logEvent: input.logEvent })
+  } catch (exc) {
+    input.logEvent('cheap_tick_failed', { error: exc instanceof Error ? exc.message : String(exc) })
+  }
+  if (input.continuations === undefined) return
+  let scanned: Promise<unknown>
+  try {
+    scanned = input.continuations.scan(input.now)
+  } catch (exc) {
+    input.logEvent('continuation/scan_failed', { error_name: exc instanceof Error ? exc.name : 'unknown' })
+    return
+  }
+  scanned.catch((exc) => {
+    input.logEvent('continuation/scan_failed', { error_name: exc instanceof Error ? exc.name : 'unknown' })
+  })
+}
+
 export function overlayMessageDep(
   store: OverlayReader, logEvent: LogEvent,
 ): () => string {
@@ -627,16 +662,17 @@ export function apply(ctx: Context, config: Config) {
   })
 
   // cheap tick 驱动（SA-67）：600s 限频、失败只 log 不致命。
+  // WO-CONTINUATION-01 D-3：同一拍顺带扫 converse 的跟进账簿（跨插件晚绑定，
+  // converse 不在 wake 的依赖表里，只认结构面）。
   const driver = new CheapTickDriver()
   ctx.effect(() => {
     const timer = setInterval(() => {
       const now = systemClock.now()
       if (!driver.due(now)) return
-      try {
-        cheapTick({ store, notifications, now, logEvent })
-      } catch (exc) {
-        logEvent('cheap_tick_failed', { error: exc instanceof Error ? exc.message : String(exc) })
-      }
+      runCheapTick({
+        store, notifications, now, logEvent,
+        continuations: ctx.get('continuations') as ContinuationScanner | undefined,
+      })
     }, config.checkIntervalMs)
     return () => clearInterval(timer)
   }, 'lykoi-wake cheap tick driver')

@@ -30,8 +30,12 @@ import { resolve } from 'node:path'
  * **登记一个新版本号**：改 CHECK 而不升版会让两种物理 schema 同称 16，版本门就
  * 形同虚设（门放行之后才在 `CHECK constraint failed` 上炸，正是这道门要防的事）。
  * 部署纪律因此是「停 → 施加 017 → 起新体」；回滚梯子见 `.down.sql`。
+ * 18 = 17 + WO-CONTINUATION-01 的 `pending_continuations` 表（迁移件
+ * `governance/wo/WO-CONTINUATION-01/migrations/018_pending_continuations.up.sql`）。
+ * 加表同样升版：旧体不认识这张表也不会读它，但新体的续跑路径**依赖**它存在，
+ * 版本门把"表缺席"挡在开库处而不是首次写入处。
  */
-export const EXPECTED_MIND_SCHEMA_VERSION = 17
+export const EXPECTED_MIND_SCHEMA_VERSION = 18
 
 // ============================== C-22 时间戳 ==============================
 
