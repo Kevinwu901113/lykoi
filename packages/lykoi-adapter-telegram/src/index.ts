@@ -23,6 +23,7 @@ import { mkdir, open, rename } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { DelegatedAsk, OutboundOrgan } from './device.ts'
 import { setTransport as setMessengerTransport, type MessengerTransport } from './messenger.ts'
+import { TelegramPollError } from './transport.ts'
 
 export * from './device.ts'
 export * from './messenger.ts'
@@ -591,6 +592,21 @@ export function apply(ctx: Context, config: Config) {
           } catch (err) {
             ctx.logger.warn('lykoi-adapter-telegram: poll failed, backing off %ds: %s',
               backoffS, String(err))
+            // WO-FIX-POLLBACKOFF-01 D-2：退避这件事本身要在账面上留痕（在它之前
+            // 长轮询失败只有 transport 侧的 `telegram_transport_api_error` 连发，
+            // 看不出有没有退避、退了多久）。**自成一个 try**：审计写不进去也不许
+            // 影响退避本身（口径同 consumeOutboxOnce）。
+            try {
+              await ctx.audit.record({
+                type: 'telegram/poll_backoff',
+                // 消费者抛的 AggregateError 等一律归 unexpected（不是 getUpdates 失败）。
+                category: err instanceof TelegramPollError ? err.category : 'unexpected',
+                ...(err instanceof TelegramPollError && err.status !== undefined
+                  ? { status: err.status }
+                  : {}),
+                backoff_s: backoffS,
+              })
+            } catch { /* 审计失败不改退避节奏 */ }
             await new Promise<void>((resolveSleep) => {
               const timer = setTimeout(resolveSleep, backoffS * 1000)
               abort.signal.addEventListener('abort', () => {
