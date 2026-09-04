@@ -479,17 +479,28 @@ export class BotApiTransport {
    * 一次长轮询 `getUpdates`（offset 含义 = Bot API 自己的去重：传 offset 就 ack
    * 了它以下的全部 update，Telegram 不再重发）。HTTP 客户端超时垫在服务端长轮询
    * 秒数之上，好让这段等待本身永远不被误当成一次网络故障。
+   *
+   * 失败时 `status` 随 `error` 一起透出（WO-FIX-POLLBACKOFF-01 R-1a）：没有它，
+   * 平台 5xx 与限流在设备层账面上都只是一个 `api_error`，落地读数分不开。**只
+   * 透传，不解释**：`#postApi` 给什么就是什么，且只在它确实是数字时才带上 ——
+   * token 纪律不变（状态码是数字，不是文本，泄不出 URL 与 token）。
    */
   async pollUpdates(opts: { offset: number; timeoutS?: number }): Promise<{
     updates: { update_id: unknown; message: NormalizedMessage | null }[]
     error?: string
+    /** HTTP 状态（仅失败分支、仅数字）。`network_error` 这类没有它的失败不带。 */
+    status?: number
   }> {
     const timeout = opts.timeoutS ?? 25
     const result = await this.#postApi(
       'getUpdates', { offset: opts.offset, timeout }, { timeoutS: timeout + 10.0 },
     )
     if (result.ok !== true) {
-      return { updates: [], ...(result.error === undefined ? {} : { error: result.error }) }
+      return {
+        updates: [],
+        ...(result.error === undefined ? {} : { error: result.error }),
+        ...(typeof result.status === 'number' ? { status: result.status } : {}),
+      }
     }
     const updates: { update_id: unknown; message: NormalizedMessage | null }[] = []
     for (const raw of (result.result as Record<string, unknown>[] | undefined) ?? []) {

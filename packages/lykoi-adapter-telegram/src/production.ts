@@ -75,10 +75,12 @@ export class ProductionTelegramTransport implements TelegramTransport {
    * 不推进游标，那些 update 下一轮还在（平台侧未 ack）。
    *
    * 抛出的错误只带**类别**与数字 `status`，不带 URL / token / 原始异常文本。
+   * `status` 由 `pollUpdates` 透传（R-1a/R-1b）：502 与 429 在账面上从此分得开；
+   * 没有状态码的失败（`network_error`）照旧不带这一位。
    */
   async poll(offset: number, options: { timeoutS: number }): Promise<TelegramUpdate[]> {
     const result = await this.#api.pollUpdates({ offset, timeoutS: options.timeoutS })
-    if (result.error !== undefined) throw new TelegramPollError(result.error)
+    if (result.error !== undefined) throw new TelegramPollError(result.error, result.status)
     const updates: TelegramUpdate[] = []
     for (const raw of result.updates) {
       const message = raw.message

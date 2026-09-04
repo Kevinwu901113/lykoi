@@ -306,6 +306,8 @@ test('D-1 api_error：getUpdates HTTP 快速失败 → poll 抛 TelegramPollErro
       assert.ok(err instanceof TelegramPollError, 'err instanceof TelegramPollError')
       assert.equal(err.category, 'api_error')
       assert.equal(err.message, 'getUpdates failed: api_error')
+      // R-1：状态码透传到设备层 —— 502 与 429 在账面上分得开。
+      assert.equal(err.status, 502)
       return true
     },
   )
@@ -324,6 +326,8 @@ test('D-1 network_error：连不上 → poll 抛 TelegramPollError(network_error
       assert.ok(err instanceof TelegramPollError)
       assert.equal(err.category, 'network_error')
       assert.equal(err.message, 'getUpdates failed: network_error')
+      // 连不上根本没有 HTTP 状态 —— 这一位就该缺席，不许编一个出来。
+      assert.equal(err.status, undefined)
       return true
     },
   )
@@ -484,4 +488,22 @@ test('D-2 审计自成一个 try：record 抛也不改退避节奏', async () =>
     logger: { warn: () => {} },
   })
   assert.deepEqual(slept, [1, 2, 4], '审计写不进去，退避照常 1→2→4')
+})
+
+test('R-1 审计行带 status：pollOnce 抛 TelegramPollError(api_error, 502) → poll_backoff.status = 502', async () => {
+  const abort = new AbortController()
+  const audit = fakeAudit()
+  await adapterPlugin.runPollLoop({
+    async pollOnce(): Promise<number> { throw new TelegramPollError('api_error', 502) },
+    async consumeOutboxOnce(): Promise<void> {},
+  }, {
+    signal: abort.signal,
+    async sleep() { abort.abort() },
+    audit,
+    logger: { warn: () => {} },
+  })
+  const event = audit.events.find((e) => e.type === 'telegram/poll_backoff')!
+  assert.equal(event.category, 'api_error')
+  assert.equal(event.status, 502)
+  assert.equal(event.backoff_s, 1)
 })
