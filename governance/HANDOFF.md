@@ -486,6 +486,14 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
+- **WO-FIX-POLLBACKOFF-01 已裁合 main@3c47c2e，LANDING-O 待落（2026-09-04 下午）**：getUpdates 失败进入轮询循环退避——
+  `production.poll` 失败即抛 `TelegramPollError`（类别 + 数字 status，零 URL/token），循环体抽成可注入 sleep 的 `runPollLoop`，
+  catch 内落审计 `telegram/poll_backoff {category,status?,backoff_s}`；transport `#postApi` 逻辑不动，`pollUpdates` 只加 status 透传（R-1）。
+  opus 执行 tip e1b919a，复核 PASS，合并树 1046/1035/0/11。落地稿 `wo/WO-FIX-POLLBACKOFF-01/landing-o-pollbackoff.sh`
+  （sha f3dac2ed…738a25，起点 e299c1d，manifest 仍 113，零迁移零 unit 零 profile），bundle `/tmp/lykoi-landing-o.bundle`
+  （sha e1c9e4a2…7abdc）与脚本已在服务器 /tmp。新语义：退避期间出站队列不消费（最长 60 s），复核接受为本意。
+  待清理：`fetchUpdates`（messenger.read 后端）仍把失败吞成零条。落地后读数：下次 502/超时期间 `telegram_transport_api_error`
+  相邻间隔 ≥ 1 s 递增、`telegram/poll_backoff` 出现并在恢复后停止。
 - **LANDING-N 落地后读数（2026-09-04 14:53 CST 读，13.4 h 窗）**：复评稿 `docs/landing_n_readout_2026-09-04.md`。
   ①对话路径零样本：落地后 `telegram/inbound` 0（最后一条 16:44Z 09-03，落地前），N 的四项验收读数
   （research success:false / unbacked_claim、step 0 elapsed 对 token、step≥1 first_char:other、notify_owner 误用）本次不能判定，

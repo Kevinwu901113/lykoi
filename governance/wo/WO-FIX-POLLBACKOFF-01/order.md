@@ -1,6 +1,6 @@
 # WO-FIX-POLLBACKOFF-01 · getUpdates 失败进入轮询循环的退避
 
-- 状态：**复核 PASS，待 Kevin 裁合**（opus 执行于 wo/fix-pollbackoff-01，基线 main@c88959c，tip e1b919a，6 提交 + report.md；复核见 review.md；1046/1035/0/11）
+- 状态：**已裁合 main@3c47c2e，LANDING-O 待 Kevin root 跑**（Kevin 2026-09-04「合」；落地稿 landing-o-pollbackoff.sh sha f3dac2ed…738a25，bundle e1c9e4a2…7abdc 已在服务器 /tmp；合并树 tsc 净 1046/1035/0/11；opus 执行于 wo/fix-pollbackoff-01，基线 main@c88959c，tip e1b919a，6 提交 + report.md；复核见 review.md；1046/1035/0/11）
 - 立单：2026-09-04 15:30 CST，主治理 Agent
 - 读数：governance/docs/landing_n_readout_2026-09-04.md §3
 - 包：lykoi-adapter-telegram（production.ts、index.ts、transport.ts 注释；测试）。kernel / gate / profile / deploy 不动。
