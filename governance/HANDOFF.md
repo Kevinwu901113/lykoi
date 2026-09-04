@@ -510,12 +510,22 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
     C-29 明文不设 journal_mode，全树无设置点。实测（`governance/wo/WO-R2-NEWBODY-01/wal-contention.mjs`）rollback
     journal 下开着的读事务把写方顶满 busy_timeout（10.4 s）后失败，WAL 下 0.5 ms 通过。**限定**：现行推演不持跨 LLM
     读事务，今天碰不到；它约束的是 R2 的 N 分支并行设计——**要么先切 WAL，要么把"分支不持事务"写成 R2 硬约束**。
-    Kevin 一条只读命令待跑（report §3.1）。1106/pass 1095/fail 0/skip 11（基线 +2）。
+    产线读数已回填：`journal_mode=delete` / `user_version=0`（后者是既定口径，schema 版本走台账表 `MAX(version)`）——前置 3 未达由读数确认，不再是推断。
   - `wo/kinds-01` — WO-KINDS-01，KINDS 评估与收敛。**建议甲案**（抽共同 `ACTION_TABLE`，两枚举派生，争取提示词 sha 不变）。
     差异分「路径性质决定」三条（有无对端、候选表接地、demote vs 重试——乙案要逐条重建，风险高）与「只是历史」四条
     （notify 两名两参、explore url 取值位置、promise_followup 两处、工具面 8:1 不对等）。**不建 delegate kind**
-    （PROBE-CAP-01 §5.3：模型 0/12 主动选它）。产线计数待 Kevin 跑 `governance/wo/WO-KINDS-01/count-kinds.sh`（只读）。
-    四条待裁在 analysis.md §5。
+    （PROBE-CAP-01 §5.3：模型 0/12 主动选它）。**产线读数已回填**（187 拍）：rest 89（含 13 降级）/ contemplate 32 / tend_inner 22 / explore 14（8 成 6 败）/ initiate_chat 2 /
+    **record_note 0** / **queue_notification 0**。两个零次**归因于偏好而非闸**——对照组权重与内容必填全对等，且被闸拦下仍记
+    `completed`（SA-62），所以"试了被拦"会出现在计数里。**判零次前先确认该 kind 的失败路径会不会把自己从计数里抹掉。**
+    处置建议：`record_note` 并进 `tend_inner`；`queue_notification` 保留查候选表措辞。analysis.md §5 六条待裁。
+  - **读数撞出三件候选单（待 Kevin 定是否立）**：① 异常拍 15%（28/187 落 `autonomy_wake_failed`）；② `explore` 失败 43%（6/14）；
+    ③ 现有审计分不出 `explore` 的两种失败形态（要分得先给两种失败各自的事件，**不要去统计经验正文**）。
+  - **审计日志两代行已判定**：2134 行用 `event` 键者 = 活体（Python）历史残留，非新体绕过。证据：时间戳是微秒 +`+00:00` 的 Python
+    isoformat，而新体一律 `new Date().toISOString()`（毫秒 +`Z`；`lykoi-audit/src/index.ts:85`、`kernel/dispatch.ts:25-27`、
+    `approval-interpreter.ts:764`）；且 `auditEvent()` 实现就是 `{type: event, ...}`，新体产不出 `event` 键。范围 2026-06-05 →
+    2026-08-31 13:16Z。**只剩一问：活体是不是到 08-31 才停的**——若本该更早停，则有个本该停掉的写者还在跑，要立单。
+    **门的词汇登记只认 `type`**，`event` 形态的行它看不见。`question_text`/`answer_text` 在审计行里是 SK-35 六元组明文设计
+    （`approval-interpreter.ts:712-723`），与 D-08「审计行零正文」是两条口径管两类行，**白皮书应写明这个区别**。
 
 - **白皮书 v1.3 措辞稿已写（2026-09-05）**：`docs/whitepaper_v1.3_wording_draft_2026-09-05.md`。
   五条给出可直接粘贴的正文——C-3 出站分段与"通道上限归通道、不进契约"（37.3 增补）、C-4 入站先落盘与重放合并（37.3 增补）、
