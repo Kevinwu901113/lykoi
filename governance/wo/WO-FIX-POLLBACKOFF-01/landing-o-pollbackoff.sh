@@ -1,5 +1,7 @@
 #!/bin/bash
-# LANDING-O · WO-FIX-POLLBACKOFF-01 落地 —— 产线树 main@e299c1d → main@3c47c2e
+# LANDING-O v2 · WO-FIX-POLLBACKOFF-01 落地 —— 产线树 main@e299c1d → main@3c47c2e
+# v2（16:20 CST）：v1 在 §3「packages 改动只许 adapter-telegram」一行因 grep -v 零匹配 + pipefail 静默退出（大脑已停、树已钉、npm ci/重签未做）；
+#   v2 只改该行（grep 包进 { … || true; }），其余逐字节相同。v2 可从 v1 中断态直接重跑：§0 接受 HEAD=NEW_SHA，§1/§2/§3 幂等。
 #   getUpdates 失败进入轮询循环的退避：production.poll 失败即抛 TelegramPollError（类别 + 数字 status），
 #   index.ts 循环体抽成 runPollLoop，catch 内落审计 telegram/poll_backoff {category,status?,backoff_s}；
 #   已有的 1→60 s 指数退避（成功复位）从此真的接住 getUpdates 失败。transport #postApi 逻辑不动。
@@ -8,7 +10,7 @@
 # 宿主 lykoi-browser.service 不动、不重启。停机形态同 G–N：大脑 `systemctl stop`（保持 enabled）。
 # 用法：先落盘再执行：
 #   sha256sum /tmp/landing-o-pollbackoff.sh   # 须 = 治理侧给出的值
-#   sudo bash /tmp/landing-o-pollbackoff.sh 2>&1 | tee /root/landing-o-$(date +%Y%m%dT%H%M%S).log
+#   sudo bash /tmp/landing-o-pollbackoff.sh 2>&1 | tee /root/landing-o-v2-$(date +%Y%m%dT%H%M%S).log
 set -euo pipefail
 NODE=/opt/node-v24.18.0/bin/node
 NPM=/opt/node-v24.18.0/bin/npm
@@ -73,7 +75,7 @@ N=$(grep -cF 'export function runPollLoop(' packages/lykoi-adapter-telegram/src/
 N=$(grep -cF "type: 'telegram/poll_backoff'" packages/lykoi-adapter-telegram/src/index.ts || true)
 [ "$N" = 1 ] || { echo "FATAL: index.ts 缺 poll_backoff 审计（计数 $N）"; exit 1; }
 # 改动只许 adapter-telegram 一包
-P=$(git diff --name-only "$EXPECT_OLD" HEAD -- packages | grep -v '^packages/lykoi-adapter-telegram/' | tr '\n' ' ')
+P=$(git diff --name-only "$EXPECT_OLD" HEAD -- packages | { grep -v '^packages/lykoi-adapter-telegram/' || true; } | tr '\n' ' ')
 [ -z "$P" ] || { echo "FATAL: packages 改动越出 adapter-telegram：$P"; exit 1; }
 git diff --quiet "$EXPECT_OLD" HEAD -- profile || { echo 'FATAL: profile 有变——本单声明零 profile'; exit 1; }
 # N/K/L/M 落点仍在
