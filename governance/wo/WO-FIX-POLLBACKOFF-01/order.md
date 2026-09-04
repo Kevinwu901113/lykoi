@@ -38,3 +38,15 @@
 - `npm run typecheck` 净；`npm test` 全量 0 新增失败（基线 1037/1026/0/11）。
 - 落地：src 变更在 manifest 域内，重签 113 条；零迁移、零 unit、零 profile、零依赖。
 - 落地后读数：下一次 Telegram 侧 502 / 超时期间，`telegram_transport_api_error` 相邻间隔 ≥ 1 s 递增，`telegram/poll_backoff` 出现并在恢复后停止。
+
+## 5 · 修订 R-1（2026-09-04 复核中，主治理 Agent）
+
+执行方指出 `TelegramPollError.status` 是死位：`#postApi` 对 HTTP ≥ 400 返回 `{ok:false, error:'api_error', status}`，但 `pollUpdates` 只透出 `error`，D-3 又禁改 `pollUpdates`，于是审计行永远没有 `status`，502 与 401 账面上同为 `api_error`。撤回 D-3 对 `pollUpdates` 返回类型的限制：
+
+- R-1a `pollUpdates` 返回类型加 `status?: number`，失败分支透传数字 status。`#postApi` 逻辑仍不动。
+- R-1b `production.poll()` 抛 `TelegramPollError(result.error, result.status)`。
+- R-1c 测试补 status 断言（api_error 502 有、network_error 无、审计行带 502）。
+
+执行方另指出两点，治理侧处置：
+- 退避期间 `consumeOutboxOnce` 不跑（最长 60 s）。接受为本意：长轮询失败说明平台或代理不可达，此时不消费出站避免把 sendMessage 重试与未送达记录打进已知不可达的平台；恢复即复位。写进 review.md。
+- `fetchUpdates`（messenger.read 后端）仍把失败吞成零条。不在本单，记入 HANDOFF 待清理。
