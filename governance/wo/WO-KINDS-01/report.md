@@ -109,3 +109,11 @@ sudo bash governance/wo/WO-KINDS-01/count-kinds.sh 30
 输出三段：`autonomy_wake` 的 kind × status 计数、`demoted` 计数（护栏降级到 `rest` 的次数）、相关事件总量。第二段是本稿 §3 判"零次"的关键——如果某 kind 计数低而 `demoted` 高，那是护栏在拦，不是她不选。
 
 已在合成日志上验证过窗口过滤与三段输出（本机 2026-09-05）。
+
+**脚本未合并进 main 时用不了**（2026-09-05 实测：服务器上 `No such file or directory`，因为它只在本分支上，且服务器 cwd 不是仓库目录）。在合并之前用这条等价的自足命令，逻辑与脚本三段完全相同：
+
+```bash
+L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%S); echo "窗口 ${S}Z 起 30 天"; echo; echo '--- kind x status ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s)|"\(.decision)\t\(.status)"' "$L" | sort | uniq -c | sort -rn; echo; echo '--- demoted ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s and .demoted==true)|.decision' "$L" | sort | uniq -c | sort -rn; echo; echo '--- 相关事件总量 ---'; jq -r --arg s "$S" 'select(.ts>=$s)|select(.type|test("^(autonomy_wake|autonomy_rest|unknown_decision_kind|capability_gap)"))|.type' "$L" | sort | uniq -c | sort -rn
+```
+
+无 `jq` 时（`command -v jq` 为空）先 `apt-get install -y jq`，或退回粗计数：`grep -o '"type":"autonomy_wake"[^}]*"decision":"[a-z_]*"' "$L" | grep -o '"decision":"[a-z_]*"' | sort | uniq -c | sort -rn`（不带时间窗）。
