@@ -322,6 +322,11 @@ export class BotApiTransport {
    *
    * `retryBackoff`（WO-U0 ①）是网络故障的重试退避序列，空 = 不重试。**只有
    * sendMessage 传它**：getUpdates 的重连节奏归设备的长轮询循环管，本单不动。
+   *
+   * 「归设备的长轮询循环管」这句在 WO-FIX-POLLBACKOFF-01 之前是空头支票：
+   * `pollUpdates` 的失败被 `./production` 转成空批，循环看不见失败，退避永不触发。
+   * D-1 起 `production.poll` 失败即抛 `TelegramPollError`，那条循环的 1→60s 指数
+   * 退避才真的接住它 —— 这句现在为真。本层仍不加任何 getUpdates 重试/退避。
    */
   async #postApi(
     method: string,
