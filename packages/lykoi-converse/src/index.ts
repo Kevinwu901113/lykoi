@@ -59,14 +59,18 @@ import {
   VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
 } from './vision.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
-import { D01_DEFAULTS, runInterpretWithDeadline } from './deadline.ts'
+import { D01_DEFAULTS, DeadlineExceededError, runInterpretWithDeadline } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
+import {
+  SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome,
+} from './outcome.ts'
 
 export * from './contract.ts'
 export * from './conversation.ts'
 export * from './deadline.ts'
 export * from './exemption.ts'
 export * from './hygiene.ts'
+export * from './outcome.ts'
 export * from './prompts.ts'
 export * from './vision.ts'
 
@@ -365,10 +369,17 @@ export function apply(ctx: Context, config: Config) {
   // 而这一条必须**看得见且被 manifest 钉住**：它改的是通知怎么到达 Kevin。
   setNotificationOutboxDelivery(config.notificationOutboxDelivery)
   const kernelDispatch = createDispatch({ sink: ctx.audit, resources })
-  const dispatchFn: ConverseDispatchFn = async (action) => {
+  let conversation!: Conversation
+  const dispatchFn: ConverseDispatchFn = async (action, context) => {
     const observation = await kernelDispatch(
       { type: action.type, params: action.params },
-      { context: { origin: 'interactive' } },
+      {
+        context: {
+          origin: 'interactive',
+          run_id: context.run_id ?? conversation.currentRunId() ?? null,
+          turn_id: context.turn_id ?? conversation.currentTurnId() ?? null,
+        },
+      },
     )
     return { success: observation.success, data: observation.data, error: observation.error }
   }
@@ -461,7 +472,7 @@ export function apply(ctx: Context, config: Config) {
     },
   })
 
-  const conversation = new Conversation({
+  conversation = new Conversation({
     store,
     persona,
     llm,
@@ -602,14 +613,96 @@ export function apply(ctx: Context, config: Config) {
   })
 }
 
-async function handleTurn(
+type TurnResolution =
+  | { kind: 'failure'; reason: TurnFailReason }
+  | {
+    kind: 'empty'
+    cycleKind: NonNullable<ReturnType<Conversation['lastCycleOutcome']>>['kind'] | null
+    askSent: boolean
+  }
+  | { kind: 'delivery'; outcome: 'delivered' | 'undelivered' | 'needs_approval' | 'dispatch_failed' }
+  | { kind: 'no_transport' }
+
+function resolveTurnOutcome(input: TurnResolution): Pick<TurnOutcome, 'status' | 'reason'> {
+  if (input.kind === 'failure') return { status: 'failed', reason: input.reason }
+  if (input.kind === 'no_transport') return { status: 'failed', reason: 'no_transport' }
+  if (input.kind === 'delivery') {
+    if (input.outcome === 'delivered') return { status: 'replied', reason: null }
+    if (input.outcome === 'needs_approval') {
+      return { status: 'deferred', reason: 'approval_pending' }
+    }
+    return { status: 'failed', reason: 'delivery_failed' }
+  }
+  if (input.cycleKind === 'envelope_failed') {
+    return { status: 'failed', reason: 'envelope_failed' }
+  }
+  if (input.cycleKind === 'missing_tool') {
+    return { status: 'failed', reason: 'missing_tool' }
+  }
+  if (input.cycleKind === 'tool_budget') {
+    return { status: 'failed', reason: 'tool_budget_exhausted' }
+  }
+  if (input.askSent || input.cycleKind === 'ask_pending') {
+    return { status: 'deferred', reason: 'approval_pending' }
+  }
+  return { status: 'intentional_silence', reason: null }
+}
+
+function failureReason(err: unknown): TurnFailReason {
+  if (err instanceof ContextBudgetError) return 'context_budget'
+  if (err instanceof LlmFinishError) return 'llm_failed'
+  if (err instanceof DeadlineExceededError) return 'deadline_exceeded'
+  if (err instanceof Error && err.name === 'BudgetExceeded') return 'budget_exceeded'
+  return 'unknown'
+}
+
+const NOTICE_REASONS = new Set<TurnFailReason>([
+  'envelope_failed', 'missing_tool', 'tool_budget_exhausted', 'llm_failed',
+  'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown',
+])
+
+export async function handleTurn(
   ctx: Context,
   conversation: Conversation,
   message: InboundMessage,
 ): Promise<void> {
+  const started = performance.now()
+  const inboundId = `tg:${message.updateId}`
+  const turnId = inboundId
+  const runId = `converse-${message.updateId}-${message.messageId}`
+  let terminal: Pick<TurnOutcome, 'status' | 'reason'> | null = null
+  let followupRegistered = false
+  let askSent = false
+  let noticeSent = false
+  let replyChars = 0
+  const sendFailureNotice = async (reason: TurnFailReason): Promise<void> => {
+    if (!NOTICE_REASONS.has(reason)) return
+    const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
+    if (telegram === undefined) return
+    try {
+      const sent = await telegram.send(
+        message.contextId,
+        SYSTEM_FAILURE_NOTICE(reason),
+        message.messageId,
+        // 系统回执仍须落未送达账本与 telegram 审计，但不应作为她的经历回灌记忆。
+        { recordUndeliveredExperience: false },
+      )
+      noticeSent = sent.sent === true
+    } catch (noticeError) {
+      await ctx.audit.record({
+        type: 'turn/notice_failed',
+        turn_id: turnId,
+        reason,
+        error_name: noticeError instanceof Error ? noticeError.name : 'unknown',
+      })
+    }
+  }
+
   // 隐私口径（D-08）：audit 行只带字数与来源盖章，不带正文。
   await ctx.audit.record({
     type: 'converse/received',
+    turn_id: turnId,
+    inbound_id: inboundId,
     updateId: message.updateId,
     contextId: message.contextId,
     userId: message.userId,
@@ -619,27 +712,108 @@ async function handleTurn(
   // S-08 顺序位：审批回答 → 规则建议回答 → 普通对话。前两级仅 owner，随 M3
   // 审批/建议器官在**此处、回合之前**按序消费；当前一律进入普通对话级。
 
-  const runId = `converse-${message.updateId}-${message.messageId}`
-  let reply: string
   try {
-    reply = await conversation.send(message.text, { runId })
-  } catch (err) {
-    if (err instanceof ContextBudgetError) {
-      // S-20：确定性失败（message_too_large），不调度重试；surface 文案通知归
-      // M3 的对话面回执（本波设备侧无自动回执通道）。
+    const reply = await conversation.send(message.text, { runId, turnId })
+    followupRegistered = conversation.hasFollowupRequest()
+
+    const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
+    const deviceSideWired = telegram !== undefined && telegram.outboundWired()
+    const delegatedAsk = deviceSideWired
+      ? conversation.takeDelegatedAsk()
+      : conversation.peekDelegatedAsk()
+    if (delegatedAsk !== null) {
       await ctx.audit.record({
-        type: 'converse/turn_failed', runId, updateId: message.updateId,
+        type: 'converse/approval_request_pending',
+        turn_id: turnId,
+        runId,
+        updateId: message.updateId,
+        action_type: delegatedAsk.action_type,
+        action_id: delegatedAsk.action_id,
+        correlation_id: delegatedAsk.correlation_id,
+        device_side_wired: deviceSideWired,
+      })
+    }
+
+    const askAbout = async (): Promise<void> => {
+      if (delegatedAsk === null || !deviceSideWired) return
+      const asked = await telegram!.askAbout(
+        delegatedAsk, message.contextId, message.messageId,
+        { run_id: runId, turn_id: turnId },
+      )
+      askSent = asked.asked && asked.status === 'asked'
+    }
+
+    const surfaceReply = composeSurfaceReply(reply, pendingCount(), false)
+    replyChars = surfaceReply.length
+    if (surfaceReply.trim().length === 0) {
+      await ctx.audit.record({
+        type: 'converse/silence', turn_id: turnId, runId, updateId: message.updateId,
+      })
+      if (delegatedAsk !== null && telegram === undefined) {
+        await ctx.audit.record({
+          type: 'converse/no_transport', turn_id: turnId, runId, updateId: message.updateId,
+        })
+        terminal = resolveTurnOutcome({ kind: 'no_transport' })
+      } else {
+        await askAbout()
+        terminal = resolveTurnOutcome({
+          kind: 'empty',
+          cycleKind: conversation.lastCycleOutcome()?.kind ?? null,
+          askSent,
+        })
+      }
+    } else {
+      await ctx.audit.record({
+        type: 'converse/reply', turn_id: turnId, runId,
+        updateId: message.updateId, chars: surfaceReply.length,
+      })
+      if (telegram === undefined) {
+        await ctx.audit.record({
+          type: 'converse/no_transport', turn_id: turnId, runId, updateId: message.updateId,
+        })
+        terminal = resolveTurnOutcome({ kind: 'no_transport' })
+      } else {
+        if (deviceSideWired) {
+          const delivered = await telegram.sendReply(
+            message.contextId, surfaceReply, message.messageId,
+            { run_id: runId, turn_id: turnId },
+          )
+          terminal = resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
+        } else {
+          const delivered = await telegram.send(message.contextId, surfaceReply, message.messageId)
+          terminal = resolveTurnOutcome({
+            kind: 'delivery',
+            outcome: delivered.sent ? 'delivered' : 'undelivered',
+          })
+        }
+        try {
+          await askAbout()
+        } catch (askError) {
+          // 答复已经交付，后续审批问句失败不能倒写本轮为失败，也不能再补一条
+          // 系统失败回执；只落无正文的类别账，终局仍由已交付答复决定。
+          await ctx.audit.record({
+            type: 'converse/approval_request_failed',
+            turn_id: turnId,
+            run_id: runId,
+            update_id: message.updateId,
+            error_name: askError instanceof Error ? askError.name : 'unknown',
+          })
+        }
+      }
+    }
+    if (terminal?.status === 'failed' && terminal.reason !== null) {
+      await sendFailureNotice(terminal.reason as TurnFailReason)
+    }
+  } catch (err) {
+    const reason = failureReason(err)
+    if (err instanceof ContextBudgetError) {
+      await ctx.audit.record({
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
         error: 'ContextBudgetError', kind: 'context_budget',
       })
-      return
-    }
-    if (err instanceof LlmFinishError) {
-      // WO-FIX-TOOLSTEP-01 D-2a：工具步之后的第二跳零 token 失败（DeepSeek
-      // reasoning_content 400 的事故现场）此前只在事件流里留下"LlmFinishError"
-      // 五个字——code/status 一个都没落。这里补上非内容的失败元数据；S-21
-      // 口径不变（不记 message/requestId，那两栏可能带 URL 或供应商原文）。
+    } else if (err instanceof LlmFinishError) {
       await ctx.audit.record({
-        type: 'converse/turn_failed', runId, updateId: message.updateId,
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
         error: err.name,
         kind: 'llm_finish',
         finish_code: err.reason.failure.code,
@@ -648,71 +822,33 @@ async function handleTurn(
         text_len: err.textLength,
         reasoning_len: err.reasoningLength,
       })
-      return
+    } else {
+      await ctx.audit.record({
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
+        error: err instanceof Error ? err.name : 'unknown',
+      })
     }
-    // S-21 同向：客户端/事件流只见泛化类别，str(exc) 不出内部日志。
+    terminal = resolveTurnOutcome({ kind: 'failure', reason })
+    await sendFailureNotice(reason)
+  } finally {
+    const outcome = terminal ?? resolveTurnOutcome({ kind: 'failure', reason: 'unknown' })
     await ctx.audit.record({
-      type: 'converse/turn_failed', runId, updateId: message.updateId,
-      error: err instanceof Error ? err.name : 'unknown',
+      type: 'turn/terminal',
+      turn_id: turnId,
+      inbound_id: inboundId,
+      run_id: runId,
+      update_id: message.updateId,
+      message_id: message.messageId,
+      context_id: message.contextId,
+      user_id: message.userId,
+      is_owner: message.isOwner,
+      status: outcome.status,
+      reason: outcome.reason,
+      followup_registered: followupRegistered,
+      ask_sent: askSent,
+      notice_sent: noticeSent,
+      reply_chars: replyChars,
+      elapsed_ms: Math.max(0, Math.round(performance.now() - started)),
     })
-    return
-  }
-
-  const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
-  const deviceSideWired = telegram !== undefined && telegram.outboundWired()
-
-  // S-59/SK-77 顺序位：本轮撞门的动作已被认知侧做成四项载荷挂在 conversation 上
-  // （一轮一份、取走即清；下一轮 send 开头会清场，所以它绝不会跨轮悬着）。
-  // **取走并去问是设备层的活**（W3 已接）—— 只有那一层有当轮入站 message_id，
-  // 而没有 reply_to 的问句按主动打扰计费、名额一耗尽当天余下的问句全部
-  // undelivered → deny_by_default（8-19 六连拒的病灶）。设备层没接线时**不取走**
-  // （取走 = 丢掉），只落一条零正文的账让缺口在事件流上看得见。
-  const delegatedAsk = deviceSideWired
-    ? conversation.takeDelegatedAsk()
-    : conversation.peekDelegatedAsk()
-  if (delegatedAsk !== null) {
-    await ctx.audit.record({
-      type: 'converse/approval_request_pending',
-      runId,
-      updateId: message.updateId,
-      action_type: delegatedAsk.action_type, // D-08：只记类型，params 一个字不进事件流
-      action_id: delegatedAsk.action_id,
-      correlation_id: delegatedAsk.correlation_id,
-      device_side_wired: deviceSideWired, // W3 接上之后这一栏翻成 true
-    })
-  }
-
-  // D-04 装配点（W3 接权威源）：pending 的权威源 = kernel `pendingCount()`。
-  // 横幅要不要出现是"对话面"的决定，与队列真身在不在无关；reply 为空时
-  // **不加横幅** —— 沉默一路走到底，红测钉死。
-  const surfaceReply = composeSurfaceReply(reply, pendingCount(), false)
-  if (surfaceReply.trim().length === 0) {
-    // 沉默是合法结局（有账没话）：u3_cycle_envelope/u3_cycle_failed 是它的账。
-    await ctx.audit.record({ type: 'converse/silence', runId, updateId: message.updateId })
-    // 沉默也可能有下文：那个还没被批准的动作仍然要问出去（SK-77 的"先说话后
-    // 请示"里，"说话"是可以为空的 —— 空回复照旧是合法结局）。
-    if (delegatedAsk !== null && deviceSideWired) {
-      await telegram!.askAbout(delegatedAsk, message.contextId, message.messageId)
-    }
-    return
-  }
-  await ctx.audit.record({
-    type: 'converse/reply', runId, updateId: message.updateId, chars: surfaceReply.length,
-  })
-  if (telegram === undefined) {
-    await ctx.audit.record({ type: 'converse/no_transport', runId, updateId: message.updateId })
-    return
-  }
-  // 顺序是自然的那个：**先说话，后请示**（SK-77）。
-  // S-10 / SK-78：回复经 dispatch 出去，E2 章在设备层盖（reply_to=入站 message_id
-  // —— 应答路径不计打扰预算）。设备层没接线时退回 M1 的裸传输面。
-  if (deviceSideWired) {
-    await telegram.sendReply(message.contextId, surfaceReply, message.messageId)
-  } else {
-    await telegram.send(message.contextId, surfaceReply, message.messageId)
-  }
-  // ……后请示：以**当轮入站 id** 为 reply_to 把撞门的那个动作问出去。
-  if (delegatedAsk !== null && deviceSideWired) {
-    await telegram.askAbout(delegatedAsk, message.contextId, message.messageId)
   }
 }

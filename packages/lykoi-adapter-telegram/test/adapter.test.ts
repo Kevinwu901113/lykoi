@@ -9,10 +9,14 @@ import type { AuditEvent, AuditService } from 'lykoi-audit'
 import type { BindingResolution, LykoiMemoryService } from 'lykoi-memory'
 import type { InboundMessage, TelegramAdapterService } from '../src/index.ts'
 import * as adapterPlugin from '../src/index.ts'
+import { OutboundOrgan } from '../src/device.ts'
 import { ProductionTelegramTransport } from '../src/production.ts'
 import * as productionPlugin from '../src/production.ts'
 import { MemoryTelegramTransport } from '../src/testing.ts'
-import { BotApiTransport, TelegramPollError } from '../src/transport.ts'
+import {
+  BotApiTransport, setUndeliveredExperienceSink, TelegramPollError,
+} from '../src/transport.ts'
+import { undelivered } from '../src/outbox.ts'
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-telegram-'))
@@ -252,6 +256,81 @@ test('S-11/D-06（修正版）：edited_message 忽略 + 落审计行，不是�
   assert.equal(svc.cursor(), 5)
 })
 
+test('WO-OUTCOME-01 D-5：消费 owner 应答落一条 consumed terminal，不触发认知 inbound', async () => {
+  const { svc, transport, audit, inbound } = await setup()
+  svc.wireOutbound(new OutboundOrgan({
+    dispatch: (async () => ({ success: true, data: {}, error: null })) as never,
+    ownerChannelKey: () => 'chat-1',
+    approval: {
+      requestApproval: async () => ({ status: 'asked', pending_id: null }),
+      handleOwnerAnswer: async () => ({ outcome: 'granted', executed: true }),
+    },
+    suggestion: {
+      handleOwnerAnswer: async () => ({ outcome: 'ignored', suggestion_id: null }),
+    },
+  }))
+  transport.queueUpdate(ownerUpdate(12, '批准'))
+
+  await svc.pollOnce()
+
+  assert.deepEqual(inbound, [])
+  const terminal = audit.events.filter((event) => event.type === 'turn/terminal')
+  assert.equal(terminal.length, 1)
+  assert.deepEqual(terminal[0], {
+    type: 'turn/terminal',
+    turn_id: 'tg:12',
+    inbound_id: 'tg:12',
+    run_id: null,
+    update_id: 12,
+    message_id: '1200',
+    context_id: 'chat-1',
+    user_id: 'user_001',
+    is_owner: true,
+    status: 'consumed',
+    reason: 'approval_answer',
+    followup_registered: false,
+    ask_sent: false,
+    notice_sent: false,
+    reply_chars: 0,
+    elapsed_ms: terminal[0]!.elapsed_ms,
+  })
+  assert.equal(typeof terminal[0]!.elapsed_ms, 'number')
+  assert.equal('text' in terminal[0]!, false)
+})
+
+test('WO-OUTCOME-01 D-1：owner 消费路由抛错仍落唯一 failed terminal 并推进游标', async () => {
+  const { svc, transport, audit, inbound } = await setup()
+  svc.wireOutbound(new OutboundOrgan({
+    dispatch: (async () => ({ success: true, data: {}, error: null })) as never,
+    ownerChannelKey: () => 'chat-1',
+    approval: {
+      requestApproval: async () => ({ status: 'asked', pending_id: null }),
+      handleOwnerAnswer: async () => {
+        const error = new Error('VENDOR_BODY https://private.example/route')
+        error.name = 'ApprovalRouteExploded'
+        throw error
+      },
+    },
+  }))
+  transport.queueUpdate(ownerUpdate(13, '批准'))
+
+  assert.equal(await svc.pollOnce(), 1)
+  assert.equal(svc.cursor(), 13)
+  assert.deepEqual(inbound, [])
+  const terminals = audit.events.filter((event) => event.type === 'turn/terminal')
+  assert.equal(terminals.length, 1)
+  assert.equal(terminals[0]!.status, 'failed')
+  assert.equal(terminals[0]!.reason, 'unknown')
+  assert.equal(terminals[0]!.turn_id, 'tg:13')
+  assert.equal(terminals[0]!.run_id, null)
+  const routeFailed = audit.events.filter((event) => event.type === 'turn/route_failed')
+  assert.equal(routeFailed.length, 1)
+  assert.equal(routeFailed[0]!.error_name, 'ApprovalRouteExploded')
+  const serialized = JSON.stringify(audit.events)
+  assert.equal(serialized.includes('VENDOR_BODY'), false)
+  assert.equal(serialized.includes('https://private.example'), false)
+})
+
 test('出站（SPEC §7.1）：reply_to 必带；成功/失败都落审计（正文不入审计，只有字数）', async () => {
   const { svc, transport, audit } = await setup()
   await assert.rejects(() => svc.send('chat-1', '没有锚', ''), TypeError)
@@ -296,6 +375,34 @@ function productionWith(post: import('../src/transport.ts').HttpPost): Productio
   const api = new BotApiTransport({ token: FAKE_TOKEN, post })
   return new ProductionTelegramTransport(undefined, { api })
 }
+
+test('WO-OUTCOME-01 D-3：系统回执保留未送达账本但关闭经验回灌，普通发送默认不变', async () => {
+  const dir = tmp()
+  process.env.LYKOI_TELEGRAM_UNDELIVERED = join(dir, 'telegram_undelivered.json')
+  const experiences: string[] = []
+  setUndeliveredExperienceSink((_source, content) => {
+    experiences.push(content)
+    return `exp-${experiences.length}`
+  })
+  try {
+    const failedTransport = productionWith(async () => ({ status: 502, json: () => ({}) }))
+    const notice = await failedTransport.send(
+      'chat-1', '[系统] 这一轮没有得到可靠回复（代号 unknown）。', '100',
+      { recordUndeliveredExperience: false },
+    )
+    assert.equal(notice.sent, false)
+    assert.equal(undelivered().length, 1, '系统回执失败仍须落未送达账本')
+    assert.equal(experiences.length, 0, '系统回执不得成为她的未送达经验')
+
+    const ordinary = await failedTransport.send('chat-1', '普通角色回复', '101')
+    assert.equal(ordinary.sent, false)
+    assert.equal(undelivered().length, 2)
+    assert.equal(experiences.length, 1, '未传内部标记时维持既有经验回灌')
+    assert.ok(experiences[0]!.includes('普通角色回复'))
+  } finally {
+    setUndeliveredExperienceSink(null)
+  }
+})
 
 test('D-1 api_error：getUpdates HTTP 快速失败 → poll 抛 TelegramPollError（不再转空批）', async () => {
   // 502（2026-09-04 那次实弹的形状）：HTTP 通了但 ok!==true → api_error。

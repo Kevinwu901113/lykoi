@@ -24,7 +24,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createFetchHttpPost } from './http.ts'
-import { BotApiTransport, TelegramPollError } from './transport.ts'
+import {
+  BotApiTransport, TelegramPollError, type TelegramSendOptions,
+} from './transport.ts'
 import type { TelegramSendResult, TelegramTransport, TelegramUpdate } from './index.ts'
 
 /**
@@ -106,8 +108,18 @@ export class ProductionTelegramTransport implements TelegramTransport {
    * 出站。两种结局（有 message_id / 进未送达账本）已经由 `sendMessage` 保证 ——
    * 这里只把结果换个形状。`error` **只取类别**，绝不取任何原始异常文本。
    */
-  async send(chatId: string, text: string, replyTo: string | null): Promise<TelegramSendResult> {
-    const result = await this.#api.sendMessage({ contextId: chatId, text, replyTo })
+  async send(
+    chatId: string,
+    text: string,
+    replyTo: string | null,
+    options?: TelegramSendOptions,
+  ): Promise<TelegramSendResult> {
+    const result = await this.#api.sendMessage({
+      contextId: chatId,
+      text,
+      replyTo,
+      ...(options === undefined ? {} : options),
+    })
     if (result.message_id === null) {
       return {
         messageId: null,

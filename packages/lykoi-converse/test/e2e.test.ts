@@ -200,6 +200,16 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   )!
   assert.equal(replySend.exemption, 'E2')
   assert.equal(replySend.origin, 'interactive')
+  assert.equal(replySend.run_id, 'converse-1-100')
+  assert.equal(replySend.turn_id, 'tg:1')
+  for (const event of audit.events.filter((e) =>
+    String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_'))) {
+    assert.equal(event.turn_id, 'tg:1', `${event.type} 缺 turn_id`)
+  }
+  const terminals = audit.events.filter((e) => e.type === 'turn/terminal')
+  assert.equal(terminals.length, 1)
+  assert.equal(terminals[0]!.status, 'replied')
+  assert.equal(terminals[0]!.reason, null)
   // 库面写集：history 一行（全文归她的记忆）+ conversation 经验 + normal_interaction。
   const store = new ReadWriteMemory(dbPath)
   try {
@@ -217,15 +227,19 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   }
 })
 
-test('失败路（红）：契约失败 → 有界重试至多两次、带引导 → 仍失败 → 降级沉默 + 失败事件元数据；不发、不横幅（WO-FIX-NOTJSON-01 D-3 改口）', async () => {
-  const { audit, transport, telegram } = await assemble('她这次没有输出 JSON，直接开口说话了')
+test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传输送达，不进 history', async () => {
+  const { audit, transport, telegram, dbPath } = await assemble('她这次没有输出 JSON，直接开口说话了')
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 100, chatId: 'chat-1', senderId: '1001', text: '在吗' },
   })
   await telegram.pollOnce()
 
-  assert.deepEqual(transport.sends, [], '沉默一路走到底（D-04：横幅不破坏沉默）')
+  assert.deepEqual(transport.sends, [{
+    chatId: 'chat-1',
+    text: '[系统] 这一轮没有得到可靠回复（代号 envelope_failed）。',
+    replyTo: '100',
+  }])
   assertSubsequence(types(audit), [
     'telegram/inbound',
     'converse/received',
@@ -262,7 +276,19 @@ test('失败路（红）：契约失败 → 有界重试至多两次、带引导
   for (const event of audit.events) {
     assert.equal(JSON.stringify(event).includes('直接开口说话'), false)
   }
-  assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
+  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  assert.equal(terminal.status, 'failed')
+  assert.equal(terminal.reason, 'envelope_failed')
+  assert.equal(terminal.notice_sent, true)
+  const store = new ReadWriteMemory(dbPath)
+  try {
+    const history = store.getRecentHistoryOfType('conversation', 10)
+    assert.equal(JSON.stringify(history).includes('[系统]'), false,
+      '系统回执走裸传输，不得进入 history')
+  } finally {
+    store.close()
+  }
 })
 
 /**
@@ -292,7 +318,11 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
   })
   await telegram.pollOnce()
 
-  assert.deepEqual(transport.sends, [], '撞未接线闸的 tool_call 从不真正执行、也不说话')
+  assert.deepEqual(transport.sends, [{
+    chatId: 'chat-1',
+    text: '[系统] 这一轮没有得到可靠回复（代号 tool_budget_exhausted）。',
+    replyTo: '100',
+  }], '工具不执行；技术失败只由系统裸传输回执')
   assert.equal(
     audit.events.some((e) => e.type === 'decision_ungrounded'),
     false,
@@ -316,7 +346,11 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
     audit.events.some((e) => e.type === 'u3_cycle_tool_budget_exhausted'),
     '固定回复的 fake LLM 会一直选同一个未接线工具——真正的收场闸是工具步数预算',
   )
-  assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
+  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  assert.equal(terminal.status, 'failed')
+  assert.equal(terminal.reason, 'tool_budget_exhausted')
+  assert.equal(terminal.notice_sent, true)
   // 工具 URL 不进事件流（隐私：参数只记条数）。
   for (const event of audit.events) {
     assert.equal(JSON.stringify(event).includes('example.com'), false)

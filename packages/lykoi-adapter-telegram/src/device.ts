@@ -143,6 +143,8 @@ export interface ApprovalLeg {
     contextId: string
     replyTo?: string | null
     origin?: string
+    run_id?: string | null
+    turn_id?: string | null
     actionId?: string | null
     correlationId?: string | null
   }): Promise<{ status: string; pending_id: string | null }>
@@ -167,6 +169,28 @@ export interface DelegatedAsk {
   params?: unknown
   action_id?: unknown
   correlation_id?: unknown
+}
+
+/** 与认知回合关联的可选 ID；只进入 kernel/审批上下文，不改变动作参数。 */
+export interface OutboundTurnContext {
+  run_id?: string | null
+  turn_id?: string | null
+}
+
+export type OutboundReplyOutcome =
+  | 'delivered'
+  | 'undelivered'
+  | 'needs_approval'
+  | 'dispatch_failed'
+
+export interface OutboundReplyResult {
+  outcome: OutboundReplyOutcome
+}
+
+export interface AskAboutResult {
+  asked: boolean
+  status?: string
+  pending_id?: string | null
 }
 
 export interface OutboundOrganDeps {
@@ -215,11 +239,19 @@ export class OutboundOrgan {
     contextId: string
     text: string
     replyTo: string | null
-  }): Promise<{ outcome: 'delivered' | 'undelivered' | 'needs_approval' | 'dispatch_failed' }> {
+    run_id?: string | null
+    turn_id?: string | null
+  }): Promise<OutboundReplyResult> {
     const params = { text: opts.text, context_id: opts.contextId, reply_to: opts.replyTo }
+    const context = {
+      origin: 'interactive' as const,
+      exemption: inPresenceReply(opts.contextId),
+      ...(opts.run_id === undefined ? {} : { run_id: opts.run_id }),
+      ...(opts.turn_id === undefined ? {} : { turn_id: opts.turn_id }),
+    }
     const observation = await this.#deps.dispatch(
       { type: 'messenger.send', params },
-      { context: { origin: 'interactive', exemption: inPresenceReply(opts.contextId) } },
+      { context },
     )
     const data = (typeof observation.data === 'object' && observation.data !== null)
       ? observation.data as Record<string, unknown>
@@ -253,6 +285,8 @@ export class OutboundOrgan {
         contextId: opts.contextId,
         replyTo: opts.replyTo,
         origin: 'interactive',
+        ...(opts.run_id === undefined ? {} : { run_id: opts.run_id }),
+        ...(opts.turn_id === undefined ? {} : { turn_id: opts.turn_id }),
         actionId: (data.action_id ?? null) as string | null,
         correlationId: (data.correlation_id ?? null) as string | null,
       })
@@ -297,7 +331,9 @@ export class OutboundOrgan {
   async askAbout(action: DelegatedAsk, opts: {
     contextId: string
     replyTo: string | null
-  }): Promise<{ asked: boolean; status?: string; pending_id?: string | null }> {
+    run_id?: string | null
+    turn_id?: string | null
+  }): Promise<AskAboutResult> {
     const actionType = action.action_type
     const params = action.params
     if (typeof actionType !== 'string' || !actionType
@@ -311,6 +347,8 @@ export class OutboundOrgan {
         contextId: opts.contextId,
         replyTo: opts.replyTo,
         origin: 'interactive',
+        ...(opts.run_id === undefined ? {} : { run_id: opts.run_id }),
+        ...(opts.turn_id === undefined ? {} : { turn_id: opts.turn_id }),
         actionId: (action.action_id ?? null) as string | null,
         correlationId: (action.correlation_id ?? null) as string | null,
       },
@@ -332,7 +370,7 @@ export class OutboundOrgan {
   // --- SK-82：S-08 三级路由的消费位 -------------------------------------------
 
   /**
-   * owner 来话的前两级路由：审批答复 → 建议答复 → （返回 false 让调用方进普通
+   * owner 来话的前两级路由：审批答复 → 建议答复 → （返回 null 让调用方进普通
    * `/chat`）。
    *
    * **仅 `isOwner`**（严格窄于 `isBound`）：绑定了但不是 owner 的发信人是一个完全
@@ -340,15 +378,15 @@ export class OutboundOrgan {
    * owner 的一条什么也没答的消息回来是 `ignored`，落到同一条普通对话路径上，所以
    * **普通对话不受影响**。
    *
-   * 返回 true = 这条消息**已被消费**（前两级里有一级 outcome !== 'ignored'），
-   * 调用方就此 return，不再当成一次普通对话。
+   * 返回非 null = 这条消息**已被消费**（前两级里有一级 outcome !== 'ignored'），
+   * 并标明消费的是审批答复还是建议答复；调用方就此 return，不再当成一次普通对话。
    */
   async routeOwnerMessage(opts: {
     text: string
     contextId: string
     replyTo: string | number | null
     messageId: string | number | null
-  }): Promise<boolean> {
+  }): Promise<'approval_answer' | 'suggestion_answer' | null> {
     const approval = this.#deps.approval
     if (approval !== undefined && approval !== null) {
       const routed = await approval.handleOwnerAnswer(opts.text, {
@@ -358,7 +396,7 @@ export class OutboundOrgan {
         this.#log('telegram_approval_turn', {
           outcome: routed.outcome, executed: routed.executed,
         })
-        return true // 这条消息**就是**那次审批回合 —— 不再同时当成一次对话提示
+        return 'approval_answer' // 这条消息**就是**那次审批回合 —— 不再同时当成一次对话提示
       }
     }
     // WO-L5 答的一腿（规则建议队列）。同一形状，第二个队列：**只有 owner、只有
@@ -374,10 +412,10 @@ export class OutboundOrgan {
         this.#log('telegram_rule_suggestion_turn', {
           outcome: suggested.outcome, suggestion_id: suggested.suggestion_id,
         })
-        return true // 这条消息是那条建议的答复 —— 不再当成一次普通对话
+        return 'suggestion_answer' // 这条消息是那条建议的答复 —— 不再当成一次普通对话
       }
     }
-    return false
+    return null
   }
 
   // --- SK-79 / D-07：出站投递线 ------------------------------------------------

@@ -203,7 +203,7 @@ test('backfill：自旧到新、每侧裁 400、DSML 剥离（S-32）、坏行�
   // 经 layout 触发一次装配读面（backfill 在构造期建好）。
   assert.ok(h.conversation.assembleLayout().includes('backfill'))
   const skipped = lastEvent(h.events, 'backfill_rows_skipped')
-  assert.deepEqual(skipped, { skipped: 1, total: 3 })
+  assert.deepEqual(skipped, { skipped: 1, total: 3, run_id: null, turn_id: null })
   // 内容断言经 stripMarkup 纯函数（同一把刀）：
   assert.equal(stripMarkup(leak), '好的收到')
 })

@@ -26,8 +26,11 @@ function toolEnvelope(name: string, args: Record<string, unknown> = {}): string 
 test('reply 路：assistant 入史、返回 content、u3_cycle_envelope 只记字数（D-08）', async () => {
   const h = makeConversation()
   h.llm.push({ content: envelope({ 情绪脉冲: ['normal_interaction'] }) })
-  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  const reply = await h.conversation.send('在吗', { runId: 'r1', turnId: 't1' })
   assert.equal(reply, '在的，怎么了？')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'reply', step: 0 })
+  assert.equal(h.conversation.currentRunId(), 'r1')
+  assert.equal(h.conversation.currentTurnId(), 't1')
   const record = lastEvent(h.events, 'u3_cycle_envelope')!
   assert.equal(record.kind, 'reply')
   assert.equal(record.sent_chars, 7)
@@ -42,7 +45,8 @@ test('reply 路：assistant 入史、返回 content、u3_cycle_envelope 只记�
   assert.deepEqual(JSON.parse(rows[0]!.content), { user: '在吗', reply: '在的，怎么了？' })
   // inner_outer_pair：长度/哈希形态。
   const pair = lastEvent(h.events, 'inner_outer_pair')!
-  assert.equal(pair.turn_id, rows[0]!.id)
+  assert.equal(pair.history_id, rows[0]!.id)
+  assert.equal(pair.turn_id, 't1')
   assert.equal(pair.reply_chars, 7)
   assert.equal(typeof pair.reply_sha16, 'string')
   assert.equal(pair.has_inner, false)
@@ -60,6 +64,7 @@ test('silence 路：有账没话 —— 空回复、history reply=""、无 assis
   })
   const reply = await h.conversation.send('……', { runId: 'r1' })
   assert.equal(reply, '')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'silence', step: 0 })
   assert.equal(lastEvent(h.events, 'u3_cycle_envelope')!.kind, 'silence')
   const rows = h.store.getRecentHistoryOfType('conversation', 10)
   assert.deepEqual(JSON.parse(rows[0]!.content), { user: '……', reply: '' })
@@ -77,17 +82,24 @@ test('WO-FIX-NOTJSON-01 D-2/D-3 × WO-FIX-JSONMODE-01 D-1/D-2：not_json 有界�
   h.llm.push({ content: '', finishReason: 'stop', promptTokens: 17, completionTokens: 7, extraKeys: ['reasoning_content'] })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '', '降级沉默')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'envelope_failed', step: 0 })
   assert.equal(h.llm.calls.length, 3, '总调用 = 重试(至多两次) + 1')
 
   const retriedEvents = h.events.filter(([n]) => n === 'u3_cycle_retried').map(([, f]) => f)
   assert.equal(retriedEvents.length, 2)
   assert.deepEqual(
     retriedEvents[0],
-    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1, reasoning_len: 0, json_mode: true },
+    {
+      reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1,
+      reasoning_len: 0, json_mode: true, run_id: 'r1', turn_id: null,
+    },
   )
   assert.deepEqual(
     retriedEvents[1],
-    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 2, reasoning_len: 0, json_mode: false },
+    {
+      reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 2,
+      reasoning_len: 0, json_mode: false, run_id: 'r1', turn_id: null,
+    },
   )
 
   const failed = lastEvent(h.events, 'u3_cycle_failed')!
@@ -138,7 +150,10 @@ test('WO-FIX-NOTJSON-01 D-2 × WO-FIX-JSONMODE-01 D-1：首次空、次成功 �
   assert.equal(retriedEvents.length, 1)
   assert.deepEqual(
     retriedEvents[0]![1],
-    { reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1, reasoning_len: 0, json_mode: true },
+    {
+      reason: 'not_json', detail: 'first_char:empty', step: 0, attempt: 1,
+      reasoning_len: 0, json_mode: true, run_id: 'r1', turn_id: null,
+    },
   )
   // attempt 0（首次）：opts 含 json_object —— 与今产线逐字节相同（测试钉）。
   assert.deepEqual(h.llm.calls[0]!.opts.responseFormat, { type: 'json_object' })
@@ -284,7 +299,9 @@ test('D-02：表外工具名 → cycle_unknown_tool 大声落痕 + error 结果�
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '查不了，我换个说法', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '查不了，我换个说法')
-  assert.deepEqual(lastEvent(h.events, 'cycle_unknown_tool'), { name: 'web_search' })
+  assert.deepEqual(lastEvent(h.events, 'cycle_unknown_tool'), {
+    name: 'web_search', run_id: 'r1', turn_id: null,
+  })
   // 第二周期读得到 error 结果（回填在史）。
   const second = h.llm.calls[1]!.messages
   const toolResult = second.find((m) => m.role === 'tool')!
@@ -325,7 +342,10 @@ test('D-1d：wiredActions 不含该动作 → #buildAction 挡在 dispatch 之�
   assert.equal(reply, '看不了')
   assert.equal(dispatched, 0, 'D-1d：dispatchFn 从未被调用')
   const unwired = lastEvent(h.events, 'u3_cycle_tool_unwired')!
-  assert.deepEqual(unwired, { name: 'research_read_text', action_type: 'research_browser.read_text' })
+  assert.deepEqual(unwired, {
+    name: 'research_read_text', action_type: 'research_browser.read_text',
+    run_id: 'r1', turn_id: null,
+  })
   const gap = lastEvent(h.events, 'capability_gap')!
   // 治理复核改口：wanted 记工具名（18 字，≤ WANTED_TOKEN_MAX=20 原样落），
   // 与位点④同口径；记动作类型（26 字）只会落长度，标签就丢了。
@@ -399,6 +419,7 @@ test('missing_tool / 工具预算烧完：安全侧收场（S-46 #7/#8）', asyn
   const h = makeConversation()
   h.llm.push({ content: envelope({ decision: { kind: 'tool_call', reason: '他问我在不在' } }) })
   assert.equal(await h.conversation.send('在吗', { runId: 'r1' }), '')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'missing_tool', step: 0 })
   const failed = lastEvent(h.events, 'u3_cycle_failed')!
   assert.equal(failed.reason, 'missing_tool')
   assert.equal(failed.detail, 'tool:none')
@@ -409,8 +430,9 @@ test('missing_tool / 工具预算烧完：安全侧收场（S-46 #7/#8）', asyn
   }
   h2.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) }) // closing 周期
   assert.equal(await h2.conversation.send('在吗', { runId: 'r1' }), '')
+  assert.deepEqual(h2.conversation.lastCycleOutcome(), { kind: 'tool_budget', step: MAX_TOOL_STEPS })
   assert.deepEqual(lastEvent(h2.events, 'u3_cycle_tool_budget_exhausted'), {
-    tool: 'research_read_text', steps: MAX_TOOL_STEPS,
+    tool: 'research_read_text', steps: MAX_TOOL_STEPS, run_id: 'r1', turn_id: null,
   })
   // 收尾周期带 CYCLE_CLOSING_NOTE（S-19）。
   const closingCall = h2.llm.calls.at(-1)!
@@ -426,6 +448,8 @@ test('promise_followup：登记 + takeFollowupRequest 取走即清（S-60）；�
   })
   const reply = await h.conversation.send('帮我查下赛程', { runId: 'r1' })
   assert.equal(reply, '把赛程查完再告诉他')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'followup', step: 0 })
+  assert.equal(h.conversation.hasFollowupRequest(), true)
   assert.ok(eventNames(h.events).includes('followup_requested'))
   assert.equal(h.conversation.takeFollowupRequest(), '把赛程查完再告诉他')
   assert.equal(h.conversation.takeFollowupRequest(), null, '取走即清')
@@ -437,7 +461,21 @@ test('promise_followup：登记 + takeFollowupRequest 取走即清（S-60）；�
     }),
   })
   await bg.conversation.send('继续', { runId: 'r1', background: true })
+  assert.deepEqual(bg.conversation.lastCycleOutcome(), { kind: 'followup', step: 0 })
   assert.ok(eventNames(bg.events).includes('continuation_requested'))
+})
+
+test('D-4：审批门返回非空 ask 载荷时，周期结局为 ask_pending', async () => {
+  const h = makeConversation({
+    dispatchFn: async () => ({
+      success: false,
+      error: 'needs_approval',
+      data: { needs_approval: true, action_id: 'act-1', correlation_id: 'corr-1' },
+    }),
+  })
+  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  assert.equal(await h.conversation.send('帮我跑 ls', { runId: 'r1' }), '')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'ask_pending', step: 0 })
 })
 
 test('inner 真落库：conversation_inner_applied（source 派生）+ resolve 注入域闸；熔断开关 → dropped 事件', async () => {
