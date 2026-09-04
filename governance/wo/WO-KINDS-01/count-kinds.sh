@@ -40,11 +40,21 @@ if command -v jq >/dev/null 2>&1; then
 
   echo
   echo "--- 相关事件总量（只数条数，不看字段）---"
+  # `.type` / `.ts` 一律走 `// ""` 兜底：产线日志里确有 type 非字符串的行
+  # （2026-09-05 实测 audit.jsonl:2003 令 test() 报 "null cannot be matched"），
+  # 裸 test() 会让整条管道中途炸掉。上面两段用 `==` 比较，本就 null 安全。
   jq -r --arg since "$SINCE" '
-    select(.ts >= $since)
-    | select(.type | test("^(autonomy_wake|autonomy_rest|unknown_decision_kind|capability_gap)"))
+    select((.ts // "") >= $since)
+    | select((.type // "") | test("^(autonomy_wake|autonomy_rest|unknown_decision_kind|capability_gap)"))
     | .type
   ' "$LOG" | sort | uniq -c | sort -rn
+
+  echo
+  echo "--- type 非字符串的行：条数 + 键名（只列键，不列值）---"
+  # audit sink 明文拒收非字符串 type（`packages/lykoi-audit/src/index.ts:75-76`），
+  # 所以这类行不该存在。有就是发现。只列键名，零正文（D-08）。
+  jq -r 'select((.type | type) != "string") | keys | join(",")' "$LOG" \
+    | sort | uniq -c | sort -rn
 else
   echo "jq 不在，退回 grep 粗计数（可能少计跨行/字段序不同的行）"
   echo "--- autonomy_wake 的 decision 计数（不带时间窗）---"

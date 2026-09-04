@@ -106,14 +106,16 @@ sudo bash governance/wo/WO-KINDS-01/count-kinds.sh 30
 
 参数是天数，缺省 30。审计文件 root 属主故需 sudo 读。脚本只读：`jq` / `grep` / `sort` / `uniq`，不写、不删、不改属性，输出只有事件名与计数，零正文。无 `jq` 时退回 `grep` 粗计数（不带时间窗）。
 
-输出三段：`autonomy_wake` 的 kind × status 计数、`demoted` 计数（护栏降级到 `rest` 的次数）、相关事件总量。第二段是本稿 §3 判"零次"的关键——如果某 kind 计数低而 `demoted` 高，那是护栏在拦，不是她不选。
+输出四段：`autonomy_wake` 的 kind × status 计数、`demoted` 计数（护栏降级到 `rest` 的次数）、相关事件总量、`type` 非字符串的行。第二段是本稿 §3 判"零次"的关键——如果某 kind 计数低而 `demoted` 高，那是护栏在拦，不是她不选。
+
+第四段是 2026-09-05 实跑撞出来的：产线 `audit.jsonl` 里存在 `type` 不是字符串的行（第 2003 行令裸 `test()` 报 `null (null) cannot be matched`）。**audit sink 明文拒收非字符串 `type`**（`packages/lykoi-audit/src/index.ts:75-76` `event.type must be a non-empty string`），所以这类行按设计不该存在。它们的来源是一件独立的待查事项——可能是 sink 之外的写入者，也可能是历史格式。本段只列键名不列值（D-08），先给出条数与形状；查清楚另立单。前两段用 `==` 比较，本就 null 安全，不受影响。
 
 已在合成日志上验证过窗口过滤与三段输出（本机 2026-09-05）。
 
 **脚本未合并进 main 时用不了**（2026-09-05 实测：服务器上 `No such file or directory`，因为它只在本分支上，且服务器 cwd 不是仓库目录）。在合并之前用这条等价的自足命令，逻辑与脚本三段完全相同：
 
 ```bash
-L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%S); echo "窗口 ${S}Z 起 30 天"; echo; echo '--- kind x status ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s)|"\(.decision)\t\(.status)"' "$L" | sort | uniq -c | sort -rn; echo; echo '--- demoted ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s and .demoted==true)|.decision' "$L" | sort | uniq -c | sort -rn; echo; echo '--- 相关事件总量 ---'; jq -r --arg s "$S" 'select(.ts>=$s)|select(.type|test("^(autonomy_wake|autonomy_rest|unknown_decision_kind|capability_gap)"))|.type' "$L" | sort | uniq -c | sort -rn
+L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%S); echo "窗口 ${S}Z 起 30 天"; echo; echo '--- kind x status ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s)|"\(.decision)\t\(.status)"' "$L" | sort | uniq -c | sort -rn; echo; echo '--- demoted ---'; jq -r --arg s "$S" 'select(.type=="autonomy_wake" and .ts>=$s and .demoted==true)|.decision' "$L" | sort | uniq -c | sort -rn; echo; echo '--- 相关事件总量 ---'; jq -r --arg s "$S" 'select((.ts//"")>=$s)|select((.type//"")|test("^(autonomy_wake|autonomy_rest|unknown_decision_kind|capability_gap)"))|.type' "$L" | sort | uniq -c | sort -rn; echo; echo '--- type 非字符串的行：条数 + 键名（只列键不列值）---'; jq -r 'select((.type|type)!="string")|keys|join(",")' "$L" | sort | uniq -c | sort -rn
 ```
 
 无 `jq` 时（`command -v jq` 为空）先 `apt-get install -y jq`，或退回粗计数：`grep -o '"type":"autonomy_wake"[^}]*"decision":"[a-z_]*"' "$L" | grep -o '"decision":"[a-z_]*"' | sort | uniq -c | sort -rn`（不带时间窗）。
