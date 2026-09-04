@@ -111,7 +111,7 @@ Lykoi 本体（服务器上运行的那个持续主体）**不是你的协作方
 
 ### 教训索引（按主题）
 
-本节共 59 条（编号 1–53，其中原「6.」是两条不同教训占同一号；另有
+本节共 60 条（编号 1–54，其中原「6.」是两条不同教训占同一号；另有
 5b/5c/31b/31c/33b 五条后缀条目），按时间顺序追加，
 小标题分组与主题不完全对应，故有此索引。**索引只导航、不改写**：正文一字未动。
 
@@ -161,6 +161,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 | 测试时钟与定时炸弹 | 32 | 已固化：`CLAUDE.md:33-35` 硬规矩 + 注入原语 `packages/lykoi-wake/src/clock.ts` + `packages/lykoi-wake/test/clock.test.ts`；`// realtime-allow:` 尾注约定在用（如 `packages/lykoi-converse/src/deadline.ts:87`） |
 | 同上 | 31c | 仅文档（新体无迁移链相对冻结点；dispatch 白名单半边已固化，见教训 33 行） |
 | 观测与故障剥层 | 53 | 已固化（下游半边）：`packages/lykoi-llm/src/index.ts:94`（finish{error} 封口）+ `packages/lykoi-llm/test/llm.test.ts:134-161` + `packages/lykoi-converse/test/llm-finish.test.ts`（WO-LLM-FINISH-01 已关单）；route 名对齐钉在 `profile/cordis.prod.yml:106-110,153-155` 注释；「事件计数精确匹配 `"type":"X"`」纪律仅文档 |
+| 落地脚本自身正确性 | 54 | 仅文档（形态：`governance/wo/WO-FIX-POLLBACKOFF-01/landing-o-pollbackoff.sh` v2 §3 `{ grep -v … \|\| true; }`；无自动检查；候选：落地稿模板 + Linux 下 dry-run 断言块） |
 | 治理平面自身纪律 | 5c | 已固化：`CLAUDE.md:32`（波次完成当日 commit+push）；无自动检查 |
 | 同上 | 5b | 仅文档（`~/reports/governance-ops.jsonl` 在服务器，本仓无校验面） |
 
@@ -484,14 +485,28 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ## 五、当前进度
 
+54. **落地脚本里 `set -euo pipefail` 下任何含 `grep`/`grep -v` 的管道赋值都要兜零匹配，且断言块须在
+    Linux 语义下实跑一遍**（2026-09-04，LANDING-O v1）。`P=$(git diff … | grep -v '^packages/x/' | tr …)` 的本意是
+    "越界文件列表应为空"，但空即 grep 退出 1 → pipefail 整条赋值失败 → set -e 静默退出，连 FATAL 都不打：
+    这条断言**恰在合规时必死**。`bash -n` 与变量名核对都查不出，落地当场大脑停机 14 分钟才暴露。修法
+    `{ grep -v … || true; }`。配套两坑：① Mac 上 dry-run 断言块时 `wc -l` 带前导空格，`[ "$N" = 0 ]`
+    字串比较假 FATAL——Mac 本地实跑只能证明"能跑"，不能证明"会过"，数值比较一律 `-eq`；
+    ② 外层 `set -e` 对 `cmd && echo ok` 列表里失败的 cmd 不中止，dry-run 报了 FATAL 上传仍继续了——
+    验证步骤要么单独一行，要么显式 `|| exit`。落地脚本应可从中断态重入（§0 接受 HEAD 已等于 NEW_SHA），O v2 靠这点免了回滚。
+    → 参见教训 31c/44（假阳性族）、48（落地稿形态）。
+
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
-- **WO-FIX-POLLBACKOFF-01 已裁合 main@3c47c2e，LANDING-O 待落（2026-09-04 下午）**：getUpdates 失败进入轮询循环退避——
+- **LANDING-O 已落（2026-09-04 16:25 CST，产线钉 main@3c47c2e，两跑）**：WO-FIX-POLLBACKOFF-01 getUpdates 失败进入轮询循环退避——
+  v1 落地稿在 §3「packages 改动不越界」断言处静默退出：`P=$(git diff … | grep -v adapter-telegram | tr …)` 在改动**没越界**时 grep 零匹配返回 1，
+  pipefail 令赋值失败、set -e 退出且不打 FATAL——即"合规时必死"。服务器停在树已钉 3c47c2e、npm ci/重签未做，大脑 inactive 14 分钟。
+  v2（sha 1ec3842b…f396）把 grep 包成 `{ … || true; }` 后重入跑通：npm ci 43 包、manifest 113 重签 gate OK、adapter-telegram 单包 20/20、
+  NRestarts 0、autonomy_runs 2641、deploy_event 08:25:09Z。落地前账 api_error 38 / network_error 48 / poll_backoff 0。见教训 54。原裁合记录：
   `production.poll` 失败即抛 `TelegramPollError`（类别 + 数字 status，零 URL/token），循环体抽成可注入 sleep 的 `runPollLoop`，
   catch 内落审计 `telegram/poll_backoff {category,status?,backoff_s}`；transport `#postApi` 逻辑不动，`pollUpdates` 只加 status 透传（R-1）。
   opus 执行 tip e1b919a，复核 PASS，合并树 1046/1035/0/11。落地稿 `wo/WO-FIX-POLLBACKOFF-01/landing-o-pollbackoff.sh`
-  （sha f3dac2ed…738a25，起点 e299c1d，manifest 仍 113，零迁移零 unit 零 profile），bundle `/tmp/lykoi-landing-o.bundle`
-  （sha e1c9e4a2…7abdc）与脚本已在服务器 /tmp。新语义：退避期间出站队列不消费（最长 60 s），复核接受为本意。
+  （v2 sha 1ec3842b…f396，起点 e299c1d，manifest 仍 113，零迁移零 unit 零 profile），bundle `/tmp/lykoi-landing-o.bundle`
+  （sha e1c9e4a2…7abdc）。新语义：退避期间出站队列不消费（最长 60 s），复核接受为本意。
   待清理：`fetchUpdates`（messenger.read 后端）仍把失败吞成零条。落地后读数：下次 502/超时期间 `telegram_transport_api_error`
   相邻间隔 ≥ 1 s 递增、`telegram/poll_backoff` 出现并在恢复后停止。
 - **LANDING-N 落地后读数（2026-09-04 14:53 CST 读，13.4 h 窗）**：复评稿 `docs/landing_n_readout_2026-09-04.md`。

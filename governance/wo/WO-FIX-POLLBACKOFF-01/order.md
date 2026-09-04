@@ -1,6 +1,6 @@
 # WO-FIX-POLLBACKOFF-01 · getUpdates 失败进入轮询循环的退避
 
-- 状态：**已裁合 main@3c47c2e，LANDING-O 待 Kevin root 跑**（Kevin 2026-09-04「合」；落地稿 landing-o-pollbackoff.sh sha f3dac2ed…738a25，bundle e1c9e4a2…7abdc 已在服务器 /tmp；合并树 tsc 净 1046/1035/0/11；opus 执行于 wo/fix-pollbackoff-01，基线 main@c88959c，tip e1b919a，6 提交 + report.md；复核见 review.md；1046/1035/0/11）
+- 状态：**已落地（LANDING-O，2026-09-04 16:25 CST，产线钉 main@3c47c2e）**。落地稿 landing-o-pollbackoff.sh v2（sha 1ec3842b…f396）由 Kevin root 跑通：v1（sha f3dac2ed…）在 §3 packages 范围断言处静默退出（`grep -v` 零匹配 + pipefail），停机态持续 14 分钟后 v2 重入完成；备份 /root/backup-pre-pollbackoff-20260904T16{1056,2006}.tar.gz（17595710 字节，sha cfc74585…同一份）；npm ci 43 包；manifest 113 重签 gate OK；adapter-telegram 单包 20/20；NRestarts 0；autonomy_runs 2641；deploy_event 08:25:09Z downtime 14 分钟。落地前账：telegram_transport_api_error 38 / network_error 48 / poll_backoff 0。验收待下次 502/超时期间读数。前史：Kevin 2026-09-04「合」裁合 main@3c47c2e；合并树 tsc 净 1046/1035/0/11；opus 执行于 wo/fix-pollbackoff-01，基线 main@c88959c，tip e1b919a，6 提交 + report.md；复核见 review.md。
 - 立单：2026-09-04 15:30 CST，主治理 Agent
 - 读数：governance/docs/landing_n_readout_2026-09-04.md §3
 - 包：lykoi-adapter-telegram（production.ts、index.ts、transport.ts 注释；测试）。kernel / gate / profile / deploy 不动。
