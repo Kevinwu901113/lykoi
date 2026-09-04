@@ -8,17 +8,43 @@
 
 `KINDS` 定义在 `packages/lykoi-decide/src/index.ts:61-64`，**数组序即候选表渲染序**（同文件 :56-60 注释：集合无序会让候选表非确定，不得改用集合）。
 
-| kind | 内容必填 | reflow 分支做什么 | kernel action | 对应 `TOOL_TABLE` 行 | 产线 30 天次数 |
+| kind | 内容必填 | reflow 分支做什么 | kernel action | 对应 `TOOL_TABLE` 行 | 产线 30 天（§1.1） |
 |---|---|---|---|---|---|
-| `explore` | 否（要 `url`） | `src/index.ts:331-356`：无 `url` 即 failed（SA-58）；有则 dispatch 读正文，成功才泄 explore 饥饿（SA-59） | `research_browser.read_text` `{url}` | `research_read_text`（同一 action，`contract.ts:192`） | 待 Kevin |
-| `record_note` | 是 | `:316-322`：`appendAutonomyNote(runId,'reflection',content)`，无 try/except，抛则整拍 failed | 无（只写 store） | 无 | 待 Kevin |
-| `queue_notification` | 是 | `:388-410`：dispatch 入队；`queued` 才计通知配额（SA-57）；被脑干拦下算 completed（SA-62） | `autonomy.queue_notification` `{summary, run_id}` | `notify_owner` → `notify.owner`（`contract.ts:203`，**不同 action 名**） | 待 Kevin |
-| `initiate_chat` | 是 | `:366-387`：dispatch 主动开口；回执只报"已交给投递"，不许诺送达（SA-61，明文不得回退） | `autonomy.initiate_chat` `{content, run_id}` | 无（对话侧没有"主动开口"，它本来就在对话里） | 待 Kevin |
-| `tend_inner` | 是 | `:323-330`：`tendInner()`；只有 `ValueError` 记 failed，其余抛出 | 无（只写 store） | 无 | 待 Kevin |
-| `rest` | 否 | `:308-311`：`applyRegulationCause('rested')`；**唯一不记 `action_taken` 的 kind**（:315 SA-54） | 无 | 无 | 待 Kevin |
-| `contemplate` | 否（**刻意豁免**，`decide:66-73`） | `:357-365`：什么都不做，产出在 `inner` 块、由 wake 在本函数返回后 `applyInner` 落地 | 无 | 无 | 待 Kevin |
+| `explore` | 否（要 `url`） | `src/index.ts:331-356`：无 `url` 即 failed（SA-58）；有则 dispatch 读正文，成功才泄 explore 饥饿（SA-59） | `research_browser.read_text` `{url}` | `research_read_text`（同一 action，`contract.ts:192`） | **14**（8 成 6 败） |
+| `record_note` | 是 | `:316-322`：`appendAutonomyNote(runId,'reflection',content)`，无 try/except，抛则整拍 failed | 无（只写 store） | 无 | **0** |
+| `queue_notification` | 是 | `:388-410`：dispatch 入队；`queued` 才计通知配额（SA-57）；被脑干拦下算 completed（SA-62） | `autonomy.queue_notification` `{summary, run_id}` | `notify_owner` → `notify.owner`（`contract.ts:203`，**不同 action 名**） | **0** |
+| `initiate_chat` | 是 | `:366-387`：dispatch 主动开口；回执只报"已交给投递"，不许诺送达（SA-61，明文不得回退） | `autonomy.initiate_chat` `{content, run_id}` | 无（对话侧没有"主动开口"，它本来就在对话里） | **2** |
+| `tend_inner` | 是 | `:323-330`：`tendInner()`；只有 `ValueError` 记 failed，其余抛出 | 无（只写 store） | 无 | **22** |
+| `rest` | 否 | `:308-311`：`applyRegulationCause('rested')`；**唯一不记 `action_taken` 的 kind**（:315 SA-54） | 无 | 无 | **89**（其中 13 是降级） |
+| `contemplate` | 否（**刻意豁免**，`decide:66-73`） | `:357-365`：什么都不做，产出在 `inner` 块、由 wake 在本函数返回后 `applyInner` 落地 | 无 | 无 | **32** |
 
 未知 kind 落 `:411-427`：`unknown_decision_kind` 审计 + `capability_gap`（`GAP_NO_EXECUTION_BRANCH`）+ failed。这条分支是 G-1 定案：活体这里曾是 `else` 兜底，把没加分支的新 kind 默默变成一条发给所有者的通知，`contemplate` 踩过（107 拍里 18 条成了真通知）。**任何收敛方案都不得让这条兜底回来。**
+
+## 1.1 产线读数（Kevin 2026-09-05 跑，窗口 2026-08-06 → 09-05）
+
+187 拍：159 落 `autonomy_wake`（走完 reflow），28 落 `autonomy_wake_failed`（异常路径，`wake:397`）。另有 8 条 `autonomy_wake_retried`（not_json）、3 条 `capability_gap`。
+
+| kind | 次数 | 占 159 |
+|---|---|---|
+| `rest` | 89（含 13 降级） | 56.0% |
+| `contemplate` | 32 | 20.1% |
+| `tend_inner` | 22 | 13.8% |
+| `explore` | 14（8 成 / 6 败） | 8.8% |
+| `initiate_chat` | 2 | 1.3% |
+| `record_note` | **0** | — |
+| `queue_notification` | **0** | — |
+
+**两个零次都不是"闸的效果"，是她真的不选。** §3 说要分清的两种零，读数分得开：
+
+- `record_note` 0 vs `tend_inner` 22：两者**权重同为 0.4**（`decide:86,90`）、**同样内容必填**（`decide:71-73`）、同样不经 kernel。机会完全对等，她选了后者 22 次、前者 0 次。这是偏好，不是结构。
+- `queue_notification` 0 vs `initiate_chat` 2：两者**权重同为 0.3**（`decide:87,89`）、同样内容必填、同样经 kernel 配额闸。关键在于**被闸拦下仍记 completed**（SA-62，`reflow:407`），所以"她试了但被拦"会照样出现在这张表里。它一次都没出现 → 她**从未尝试**。闸不是原因。
+
+其余读数：
+
+- **降级 13/159 = 8.2%**，全部落 `rest`。即 89 次 rest 里 76 次（85%）是她真选的。
+- **异常拍 28/187 = 15.0%**。每七拍炸一拍，落 `autonomy_wake_failed`。这是本单范围外的独立问题，值得立单。
+- **`explore` 失败 6/14 = 43%**。失败形态两种（`reflow:331-356`）：没有 `url` 的空探索（SA-58）与 dispatch 读失败。哪一种占多数，本次读数分不出——`autonomy_wake` 只记 status 不记 result。要分需要另一条按 `action_result` 经验文本的统计，那会碰正文，**不做**；改法是给这两种失败各自的审计事件。
+- 窗口横跨 LANDING-N/O/P 三次落地，口径不完全一致；上面的比例读作量级，不读作精确基线。
 
 计数怎么来：一拍结束落一条 `autonomy_wake` 审计事件，字段 `decision` 就是 kind 名（`packages/lykoi-wake/src/index.ts:415-421`；`auditLogEvent` 把事件名放进 `type`，同文件 `:113`）。脚本见 §6。
 
@@ -67,7 +93,12 @@
 
 ### 产线零次 kind 的处置
 
-两案都需要 §6 的产线计数才能定。原则建议：**零次不等于该删。** `initiate_chat` 与 `queue_notification` 受内核配额闸限流（`reflow:383`、`:407` 的"被脑干拦下"分支），零次可能是闸的效果而不是她不想用；`tend_inner` 零次则更可能是候选权重（`decide:90` 0.4）在 `explore`/`rest` 的 0.5（`decide:85,91`）面前长期落选。删之前要能分清这两种零。
+读数已到（§1.1），两个零次都归"她不选"而非"闸在拦"，所以可以直接定：
+
+- **`record_note`：并进 `tend_inner`，不单列。** 对等机会下 22:0，且两者产物都只写 store、都不经 kernel。甲案里它就是动作表上一行的两个别名，合并零风险。
+- **`queue_notification`：保留，但要查为什么她从不选。** 它与 `initiate_chat` 唯一的实质差别是投递通道（手机通知 vs 对话消息）。她 2 次选了后者、0 次选前者，可能是候选表里两者的措辞让"通知"显得更重；这是提示词问题不是枚举问题，删掉它等于把一条能力静默去掉。**先查措辞，不删。**
+
+一条通则留下来：`initiate_chat`/`queue_notification` 这类经 kernel 配额闸的 kind，"被拦下"仍记 `completed`（SA-62），所以计数为零只能读作"她没选"。**判零次前先确认该 kind 的失败路径会不会把自己从计数里抹掉**——`explore` 就不同，它的失败记 `failed` 但仍在表内。
 
 ## 4 · 不做的事：不建 `delegate` kind
 
@@ -88,7 +119,9 @@ PROBE-CAP-01 §5.3 读数：产线模型在 12 次给了 `delegate` 示例的机
 1. 选甲案还是乙案（本稿建议甲案）。
 2. 甲案第一版是否以"两处提示词 sha 不变"为硬约束。若允许变一次，`queue_notification` 与 `notify_owner` 的措辞可以直接统一，收编更彻底。
 3. 共同动作表放哪个包：`lykoi-decide`（现有依赖方向，`converse` 依赖它）还是新建 `lykoi-actions`。
-4. §3 末尾的"零次 kind"处置口径：等产线计数回来再定，还是现在就定"零次不删、只调权重"。
+4. §3 末尾的零次处置：`record_note` 并进 `tend_inner`（本稿建议）、`queue_notification` 保留并查措辞（本稿建议）。
+5. 本单范围外但读数撞出的两件，是否各自立单：**① 异常拍 15%**（28/187 落 `autonomy_wake_failed`，每七拍炸一拍）；**② `explore` 失败 43%**（6/14，且现有审计分不出"没 url"与"读失败"两种，要分得先加事件）。
+6. 审计日志里两套行形态并存（§7），是否立单查。
 
 ## 6 · 脚本用法
 
@@ -113,3 +146,34 @@ L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M
 ```
 
 无 `jq` 时（`command -v jq` 为空）先 `apt-get install -y jq`，或退回粗计数：`grep -o '"type":"autonomy_wake"[^}]*"decision":"[a-z_]*"' "$L" | grep -o '"decision":"[a-z_]*"' | sort | uniq -c | sort -rn`（不带时间窗）。
+
+## 7 · 读数撞出的一件本单外的事：审计日志里两套行形态并存
+
+第四段本来只是给 `test()` 加空值兜底的诊断，结果计出 **2134 行没有 `type` 字段、改用 `event` 字段**：
+
+| 条数 | 键名 |
+|---|---|
+| 1053 | `action_id, action_type, correlation_id, decision, error, event, origin, run_id, success, ts` |
+| 917 | `action_id, action_type, correlation_id, decision, event, origin, params, pre_approved, run_id, ts` |
+| 136 | 同上 + `exemption` |
+| 9 + 2 | `action_type, delivered, event, outcome, question_text, …, scope_key, stage, ts` |
+| 8 | `answer_text, event, interpretation, question_text, risk_level, scope_key, standing_grant_created, ts` |
+| 8 | `action_type, answer_text, event, executed, outcome, pending_id, replied, …` |
+| 1 | `action_type, correlation_id, error, event, executed, pending_id, success, ts` |
+
+**代码侧的口径是只有 `type`。** `packages/lykoi-audit/src/index.ts:75-76` 明文拒收非字符串 `type`；`packages/lykoi-kernel/src/approval-interpreter.ts:755` 注释写着"形态适配：Python 事件键 `event` → 新体 sink 词汇 `type`（W1 已立同一映射）"。也就是说 `event` 是**活体（Python）的键名**，新体应当已经映射掉。
+
+所以最可能的解释是：这些是**迁移前活体写下的历史行**，与新体行同处一个 append-only 文件——那是预期内的，不是缺陷。但这只是推断，**没有证据前不能当结论**：另一种可能是某条路径绕过了 sink 直接追加。
+
+一条命令能分开这两种可能（看 `event` 行的时间范围是否全部早于新体上线）：
+
+```bash
+jq -r 'select((.type|type)!="string")|.ts' /var/log/lykoi-audit/audit.jsonl | sort | sed -n '1p;$p'
+```
+
+若最晚一条早于新体上线日，是历史残留，记一笔即可；若有新体上线之后的行，则是活的绕过路径，要立单。
+
+顺带两点，无论上面哪种结论都成立：
+
+1. **门的词汇登记只认 `type`。** 若将来真有 `event` 形态的行进来，D-08 的词汇核对会看不见它们。
+2. **`question_text` / `answer_text` 是审批问答的正文，在审计行里。** 这是 SK-35 六元组的明文设计（`approval-interpreter.ts:712-723`），不是失误——审批判读要可复核就得留原话。但它与 D-08「审计行零正文」是两条不同口径管着两类不同的行，**这个区别值得在白皮书里写明**，否则下一个人会以为其中一条被违反了。本稿只记，不改。
