@@ -362,6 +362,8 @@ leigegehaha/sillytavernassets）与 chub 中文卡以 NSFW / NTR 为主（chub �
 消息层用 7.1 的条数规则加陆沉锋式符号辞典，放 Telegram 发送器；导入去掉生平 / scenario / first_mes / 好感度分级
 （白皮书 8.2），走 P-D2。
 
+> 2026-09-04 改口（主治理 Agent，依 Kevin 裁定 R-A～R-D 批次）：上句"放 Telegram 发送器"与白皮书 37.3（集线器与传输不得增删改一字）相撞。改为：发送器只按通道上限拆包，逐字；条数节奏、符号辞典、"打错字紧跟一条修正"这类规则属信封产生侧，形态是 `utterances[]`（WO-UTTER-01 / A4），由模型在信封里直接产出多条，不由发送器加工。7.1 表中"可借的层"照旧，落点从发送器改为信封契约。
+
 ## 来源
 
 - HDSI-AthenaBrain（HDS Interlude，main@0c9c9b5，2026-08-27）：https://github.com/YesWeAreBot/HDSI-AthenaBrain ；docs/ARCHITECTURE.md、docs/ALTER_SYSTEM.md、docs/AGENCY_WINDOW.md、CONFIGURATION_GUIDE.md、command.md、src/index.ts、src/narrator.ts、src/types.ts

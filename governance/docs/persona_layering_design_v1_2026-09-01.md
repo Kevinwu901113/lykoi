@@ -93,6 +93,7 @@ GPT 方案的 `observed|executed|user_reported|inferred|imagined|simulated`
 - 稳定表达倾向（"她本身比较直接"）→ Canon/personality 层的字段；
 - 场景化表达（对谁、什么语境）→ relationship overlay 的内容之一；
 - 瞬时语气 → 短期层（调节场）已覆盖，装配时自然生效。
+  > 2026-09-04 改口：对话路径当前不读调节场（`conversation.ts` 无 `getRegulation`），信封 `情绪脉冲` 解析后无消费者，`selfState` 缝双侧无接线；"装配时自然生效"只在自主路径成立。对话路径三断点待补单（评估稿 2026-09-04 第 8 条判断 a）。
 - 音频硬边界不变（具身重设计 2026-08-09 定案），本议题只管文字表达。
 
 ## 4. WO-MEM-SOURCE-01 章程要点（认知主线第二单，待 Kevin 发派令）
