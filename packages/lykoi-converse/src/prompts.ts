@@ -111,9 +111,10 @@ export const PROMOTED_INSIGHTS_HEADER = '你自己想明白的事(专注思考�
  * sha=a0553be7…）。与上一条的分工是"对谁"：上一条是她对世界的结论，这一条是她和
  * **眼前这个人**相处的方式——只有键到当前对话者的那些进得来。
  * 位置在转正结论段之后，同属人格块的慢变段位（随夜间印记重建，不进每轮易变尾部）。
+ * WO-OVERLAY-WAKE-01：字面量的唯一出处移到 lykoi-decide/overlay.ts（对话与 wake
+ * 共用同一段字节），这里再导出，38 字钉不动。
  */
-export const RELATIONSHIP_OVERLAY_HEADER
-  = '你和眼前这个人相处的方式(专注思考里得出、已经站住、只关于这个人的结论):\n'
+export { RELATIONSHIP_OVERLAY_HEADER } from 'lykoi-decide'
 
 /** BLOCK_BACKFILL header（conversation.py:611；chars=35 sha=fbd7132d…）。 */
 export const BACKFILL_HEADER = '[重启回灌：以下是重启前最近的对话记录（自旧到新），帮助你接续记忆。]'

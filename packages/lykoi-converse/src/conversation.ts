@@ -31,7 +31,7 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
-  applyInner, buildPersonaKernel, buildPersonaPrompt,
+  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
   emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
@@ -63,7 +63,7 @@ import {
 } from './hygiene.ts'
 import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
-  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER, RELATIONSHIP_OVERLAY_HEADER,
+  MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER,
   SUMMARIZE_SYSTEM_PROMPT,
   SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt,
 } from './prompts.ts'
@@ -504,26 +504,20 @@ export class Conversation {
    * 读失败 → 一条事件 + 零字节：读不到就是这一层今天不叠，不是整轮对话失败。
    */
   #relationshipOverlaySection(): string {
-    const subject = this.#deps.store.ownerPrimaryUserId()
-    if (subject === null) return ''
-    let rows: RawRowLike[]
-    try {
-      rows = this.#deps.store.promotedRelationshipInsights(subject)
-    } catch (exc) {
+    // WO-OVERLAY-WAKE-01 D-1：渲染规则的唯一真源在 lykoi-decide/overlay.ts（wake
+    // 走同一个函数）；这里只剩落账。事件名与字段不变，加 origin 分辨两路。
+    const overlay = buildRelationshipOverlay(this.#deps.store)
+    if (overlay.error !== undefined) {
       this.#log('relationship_overlay_read_failed', {
-        error_type: exc instanceof Error ? exc.name : 'Error',
+        error_type: overlay.error, origin: 'converse',
       })
       return ''
     }
-    const lines = rows
-      .map((row) => String(row.content ?? '').trim())
-      .filter((content) => content.length > 0)
-      .map((content) => `- ${content}`)
-    if (lines.length === 0) return ''
+    if (overlay.count === 0) return ''
     this.#log('relationship_overlay_injected', {
-      count: lines.length, subject_user_id: subject,
+      count: overlay.count, subject_user_id: overlay.subject, origin: 'converse',
     })
-    return RELATIONSHIP_OVERLAY_HEADER + lines.join('\n')
+    return overlay.text
   }
 
   /** 重启回灌：最近的 history(conversation) 行（自旧到新），每侧裁 400 字。 */

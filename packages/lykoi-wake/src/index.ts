@@ -52,9 +52,11 @@ import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
-  applyInner, buildCandidates, buildMessages, buildPersonaPrompt, evaluateMessage,
+  applyInner, buildCandidates, buildMessages, buildPersonaPrompt, buildRelationshipOverlay,
+  evaluateMessage,
   extractJson, getPersona, JSON_RETRY_NUDGE, OrganInventoryCache, serializeDecision,
-  type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type SnapshotLike,
+  type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type OverlayReader,
+  type SnapshotLike,
 } from 'lykoi-decide'
 import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
@@ -227,6 +229,30 @@ function recordWakeClock(deps: WakeDeps, moment: Date): void {
  * 一拍（SA-169 六阶段）。心跳事件/显式驱动都汇到这里；claim 合并消费 =
  * 错过 N 拍一次醒（{beats: N} 进返回值可观测）。
  */
+/**
+ * WO-OVERLAY-WAKE-01 D-2：wake 侧的 overlay 读闭包。渲染在 lykoi-decide
+ * （`buildRelationshipOverlay`，与对话路径同一函数），这里只落账：读失败一条
+ * `relationship_overlay_read_failed`，非空一条 `relationship_overlay_injected`，
+ * 两者都带 `origin:'wake'`；空态零字节零事件。
+ */
+export function overlayMessageDep(
+  store: OverlayReader, logEvent: LogEvent,
+): () => string {
+  return () => {
+    const overlay = buildRelationshipOverlay(store)
+    if (overlay.error !== undefined) {
+      logEvent('relationship_overlay_read_failed', { error_type: overlay.error, origin: 'wake' })
+      return ''
+    }
+    if (overlay.count > 0) {
+      logEvent('relationship_overlay_injected', {
+        count: overlay.count, subject_user_id: overlay.subject, origin: 'wake',
+      })
+    }
+    return overlay.text
+  }
+}
+
 export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   // 阶段 1：claim（把积压拍全部取走；0 拍 = 这一转无事）。
   const { beats } = deps.heart.claim()
@@ -552,6 +578,9 @@ export function apply(ctx: Context, config: Config) {
     messageDeps: {
       persona,
       acquired: () => buildPersonaPrompt(store),
+      // WO-OVERLAY-WAKE-01 D-2：relationship overlay 进独处装配（与对话路径同一渲染
+      // 函数；空态零字节零事件）。
+      overlay: overlayMessageDep(store, logEvent),
       // G-7 收口（W5）：器官清单接真源 —— 身份/设备轴 = identity_bindings 登记处
       // （rw 读面，channel_key 物理不存在）；动作轴 = kernel KNOWN_ACTIONS（M3，
       // unwired = 空动作面 + isHardGated fail-closed）。独处的她和聊天的她读的是

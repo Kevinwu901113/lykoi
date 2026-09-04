@@ -45,6 +45,7 @@ import type { PersonaConfig } from './persona.ts'
 import { buildPersonaKernel } from './persona.ts'
 
 export * from './persona.ts'
+export * from './overlay.ts'
 export * from './persona-toml.ts'
 export * from './organs.ts'
 export * from './seed.ts'
@@ -481,6 +482,11 @@ export interface BuildMessagesDeps {
   persona: PersonaConfig
   /** build_persona_prompt() 的输出（内部会 strip；空串不注入 —— SA-158 ③）。 */
   acquired(): string
+  /**
+   * WO-OVERLAY-WAKE-01 D-2：relationship overlay 段（`buildRelationshipOverlay(...).text`）；
+   * 缺省/空串不注入 —— 不给闭包时装配逐字节与本单之前相同。
+   */
+  overlay?(): string
   /** G-7：器官块（build_organ_block 对应物）；null/空串不注入。 */
   organBlock(): string | null
   /** self_state_injection.prepare_injection 接口位；null = 不注入（活体缺省）。 */
@@ -491,7 +497,8 @@ export interface BuildMessagesDeps {
  * SA-16/17：单调用载荷装配。顺序：先天内核（与对话路径逐字节相同，**必须
  * 第一条** —— 装配函数 buildPersonaKernel 两侧共用，同一装配点即同一自我）→
  * 后天 insights（对话注入的同一投影 —— 修复旧不对称：独处的她和聊天的她是
- * 同一个人，SA-159）→ **器官块（G-7：修复残余不对称 —— 自主侧的她同样知道
+ * 同一个人，SA-159）→ relationship overlay（WO-OVERLAY-WAKE-01：同一慢变层，
+ * 非空才注入）→ **器官块（G-7：修复残余不对称 —— 自主侧的她同样知道
  * 自己长着什么；比照 acquired 写法，非空才注入，位置紧随 acquired 之后、
  * decide 契约之前）** → decide 契约 → self-state（可选）→ 快照+候选作 user。
  */
@@ -506,6 +513,13 @@ export function buildMessages(
   const acquired = deps.acquired().trim()
   if (acquired) {
     messages.push({ role: 'system', content: acquired })
+  }
+  // WO-OVERLAY-WAKE-01 D-2：relationship overlay 紧随 acquired 之后、器官块之前
+  // （与对话路径"转正结论 → overlay"的层序一致；wake 的 acquired 已含转正投影）。
+  // 非空才注入；不给闭包 = 不注入。
+  const overlay = deps.overlay?.() ?? ''
+  if (overlay) {
+    messages.push({ role: 'system', content: overlay })
   }
   // G-7（治理定案，DA-07 修复）：器官清单注入自主侧 —— 非空才注入（判据⑧a）。
   const organ = deps.organBlock()
