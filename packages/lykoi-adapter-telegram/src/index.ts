@@ -173,6 +173,11 @@ const INBOUND_MAX_KEEP = 200
 const INITIAL_BACKOFF_S = 1.0
 const MAX_BACKOFF_S = 60.0
 
+/** `runPollLoop` 要的那一点点 logger 面（`ctx.logger` 结构上就是它的超集）。 */
+export interface PollLoopLogger {
+  warn(format: string, ...param: unknown[]): void
+}
+
 /** R-12 手法的原子写：同目录临时文件 → fsync → rename。 */
 async function writeJsonAtomic(path: string, value: unknown, seq: number): Promise<void> {
   const dir = dirname(path)
@@ -557,6 +562,62 @@ export const Config: Schema<Config> = Schema.object({
   autoStart: Schema.boolean().default(true),
 })
 
+/**
+ * 长轮询常驻循环的循环体（WO-FIX-POLLBACKOFF-01 D-4）。
+ *
+ * 抽成函数**只为一件事**：`sleep` 可注入，于是退避序列 1→2→4→…→60、成功即复位
+ * 这条节奏第一次能被红测钉住（从前它长在 `ctx.effect` 的闭包里，测试只能等真
+ * 时钟）。除此之外一个参数都不加 —— 参数越多越像一个新的配置面，而本单明确不
+ * 引入新的退避参数。
+ *
+ * 退避语义原样：`INITIAL_BACKOFF_S`=1 起，每次失败 `min(×2, 60)`，一次成功复位
+ * （telegram_device.py:543-551）。
+ */
+export function runPollLoop(
+  adapter: Pick<TelegramAdapterService, 'pollOnce' | 'consumeOutboxOnce'>,
+  deps: {
+    signal: AbortSignal
+    /** 退避睡眠 seam（生产是定时器 + abort 提前唤醒；测试注记录器）。 */
+    sleep: (seconds: number) => Promise<void>
+    audit: AuditService
+    logger: PollLoopLogger
+  },
+): Promise<void> {
+  return (async () => {
+    let backoffS = INITIAL_BACKOFF_S
+    while (!deps.signal.aborted) {
+      try {
+        await adapter.pollOnce()
+        backoffS = INITIAL_BACKOFF_S
+        // SK-79：**嘴接在耳朵旁边** —— 长轮询的**间隙**消费出站队列，不碰
+        // 长轮询本身的节奏。`consumeOutboxOnce` 自带 try（出站出任何事都不
+        // 触发这里的退避，也不让长轮询少转一圈）。
+        await adapter.consumeOutboxOnce()
+      } catch (err) {
+        deps.logger.warn('lykoi-adapter-telegram: poll failed, backing off %ds: %s',
+          backoffS, String(err))
+        // WO-FIX-POLLBACKOFF-01 D-2：退避这件事本身要在账面上留痕（在它之前
+        // 长轮询失败只有 transport 侧的 `telegram_transport_api_error` 连发，
+        // 看不出有没有退避、退了多久）。**自成一个 try**：审计写不进去也不许
+        // 影响退避本身（口径同 consumeOutboxOnce）。
+        try {
+          await deps.audit.record({
+            type: 'telegram/poll_backoff',
+            // 消费者抛的 AggregateError 等一律归 unexpected（不是 getUpdates 失败）。
+            category: err instanceof TelegramPollError ? err.category : 'unexpected',
+            ...(err instanceof TelegramPollError && err.status !== undefined
+              ? { status: err.status }
+              : {}),
+            backoff_s: backoffS,
+          })
+        } catch { /* 审计失败不改退避节奏 */ }
+        await deps.sleep(backoffS)
+        backoffS = Math.min(backoffS * 2, MAX_BACKOFF_S)
+      }
+    }
+  })()
+}
+
 export function apply(ctx: Context, config: Config) {
   const adapter = new TelegramAdapter(ctx, {
     transport: ctx.telegramTransport,
@@ -579,45 +640,19 @@ export function apply(ctx: Context, config: Config) {
     // 长轮询常驻循环：错误指数退避 1→60s，成功即复位（telegram_device.py:543-551）。
     ctx.effect(() => {
       const abort = new AbortController()
-      const loop = (async () => {
-        let backoffS = INITIAL_BACKOFF_S
-        while (!abort.signal.aborted) {
-          try {
-            await adapter.pollOnce()
-            backoffS = INITIAL_BACKOFF_S
-            // SK-79：**嘴接在耳朵旁边** —— 长轮询的**间隙**消费出站队列，不碰
-            // 长轮询本身的节奏。`consumeOutboxOnce` 自带 try（出站出任何事都不
-            // 触发这里的退避，也不让长轮询少转一圈）。
-            await adapter.consumeOutboxOnce()
-          } catch (err) {
-            ctx.logger.warn('lykoi-adapter-telegram: poll failed, backing off %ds: %s',
-              backoffS, String(err))
-            // WO-FIX-POLLBACKOFF-01 D-2：退避这件事本身要在账面上留痕（在它之前
-            // 长轮询失败只有 transport 侧的 `telegram_transport_api_error` 连发，
-            // 看不出有没有退避、退了多久）。**自成一个 try**：审计写不进去也不许
-            // 影响退避本身（口径同 consumeOutboxOnce）。
-            try {
-              await ctx.audit.record({
-                type: 'telegram/poll_backoff',
-                // 消费者抛的 AggregateError 等一律归 unexpected（不是 getUpdates 失败）。
-                category: err instanceof TelegramPollError ? err.category : 'unexpected',
-                ...(err instanceof TelegramPollError && err.status !== undefined
-                  ? { status: err.status }
-                  : {}),
-                backoff_s: backoffS,
-              })
-            } catch { /* 审计失败不改退避节奏 */ }
-            await new Promise<void>((resolveSleep) => {
-              const timer = setTimeout(resolveSleep, backoffS * 1000)
-              abort.signal.addEventListener('abort', () => {
-                clearTimeout(timer)
-                resolveSleep()
-              }, { once: true })
-            })
-            backoffS = Math.min(backoffS * 2, MAX_BACKOFF_S)
-          }
-        }
-      })()
+      const loop = runPollLoop(adapter, {
+        signal: abort.signal,
+        // 真 sleep：定时器 + abort 提前唤醒（卸载时不许再等满一个 60s）。
+        sleep: (seconds) => new Promise<void>((resolveSleep) => {
+          const timer = setTimeout(resolveSleep, seconds * 1000)
+          abort.signal.addEventListener('abort', () => {
+            clearTimeout(timer)
+            resolveSleep()
+          }, { once: true })
+        }),
+        audit: ctx.audit,
+        logger: ctx.logger,
+      })
       loop.catch(() => {})
       return () => abort.abort()
     }, 'lykoi-adapter-telegram poll loop')
