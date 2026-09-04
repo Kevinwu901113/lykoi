@@ -503,6 +503,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
+- **2026-09-05 批工单已全列（16 单）**：索引 `governance/wo/QUEUE-2026-09-05.md`，共用前置 `governance/wo/EXEC-BRIEF-2026-09-05.md`。
+  交互主线 WO-INGRESS-01（入站持久 spool + 轮询/消费分离 + Turn Assembler）、WO-INTERRUPT-01（只读认知可打断，
+  TurnStatus 增 `superseded`）、WO-UTTER-01（出站 4096 逐字切分在传输层）、WO-CHANNEL-NEUTRAL-01（事件/服务名中性化 +
+  owner 通道单一真相）；WO-PULSE-01（对话路径调节场三断点）；小单 WO-FIX-TAILBRACE-01、WO-FIX-UNDELIVERED-BRIDGE-01；
+  E4 五批 WO-E4-1～5（E4-3 排在交互主线落地后，缺省假设已写进单里）；分析/探针 WO-KINDS-01、WO-R2-NEWBODY-01、
+  PROBE-RECALL-01、PROBE-CAP-02。建议落地分批 LANDING-Q～U 见 QUEUE §2。派发方式：Kevin 开执行窗口逐单派给 Opus 5。
+
 - **LANDING-P 已落（2026-09-04 22:38 CST，产线钉 main@8da87dc，v2 一次通过；含迁移 018，mind_schema 17→18）**：
   三单合批——WO-OUTCOME-01（`turn/terminal` 回合终局正本 + turn_id/run_id 链接；gate 登记 `turn/`）、
   WO-OVERLAY-WAKE-01（关系覆盖层入 wake 装配，渲染源移到 lykoi-decide/overlay.ts）、

@@ -42,4 +42,4 @@ report.md 表：形态 × 档 × 次 → 合法 / 判据得分 / time_total / re
 
 ## 4 · 用途
 
-读数进 `governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` 的排序修正：P2 决定 A4/E1 的厚度；P3 决定 E4-SPEC 里委托说明模板的粒度；P4 决定 37.8 验证平面的最小实现是否需要独立校验器官。C2（Codex 直跑对照）以本单脚本为 runner 基础。
+读数进 `governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` 的排序修正：P2 决定多步工具路径 / E1 的厚度；P3 决定 E4-SPEC 里委托说明模板的粒度；P4 决定 37.8 验证平面的最小实现是否需要独立校验器官。C2（Codex 直跑对照）以本单脚本为 runner 基础。
