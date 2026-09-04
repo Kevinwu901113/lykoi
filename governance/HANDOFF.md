@@ -481,10 +481,6 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
     `packages/lykoi-llm/test/llm.test.ts:134-161` +
     `packages/lykoi-converse/test/llm-finish.test.ts`。
 
----
-
-## 五、当前进度
-
 54. **落地脚本里 `set -euo pipefail` 下任何含 `grep`/`grep -v` 的管道赋值都要兜零匹配，且断言块须在
     Linux 语义下实跑一遍**（2026-09-04，LANDING-O v1）。`P=$(git diff … | grep -v '^packages/x/' | tr …)` 的本意是
     "越界文件列表应为空"，但空即 grep 退出 1 → pipefail 整条赋值失败 → set -e 静默退出，连 FATAL 都不打：
@@ -494,6 +490,10 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
     ② 外层 `set -e` 对 `cmd && echo ok` 列表里失败的 cmd 不中止，dry-run 报了 FATAL 上传仍继续了——
     验证步骤要么单独一行，要么显式 `|| exit`。落地脚本应可从中断态重入（§0 接受 HEAD 已等于 NEW_SHA），O v2 靠这点免了回滚。
     → 参见教训 31c/44（假阳性族）、48（落地稿形态）。
+
+---
+
+## 五、当前进度
 
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
