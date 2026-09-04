@@ -149,3 +149,46 @@ test('插件形态：经 cordis 树装载后 ctx.budget 可用，charge 落真 a
     ['budget/charge', 'budget/refusal'],
   )
 })
+
+/**
+ * WO-R2-NEWBODY-01 D-4：cap=0 是「硬顶」语义的边界——零用量也必须拒（`>= cap`
+ * 而非 `> cap`，`src/index.ts:189`）。R2 的费用闸前置靠这一条兜底：一具新体
+ * 若把某条 route 的 cap 配成 0，它必须一次调用都发不出去，而不是"先发一次再说"。
+ * per-route 与总量两层各断一次。
+ */
+test('D-4：cap=0 在零用量时即拒（per-route 与总量两层）', async () => {
+  const audit = fakeAudit()
+  const acct = new BudgetAccountant({
+    audit,
+    warn: () => {},
+    ledgerPath: join(tmp(), 'budget.json'),
+    caps: { dailyTotalTokens: 1000, dailyRouteTokens: { mock: 0 } },
+    now: () => DAY1,
+  })
+  acct.load()
+  assert.equal(acct.usage('mock').routeTokens, 0)
+  await assert.rejects(() => acct.gate('mock'), (err: unknown) => {
+    assert.ok(err instanceof BudgetExceeded)
+    assert.equal(err.scope, 'route')
+    assert.equal(err.used, 0)
+    assert.equal(err.cap, 0)
+    return true
+  })
+  assert.equal(audit.events.filter((e) => e.type === 'budget/refusal').length, 1)
+  // 未配 per-route 的 route 落到总量层；总量 cap=0 同样零用量即拒。
+  const total0 = new BudgetAccountant({
+    audit,
+    warn: () => {},
+    ledgerPath: join(tmp(), 'budget.json'),
+    caps: { dailyTotalTokens: 0, dailyRouteTokens: {} },
+    now: () => DAY1,
+  })
+  total0.load()
+  await assert.rejects(() => total0.gate('other'), (err: unknown) => {
+    assert.ok(err instanceof BudgetExceeded)
+    assert.equal(err.scope, 'total')
+    assert.equal(err.used, 0)
+    assert.equal(err.cap, 0)
+    return true
+  })
+})

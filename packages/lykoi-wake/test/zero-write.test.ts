@@ -10,10 +10,13 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildCandidates, buildMessages, evaluateMessage, type SnapshotLike } from 'lykoi-decide'
+import {
+  JSON_RETRY_NUDGE, buildCandidates, buildMessages, evaluateMessage, extractJson,
+  type SnapshotLike,
+} from 'lykoi-decide'
 import { assemble, maintain, read } from 'lykoi-snapshot'
 import {
-  T0, contemplateReply, logicalDigest, makeStore, stubMessageDeps, stubSnapshotDeps,
+  T0, contemplateReply, fakeLlm, logicalDigest, makeStore, stubMessageDeps, stubSnapshotDeps,
 } from './fixture.ts'
 
 test('推演零写入（SA-47）+ 对照组（SA-48）：read→candidates→messages→evaluate 全程零写', () => {
@@ -67,4 +70,64 @@ test('同一时刻两次 read 逐字段相同 + 均零写（分发给 N 个分�
   const b = read(store, deps, at)
   assert.deepEqual(a, b)
   assert.equal(logicalDigest(path), before)
+})
+
+/**
+ * WO-R2-NEWBODY-01 D-2：上面两条包住 read→candidates→messages→evaluate，
+ * 但**不含 LLM 调用那一跳**（`src/index.ts:341` 的 `deps.llm` 与 `:349-360`
+ * 的 not_json 重试分支）。R2 前置 2 问的是"整段推演零写"，所以补这一条：
+ * 把 llm 调用与重试分支放进同一摘要区间。首答给非 JSON 触发重试，第二答给
+ * 合法信封 —— 两跳 llm + 一条 `autonomy_wake_retried` 审计事件都在区间内。
+ * （审计与费用账本不在状态层：`lykoi-llm` 只 inject `['llm','budget']`
+ * ——`packages/lykoi-llm/src/index.ts:240`；账本是独立 JSON
+ * ——`packages/lykoi-budget/src/index.ts:279` `var/budget.json`。）
+ */
+test('推演零写（D-2 补）：含 LLM 调用与 not_json 重试整段仍零写', async () => {
+  const { store, path } = makeStore()
+  const deps = stubSnapshotDeps()
+  const cid = store.createConcern('interest', '词源学', {
+    weight: 0.5, origin: 'seed', now: new Date(T0.getTime() - 3_600_000),
+  })
+  store.createConcern('project', '观察日志', {
+    weight: 0.4, origin: 'grown', now: new Date(T0.getTime() - 3_600_000),
+  })
+  store.recordExperience('system', '播种经验', { now: new Date(T0.getTime() - 1_800_000) })
+  store.createThought('还没想完的一条', 'intent', 'wake', {
+    chargeHint: 0.9, now: new Date(T0.getTime() - 1_800_000),
+  })
+  assemble(store, deps, T0)
+
+  const before = logicalDigest(path)
+  const later = new Date(T0.getTime() + 60_000)
+  const snap = read(store, deps, later)
+  const snapLike = snap as unknown as SnapshotLike
+  const candidates = buildCandidates(snapLike)
+  const messages = buildMessages(snapLike, candidates, stubMessageDeps())
+  // 与 src 阶段 4b 同构：首答坏 → extractJson 抛 → logEvent → 第二跳。
+  const events: string[] = []
+  let nth = 0
+  const llm = fakeLlm(() => (nth++ === 0 ? '这不是 JSON' : contemplateReply(cid, '词源学')))
+  const meta = { runId: 'r2-probe', route: 'autonomous', origin: 'autonomous_wake' as const }
+  let reply = await llm(messages, meta)
+  try {
+    extractJson(reply.content ?? '')
+  } catch {
+    events.push('autonomy_wake_retried')
+    reply = await llm([...messages, { role: 'user', content: JSON_RETRY_NUDGE }], meta)
+  }
+  const decision = evaluateMessage({ content: reply.content }, candidates, {
+    injectedThoughtIds: new Set(snap.念头.map((t) => t.id)),
+    injectedConcernIds: new Set(snap.关切.map((c) => c.id)),
+    injectedThreadIds: new Set(snap.叙事.线.map((t) => t.id)),
+  })
+  // 区间必须真的走过：两跳 llm + 一次重试事件 + 合法决策。
+  assert.equal(llm.calls.length, 2)
+  assert.deepEqual(events, ['autonomy_wake_retried'])
+  assert.equal(decision.kind, 'contemplate')
+
+  assert.equal(logicalDigest(path), before, 'SA-47：含 LLM 跳的整段推演对状态层零写入')
+
+  // SA-48 对照组：同一摘要函数对真实写敏感。
+  maintain(store, deps, new Date(T0.getTime() + 120_000))
+  assert.notEqual(logicalDigest(path), before, 'SA-48：对照组——维护写必须可见')
 })
