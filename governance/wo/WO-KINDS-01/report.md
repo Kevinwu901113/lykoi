@@ -127,7 +127,7 @@ PROBE-CAP-01 §5.3 读数：产线模型在 12 次给了 `delegate` 示例的机
 3. 共同动作表放哪个包：`lykoi-decide`（现有依赖方向，`converse` 依赖它）还是新建 `lykoi-actions`。
 4. §3 末尾的零次处置：`record_note` 并进 `tend_inner`（本稿建议）、`queue_notification` 保留并查措辞（本稿建议）。
 5. 本单范围外但读数撞出的两件，是否各自立单：**① 异常拍 15%**（28/187 落 `autonomy_wake_failed`，每七拍炸一拍）；**② `explore` 失败 43%**（6/14，且现有审计分不出"没 url"与"读失败"两种，要分得先加事件）。
-6. 审计日志里两套行形态并存（§7），是否立单查。
+6. §7 已判定为活体历史残留（时间戳格式 + 映射实现两条证据）。**只剩一问：活体是不是到 2026-08-31 才停的。** 是则无事；若它本该更早停，则 08-31 之前那些行说明有个本该停掉的写者还在跑，要立单。
 
 ## 6 · 脚本用法
 
@@ -153,7 +153,7 @@ L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M
 
 无 `jq` 时（`command -v jq` 为空）先 `apt-get install -y jq`，或退回粗计数：`grep -o '"type":"autonomy_wake"[^}]*"decision":"[a-z_]*"' "$L" | grep -o '"decision":"[a-z_]*"' | sort | uniq -c | sort -rn`（不带时间窗）。
 
-## 7 · 读数撞出的一件本单外的事：审计日志里两套行形态并存
+## 7 · 读数撞出的一件本单外的事：审计日志里两代行形态并存（已判定）
 
 第四段本来只是给 `test()` 加空值兜底的诊断，结果计出 **2134 行没有 `type` 字段、改用 `event` 字段**：
 
@@ -169,17 +169,26 @@ L=/var/log/lykoi-audit/audit.jsonl; S=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M
 
 **代码侧的口径是只有 `type`。** `packages/lykoi-audit/src/index.ts:75-76` 明文拒收非字符串 `type`；`packages/lykoi-kernel/src/approval-interpreter.ts:755` 注释写着"形态适配：Python 事件键 `event` → 新体 sink 词汇 `type`（W1 已立同一映射）"。也就是说 `event` 是**活体（Python）的键名**，新体应当已经映射掉。
 
-所以最可能的解释是：这些是**迁移前活体写下的历史行**，与新体行同处一个 append-only 文件——那是预期内的，不是缺陷。但这只是推断，**没有证据前不能当结论**：另一种可能是某条路径绕过了 sink 直接追加。
+**已判定：这些是活体（Python）写的行，不是新体的绕过路径。** 两条独立证据：
 
-一条命令能分开这两种可能（看 `event` 行的时间范围是否全部早于新体上线）：
+1. **时间戳格式。** 新体审计 sink 的 `ts` 是 `new Date().toISOString()` —— 毫秒 + `Z`（`packages/lykoi-audit/src/index.ts:85`；`kernel/dispatch.ts:25-27` 的 `_nowIso` 与 `approval-interpreter.ts:764` 同法）。而实测这些行的 `ts` 是 `2026-06-05T14:39:54.082626+00:00` / `2026-08-31T13:16:34.938200+00:00` —— **微秒 + `+00:00` 偏移**，Python `datetime.isoformat()` 的形态。新体没有任何一条路径能往审计日志写出这个格式。
+2. **映射确实生效。** `auditEvent()` 的实现是 `sink.record({ type: event, ... })`（`approval-interpreter.ts:764`），键名在写之前就换成了 `type`。新体产不出 `event` 键的行。
 
-```bash
-jq -r 'select((.type|type)!="string")|.ts' /var/log/lykoi-audit/audit.jsonl | sort | sed -n '1p;$p'
+时间范围（Kevin 2026-09-05 跑）：
+
+```
+# jq -r 'select((.type|type)!="string")|.ts' audit.jsonl | sort | sed -n '1p;$p'
+2026-06-05T14:39:54.082626+00:00
+2026-08-31T13:16:34.938200+00:00
 ```
 
-若最晚一条早于新体上线日，是历史残留，记一笔即可；若有新体上线之后的行，则是活的绕过路径，要立单。
+**结论：同一个 append-only 文件里并存两代行，活体那一代止于 2026-08-31 13:16Z。** 不是缺陷，是迁移的必然痕迹——审计日志按设计不可改写，旧行就该留在那里。
+
+对 §1.1 的 KINDS 计数**无影响**：活体的 `audit.jsonl` 只装不可篡改审计（dispatch 与审批），遥测走别处；`autonomy_wake` 是新体才有的遥测行（新体把 `auditLogEvent` 也接进同一 sink，`wake:113` `channel:'telemetry'`）。上面七种 `event` 行的键集里也确实没有任何 wake 形态。
+
+**剩一件只有 Kevin 知道的**：活体是不是到 2026-08-31 才停的。若是，两代行的并存期就是正常交接；**若活体在那之前就该停了，那 08-31 之前的这些行说明有个本该停掉的写者还在跑**，那才要立单。§1.1 的窗口（08-06→09-05）与这段并存期重叠，但因为上一段的理由，KINDS 读数不受污染。
 
 顺带两点，无论上面哪种结论都成立：
 
-1. **门的词汇登记只认 `type`。** 若将来真有 `event` 形态的行进来，D-08 的词汇核对会看不见它们。
+1. **门的词汇登记只认 `type`。** 活体那 2134 行对 D-08 的词汇核对是不可见的。今天没有新增，所以不构成风险；但若将来再引入一个自带键名的写者，门不会出声。
 2. **`question_text` / `answer_text` 是审批问答的正文，在审计行里。** 这是 SK-35 六元组的明文设计（`approval-interpreter.ts:712-723`），不是失误——审批判读要可复核就得留原话。但它与 D-08「审计行零正文」是两条不同口径管着两类不同的行，**这个区别值得在白皮书里写明**，否则下一个人会以为其中一条被违反了。本稿只记，不改。
