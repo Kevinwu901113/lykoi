@@ -103,6 +103,8 @@ packages/lykoi-wake/src/index.ts
 
 ## 落地（Kevin，root）
 
+落地稿：`landing-p-continuation.sh`（本目录；含迁移 018；新 sha 取自 bundle 的 refs/heads/main 并断言 c99729a 为祖先；manifest 期望 113 → 117）。下面四条是它的骨架。
+
 1. 合并链：`git merge --no-ff wo/outcome-01` → `wo/overlay-wake-01` → `wo/continuation-01`（各自 fast-forward 关系，dry-run 无冲突）。
 2. 停机窗：`systemctl disable --now lykoi-cordis-watchdog.timer` → `systemctl disable --now lykoi-cordis.service` → 备份 `state` → `sqlite3 -bail /home/lykoi/state/memory.db < governance/wo/WO-CONTINUATION-01/migrations/018_pending_continuations.up.sql`（期望输出 `mind_schema|18`）→ 重签 manifest（本链累计：converse、adapter-telegram、kernel、gate、decide、wake、memory）→ `systemctl enable --now lykoi-cordis.service`。GK-6 env 钉面先查（教训）。
 3. 落地后读数：首个 `turn/terminal` 带 `continuation_id` 字段（无 followup 时为 null）；她下次说"稍后做"→ 同一分钟内应出现 `continuation/terminal`；`SELECT state, terminal_reason, COUNT(*) FROM pending_continuations GROUP BY 1,2`。
