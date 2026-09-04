@@ -1,6 +1,6 @@
 # WO-OUTCOME-01 · owner 入站的终局保证（TurnOutcome 正本）与 ID 分层
 
-- 状态：**待执行**。执行方：GPT-5.6（外部执行 Agent）；复核：主治理 Agent；裁定：Kevin。
+- 状态：**已落地（LANDING-P，2026-09-04 22:38 CST，产线 main@8da87dc）**。执行方：GPT-5.6（外部执行 Agent）；复核：主治理 Agent（PASS，`review.md`）；裁定：Kevin。
 - 立单：2026-09-04，主治理 Agent。
 - 依据：`governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` §2 第 2 条；Kevin 2026-09-04 裁定 R-B（技术失败回执用系统口吻、确定性文案、system 盖章，不由角色 LLM 生成）；白皮书 v1.2 37.3（集线器不得自主产生任何对外表述）、37.8（回执背书）；人格分层设计 §2.3（能力缺口不许用沉默掩盖）。
 - 基线：`main@db151e1`（产线钉 `main@3c47c2e`，两者 packages/ 同树）。分支 `wo/outcome-01`。

@@ -490,6 +490,12 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
     ② 外层 `set -e` 对 `cmd && echo ok` 列表里失败的 cmd 不中止，dry-run 报了 FATAL 上传仍继续了——
     验证步骤要么单独一行，要么显式 `|| exit`。落地脚本应可从中断态重入（§0 接受 HEAD 已等于 NEW_SHA），O v2 靠这点免了回滚。
     → 参见教训 31c/44（假阳性族）、48（落地稿形态）。
+55. **落地稿的 `EXPECT_OLD` 是上一次落地钉的产线 sha，不是 Mac main 尖**（2026-09-04，LANDING-P v1）。
+    [裁合] 之后的 [治理] 文档提交（HANDOFF、order、landing 稿本身）从不单独落产线，所以产线 HEAD 总落后 main
+    若干个治理提交；P v1 把 EXPECT_OLD 写成 db151e1，产线在 O 的 3c47c2e，前验第一条 FATAL（只读，零改动）。
+    写稿前查上一 LANDING 记录的「产线树 → main@」；`git diff --name-only <钉点> main` 确认中间只有 governance/。
+    P 稿另一处可保留的做法：新 sha 不写死，从 bundle 的 refs/heads/main 取，再断言工单链尖为祖先——Kevin 合并后
+    不必再回治理侧要 sha。
 
 ---
 
@@ -497,6 +503,20 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
 
+- **LANDING-P 已落（2026-09-04 22:38 CST，产线钉 main@8da87dc，v2 一次通过；含迁移 018，mind_schema 17→18）**：
+  三单合批——WO-OUTCOME-01（`turn/terminal` 回合终局正本 + turn_id/run_id 链接；gate 登记 `turn/`）、
+  WO-OVERLAY-WAKE-01（关系覆盖层入 wake 装配，渲染源移到 lykoi-decide/overlay.ts）、
+  WO-CONTINUATION-01（`pending_continuations` 表；promise_followup 由 ContinuationRunner 消费：kick / cheap tick 600 s /
+  启动恢复，TTL 6 h，扫描上限 3，终态审计 `continuation/terminal`，owner 通知走 transportSend；gate 登记 `continuation/`）。
+  B2/B3 由主治理 Agent 自做自验（Kevin 改令不再派 GPT），合并树 1104/1093/0/11。
+  v1 稿 EXPECT_OLD 误写 main 尖 db151e1（产线在 3c47c2e）前验 FATAL 零改动，v2（sha 7b8ef936…71c3）只改该值：
+  备份 17.6 MB、npm ci 43 包树净、018 up `mind_schema|18`、manifest 113→117 重签 gate OK、downtime 7 秒、NRestarts 0、
+  autonomy_runs 2654、服务器四文件单测 20/20。记录 `wo/LANDING-P-20260904/record.md`；教训 55。
+  **待验**：每回合 `turn/terminal` 带 `continuation_id`；她说"稍后做"后一分钟内 `continuation/terminal`；
+  `pending_continuations` 按 state/terminal_reason 分布；wake 装配出现关系覆盖层。
+  同批入库：E4-SPEC 草稿 `docs/e4_spec_framework_instance_separation_draft_2026-09-04.md`（§6 五项待 Kevin 裁）、
+  实例事实审计、白皮书 v1.3 候选、PROBE-CAP-01 脚本与评分表（待 Kevin 以 lykoi 跑）、评估稿加 R-D 标签。
+  Mac 树未入库待 Kevin 提交：本条、教训 55、LANDING-P 记录、三单 order 状态、`landing-p-continuation-v2.sh`。
 - **LANDING-O 已落（2026-09-04 16:25 CST，产线钉 main@3c47c2e，两跑）**：WO-FIX-POLLBACKOFF-01 getUpdates 失败进入轮询循环退避——
   v1 落地稿在 §3「packages 改动不越界」断言处静默退出：`P=$(git diff … | grep -v adapter-telegram | tr …)` 在改动**没越界**时 grep 零匹配返回 1，
   pipefail 令赋值失败、set -e 退出且不打 FATAL——即"合规时必死"。服务器停在树已钉 3c47c2e、npm ci/重签未做，大脑 inactive 14 分钟。

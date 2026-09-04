@@ -1,6 +1,6 @@
 # WO-OVERLAY-WAKE-01 · relationship overlay 进自主唤醒装配
 
-- 状态：**已执行，待 Kevin 合并**。执行方：主治理 Agent（Kevin 2026-09-04 改令：不再派 GPT）；裁定：Kevin。
+- 状态：**已落地（LANDING-P，2026-09-04 22:38 CST，产线 main@8da87dc）**。执行方：主治理 Agent（Kevin 2026-09-04 改令：不再派 GPT）；裁定：Kevin。
 - 立单：2026-09-04，主治理 Agent。
 - 依据：`governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` 第 8 条（只读文本层 relationship overlay 只进对话不进 wake）与 §六.4；`governance/docs/persona_layering_design_v1_2026-09-01.md` §3.4（场景化表达 → overlay）；WO-PERS-OVERLAY-01 D-5（overlay 段的零字节口径）。
 - 基线：WO-OUTCOME-01 合并后的 main（与本单无代码交集，先后皆可；若与 WO-CONTINUATION-01 同期，本单先做，体量小）。分支 `wo/overlay-wake-01`。

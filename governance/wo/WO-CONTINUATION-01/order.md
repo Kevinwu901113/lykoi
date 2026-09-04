@@ -1,6 +1,6 @@
 # WO-CONTINUATION-01 · `promise_followup` 接消费者：PendingContinuation（不造 Task Runtime）
 
-- 状态：**已执行，待 Kevin 合并 + 落地（含迁移 018）**。执行方：主治理 Agent（Kevin 2026-09-04 改令：不再派 GPT）；裁定：Kevin。报告：`report.md`。
+- 状态：**已落地（LANDING-P v2，2026-09-04 22:38 CST，产线 main@8da87dc，迁移 018 已施加，schema 18）**。执行方：主治理 Agent（Kevin 2026-09-04 改令：不再派 GPT）；裁定：Kevin。报告：`report.md`。
 - 立单：2026-09-04，主治理 Agent。
 - 依据：`governance/docs/gpt_next_phase_memo_assessment_2026-09-04.md` 第 7 条判断（`promise_followup` 最小落点 = 接消费者，在同一把对话锁上串行执行，不触 9.4）与 §六.2；GPT 修订意见（只允许 originTurnId / goal / dueAt / state / createdAt 五个字段；禁止 plan graph、subtasks、dependencies、artifact registry、worker pool、parallel jobs、generic retry policy，这些等 E2）；主治理 Agent 补充：续跑引擎不是 wake 路径，走 Conversation `#runCycle`；到期扫描挂 cheapTick；重启语义入验收；continuation 自己要有终局。Kevin 裁定 R-B（技术失败回执系统口吻）。
 - 基线：**WO-OUTCOME-01 合并后的 main**（依赖 `turn/terminal`、`hasFollowupRequest()`、`TelegramSendOptions.recordUndeliveredExperience`）。分支 `wo/continuation-01`。
