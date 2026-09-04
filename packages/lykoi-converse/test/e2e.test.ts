@@ -203,7 +203,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   assert.equal(replySend.run_id, 'converse-1-100')
   assert.equal(replySend.turn_id, 'tg:1')
   for (const event of audit.events.filter((e) =>
-    String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_'))) {
+    String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_') || String(e.type).startsWith('turn/'))) {
     assert.equal(event.turn_id, 'tg:1', `${event.type} 缺 turn_id`)
   }
   const terminals = audit.events.filter((e) => e.type === 'turn/terminal')
