@@ -66,6 +66,29 @@ export const DEFINITE_FAILURE_ERRORS: readonly string[] = [
 /** getUpdates 错误降噪：同类错误连击只记首条 + 每第 10 条（都带 streak 计数）。 */
 export const POLL_ERROR_LOG_EVERY = 10
 
+/**
+ * 一次 getUpdates 失败（WO-FIX-POLLBACKOFF-01 D-1）。**设备层的长轮询循环靠它
+ * 认出"这一轮不是空批，是失败"**，从而进 catch 走那条 1→60s 的指数退避 ——
+ * 在它之前失败被转成空批，三层各自以为退避归别人管，结果一层都没退。
+ *
+ * **token 纪律**（本文件文件头那条）在这里同样是硬的：只带 `category`
+ * （`pollUpdates` 的 `error` 字面值）与可选的数字 `status`，`message` 是
+ * 固定模板 —— 绝不带 URL、token、原始异常文本。
+ */
+export class TelegramPollError extends Error {
+  /** `network_error` / `api_error` / `bad_response` / `rate_limited`。 */
+  readonly category: string
+  /** HTTP 状态（有就带；纯数字，不带任何文本）。 */
+  readonly status?: number
+
+  constructor(category: string, status?: number) {
+    super(`getUpdates failed: ${category}`)
+    this.name = 'TelegramPollError'
+    this.category = category
+    if (status !== undefined) this.status = status
+  }
+}
+
 /** 未送达记录里正文只留摘要（前 200 字）；事件里只留字数。 */
 export const TEXT_SUMMARY_CHARS = 200
 
