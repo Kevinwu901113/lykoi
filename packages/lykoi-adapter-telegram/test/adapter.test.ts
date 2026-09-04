@@ -12,6 +12,7 @@ import * as adapterPlugin from '../src/index.ts'
 import { ProductionTelegramTransport } from '../src/production.ts'
 import * as productionPlugin from '../src/production.ts'
 import { MemoryTelegramTransport } from '../src/testing.ts'
+import { BotApiTransport, TelegramPollError } from '../src/transport.ts'
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-telegram-'))
@@ -281,4 +282,228 @@ test('生产传输：无 token 即拒起（凭据走 env 引用，配置里永�
   await assert.rejects(
     () => Promise.resolve(ctx.plugin(productionPlugin, { tokenEnv: 'LYKOI_TEST_TG_TOKEN', proxy: '' })),
   )
+})
+
+// ============================================================================
+// WO-FIX-POLLBACKOFF-01 D-5：getUpdates 失败 → 抛 → 设备层循环退避
+// ============================================================================
+
+/** 假 token：断言它一个字符都不会出现在错误里（transport 的 token 纪律）。 */
+const FAKE_TOKEN = '1234567:AA-THIS-MUST-NEVER-LEAK'
+
+/** 用注入的 `HttpPost` 造一个真 `BotApiTransport`，再桥成生产 transport。 */
+function productionWith(post: import('../src/transport.ts').HttpPost): ProductionTelegramTransport {
+  const api = new BotApiTransport({ token: FAKE_TOKEN, post })
+  return new ProductionTelegramTransport(undefined, { api })
+}
+
+test('D-1 api_error：getUpdates HTTP 快速失败 → poll 抛 TelegramPollError（不再转空批）', async () => {
+  // 502（2026-09-04 那次实弹的形状）：HTTP 通了但 ok!==true → api_error。
+  const transport = productionWith(async () => ({ status: 502, json: () => ({}) }))
+  await assert.rejects(
+    () => transport.poll(1, { timeoutS: 1 }),
+    (err: unknown) => {
+      assert.ok(err instanceof TelegramPollError, 'err instanceof TelegramPollError')
+      assert.equal(err.category, 'api_error')
+      assert.equal(err.message, 'getUpdates failed: api_error')
+      // R-1：状态码透传到设备层 —— 502 与 429 在账面上分得开。
+      assert.equal(err.status, 502)
+      return true
+    },
+  )
+})
+
+test('D-1 network_error：连不上 → poll 抛 TelegramPollError(network_error)', async () => {
+  const transport = productionWith(async () => {
+    // 异常的字符串形态里塞满 URL + token —— 真实 HTTP 客户端就是这么泄的。
+    const exc = new Error(`connect ECONNREFUSED https://api.telegram.org/bot${FAKE_TOKEN}/getUpdates`)
+    exc.name = 'ConnectError'
+    throw exc
+  })
+  await assert.rejects(
+    () => transport.poll(1, { timeoutS: 1 }),
+    (err: unknown) => {
+      assert.ok(err instanceof TelegramPollError)
+      assert.equal(err.category, 'network_error')
+      assert.equal(err.message, 'getUpdates failed: network_error')
+      // 连不上根本没有 HTTP 状态 —— 这一位就该缺席，不许编一个出来。
+      assert.equal(err.status, undefined)
+      return true
+    },
+  )
+})
+
+test('D-1 token 纪律：抛出的错误只带类别，不带 URL / token / 原始异常文本', async () => {
+  for (const post of [
+    (async () => ({ status: 502, json: () => ({}) })) as import('../src/transport.ts').HttpPost,
+    (async () => {
+      const exc = new Error(`https://api.telegram.org/bot${FAKE_TOKEN}/getUpdates timed out`)
+      exc.name = 'ReadTimeout'
+      throw exc
+    }) as import('../src/transport.ts').HttpPost,
+    (async () => ({
+      status: 200,
+      json: () => { throw new Error(`bad json from https://api.telegram.org/bot${FAKE_TOKEN}/getUpdates`) },
+    })) as import('../src/transport.ts').HttpPost,
+  ]) {
+    const err = await productionWith(post).poll(1, { timeoutS: 1 }).then(
+      () => { throw new Error('should have rejected') },
+      (e: unknown) => e as TelegramPollError,
+    )
+    const serialized = `${err.name}: ${err.message} ${String(err)}`
+    assert.equal(serialized.includes(FAKE_TOKEN), false, 'token 不许出现在错误里')
+    assert.equal(/api\.telegram\.org|https?:\/\//.test(serialized), false, 'URL 不许出现在错误里')
+    assert.equal(/ECONNREFUSED|timed out|bad json/.test(serialized), false, '原始异常文本不许出现在错误里')
+    assert.match(err.message, /^getUpdates failed: [a-z_]+$/)
+  }
+})
+
+test('D-1 成功路径形状不变：ok 的 getUpdates 照常归一化成 TelegramUpdate[]', async () => {
+  const transport = productionWith(async () => ({
+    status: 200,
+    json: () => ({
+      ok: true,
+      result: [{
+        update_id: 7,
+        message: {
+          message_id: 42,
+          chat: { id: 'chat-1' },
+          from: { id: 1001 },
+          text: '你好',
+          date: 1700000000,
+          reply_to_message: { message_id: 41 },
+        },
+      }],
+    }),
+  }))
+  const updates = await transport.poll(1, { timeoutS: 1 })
+  assert.equal(updates.length, 1)
+  assert.equal(updates[0]!.updateId, 7)
+  assert.deepEqual(updates[0]!.message, {
+    messageId: '42',
+    chatId: 'chat-1',
+    senderId: '1001',
+    text: '你好',
+    ts: new Date(1700000000 * 1000).toISOString(),
+    replyToMessageId: '41',
+  })
+})
+
+/**
+ * D-4 循环夹具：`pollOnce` 按脚本成功/拒绝；`sleep` 只记录不真等（时钟纪律：
+ * 退避序列由注入的 seam 观测，不靠真时间）。到达 `stopAfterSleeps` 次睡眠即
+ * abort —— 循环这才停得下来。
+ */
+function loopFixture(script: ('ok' | 'fail')[], stopAfterSleeps: number) {
+  const abort = new AbortController()
+  const slept: number[] = []
+  const audit = fakeAudit()
+  const warns: string[] = []
+  let call = 0
+  let consumed = 0
+  const adapter = {
+    async pollOnce(): Promise<number> {
+      const step = script[call++] ?? 'ok'
+      if (step === 'fail') throw new TelegramPollError('api_error')
+      return 0
+    },
+    async consumeOutboxOnce(): Promise<void> {
+      consumed += 1
+    },
+  }
+  const run = () => adapterPlugin.runPollLoop(adapter, {
+    signal: abort.signal,
+    async sleep(seconds: number) {
+      slept.push(seconds)
+      if (slept.length >= stopAfterSleeps) abort.abort()
+    },
+    audit,
+    logger: { warn: (format: string, ...param: unknown[]) => { warns.push(`${format}${param.length}`) } },
+  })
+  return {
+    run,
+    slept,
+    audit,
+    warns,
+    calls: () => call,
+    consumedCount: () => consumed,
+  }
+}
+
+test('D-4/D-2 退避序列：失败 4 次 → 成功 1 次（复位）→ 再失败 1 次 = [1,2,4,8,1]', async () => {
+  const fx = loopFixture(['fail', 'fail', 'fail', 'fail', 'ok', 'fail'], 5)
+  await fx.run()
+  assert.deepEqual(fx.slept, [1, 2, 4, 8, 1], '成功那一轮把退避复位回 1s')
+  assert.equal(fx.consumedCount(), 1, '成功那一轮才消费出站队列（间隙位）')
+  assert.equal(fx.warns.length, 5, '每次退避照旧一行 warn')
+  const backoffs = fx.audit.events.filter((e) => e.type === 'telegram/poll_backoff')
+  assert.equal(backoffs.length, 5, '审计条数 = 退避次数')
+  assert.deepEqual(backoffs.map((e) => e.backoff_s), [1, 2, 4, 8, 1], '审计 backoff_s 与睡眠序列一致')
+  assert.deepEqual([...new Set(backoffs.map((e) => e.category))], ['api_error'])
+})
+
+test('D-4 上限 60：连续失败 8 次 = [1,2,4,8,16,32,60,60]（封顶不再翻倍）', async () => {
+  const fx = loopFixture(Array<'fail'>(8).fill('fail'), 8)
+  await fx.run()
+  assert.deepEqual(fx.slept, [1, 2, 4, 8, 16, 32, 60, 60])
+  assert.equal(fx.consumedCount(), 0, '一轮都没成功 → 出站队列一次都没消费')
+})
+
+test('D-2 category：非 TelegramPollError（消费者抛的）归 unexpected，审计照落', async () => {
+  const abort = new AbortController()
+  const audit = fakeAudit()
+  let call = 0
+  await adapterPlugin.runPollLoop({
+    async pollOnce(): Promise<number> {
+      call += 1
+      throw new AggregateError([new Error('consumer boom')], 'parallel failed')
+    },
+    async consumeOutboxOnce(): Promise<void> {},
+  }, {
+    signal: abort.signal,
+    async sleep() { abort.abort() },
+    audit,
+    logger: { warn: () => {} },
+  })
+  assert.equal(call, 1)
+  const event = audit.events.find((e) => e.type === 'telegram/poll_backoff')!
+  assert.equal(event.category, 'unexpected')
+  assert.equal(event.backoff_s, 1)
+  assert.equal('status' in event, false, 'status 没有就不出现在审计行里')
+})
+
+test('D-2 审计自成一个 try：record 抛也不改退避节奏', async () => {
+  const abort = new AbortController()
+  const slept: number[] = []
+  await adapterPlugin.runPollLoop({
+    async pollOnce(): Promise<number> { throw new TelegramPollError('bad_response') },
+    async consumeOutboxOnce(): Promise<void> {},
+  }, {
+    signal: abort.signal,
+    async sleep(seconds: number) {
+      slept.push(seconds)
+      if (slept.length >= 3) abort.abort()
+    },
+    audit: { async record() { throw new Error('audit sink down') } },
+    logger: { warn: () => {} },
+  })
+  assert.deepEqual(slept, [1, 2, 4], '审计写不进去，退避照常 1→2→4')
+})
+
+test('R-1 审计行带 status：pollOnce 抛 TelegramPollError(api_error, 502) → poll_backoff.status = 502', async () => {
+  const abort = new AbortController()
+  const audit = fakeAudit()
+  await adapterPlugin.runPollLoop({
+    async pollOnce(): Promise<number> { throw new TelegramPollError('api_error', 502) },
+    async consumeOutboxOnce(): Promise<void> {},
+  }, {
+    signal: abort.signal,
+    async sleep() { abort.abort() },
+    audit,
+    logger: { warn: () => {} },
+  })
+  const event = audit.events.find((e) => e.type === 'telegram/poll_backoff')!
+  assert.equal(event.category, 'api_error')
+  assert.equal(event.status, 502)
+  assert.equal(event.backoff_s, 1)
 })

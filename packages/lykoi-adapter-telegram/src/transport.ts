@@ -66,6 +66,29 @@ export const DEFINITE_FAILURE_ERRORS: readonly string[] = [
 /** getUpdates 错误降噪：同类错误连击只记首条 + 每第 10 条（都带 streak 计数）。 */
 export const POLL_ERROR_LOG_EVERY = 10
 
+/**
+ * 一次 getUpdates 失败（WO-FIX-POLLBACKOFF-01 D-1）。**设备层的长轮询循环靠它
+ * 认出"这一轮不是空批，是失败"**，从而进 catch 走那条 1→60s 的指数退避 ——
+ * 在它之前失败被转成空批，三层各自以为退避归别人管，结果一层都没退。
+ *
+ * **token 纪律**（本文件文件头那条）在这里同样是硬的：只带 `category`
+ * （`pollUpdates` 的 `error` 字面值）与可选的数字 `status`，`message` 是
+ * 固定模板 —— 绝不带 URL、token、原始异常文本。
+ */
+export class TelegramPollError extends Error {
+  /** `network_error` / `api_error` / `bad_response` / `rate_limited`。 */
+  readonly category: string
+  /** HTTP 状态（有就带；纯数字，不带任何文本）。 */
+  readonly status?: number
+
+  constructor(category: string, status?: number) {
+    super(`getUpdates failed: ${category}`)
+    this.name = 'TelegramPollError'
+    this.category = category
+    if (status !== undefined) this.status = status
+  }
+}
+
 /** 未送达记录里正文只留摘要（前 200 字）；事件里只留字数。 */
 export const TEXT_SUMMARY_CHARS = 200
 
@@ -299,6 +322,11 @@ export class BotApiTransport {
    *
    * `retryBackoff`（WO-U0 ①）是网络故障的重试退避序列，空 = 不重试。**只有
    * sendMessage 传它**：getUpdates 的重连节奏归设备的长轮询循环管，本单不动。
+   *
+   * 「归设备的长轮询循环管」这句在 WO-FIX-POLLBACKOFF-01 之前是空头支票：
+   * `pollUpdates` 的失败被 `./production` 转成空批，循环看不见失败，退避永不触发。
+   * D-1 起 `production.poll` 失败即抛 `TelegramPollError`，那条循环的 1→60s 指数
+   * 退避才真的接住它 —— 这句现在为真。本层仍不加任何 getUpdates 重试/退避。
    */
   async #postApi(
     method: string,
@@ -451,17 +479,28 @@ export class BotApiTransport {
    * 一次长轮询 `getUpdates`（offset 含义 = Bot API 自己的去重：传 offset 就 ack
    * 了它以下的全部 update，Telegram 不再重发）。HTTP 客户端超时垫在服务端长轮询
    * 秒数之上，好让这段等待本身永远不被误当成一次网络故障。
+   *
+   * 失败时 `status` 随 `error` 一起透出（WO-FIX-POLLBACKOFF-01 R-1a）：没有它，
+   * 平台 5xx 与限流在设备层账面上都只是一个 `api_error`，落地读数分不开。**只
+   * 透传，不解释**：`#postApi` 给什么就是什么，且只在它确实是数字时才带上 ——
+   * token 纪律不变（状态码是数字，不是文本，泄不出 URL 与 token）。
    */
   async pollUpdates(opts: { offset: number; timeoutS?: number }): Promise<{
     updates: { update_id: unknown; message: NormalizedMessage | null }[]
     error?: string
+    /** HTTP 状态（仅失败分支、仅数字）。`network_error` 这类没有它的失败不带。 */
+    status?: number
   }> {
     const timeout = opts.timeoutS ?? 25
     const result = await this.#postApi(
       'getUpdates', { offset: opts.offset, timeout }, { timeoutS: timeout + 10.0 },
     )
     if (result.ok !== true) {
-      return { updates: [], ...(result.error === undefined ? {} : { error: result.error }) }
+      return {
+        updates: [],
+        ...(result.error === undefined ? {} : { error: result.error }),
+        ...(typeof result.status === 'number' ? { status: result.status } : {}),
+      }
     }
     const updates: { update_id: unknown; message: NormalizedMessage | null }[] = []
     for (const raw of (result.result as Record<string, unknown>[] | undefined) ?? []) {

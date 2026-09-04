@@ -24,7 +24,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createFetchHttpPost } from './http.ts'
-import { BotApiTransport } from './transport.ts'
+import { BotApiTransport, TelegramPollError } from './transport.ts'
 import type { TelegramSendResult, TelegramTransport, TelegramUpdate } from './index.ts'
 
 /**
@@ -66,11 +66,21 @@ export class ProductionTelegramTransport implements TelegramTransport {
 
   /**
    * S-01 长轮询。`offset` 即 Bot API 的 ack。错误分类与降噪都在
-   * `BotApiTransport` 里 —— 这里失败就是**空批**：设备层的循环照常转，
-   * 游标不前进，那些 update 下一轮还在（平台侧未 ack）。
+   * `BotApiTransport` 里 —— 这里失败**即抛**（`TelegramPollError`），退避在设备层
+   * 循环（WO-FIX-POLLBACKOFF-01 D-1）。
+   *
+   * 从前这里把失败转成空批，于是「HTTP 快速失败 → 空批 → 立刻再来一次」以一个
+   * HTTP 往返（实测约 290ms）为节拍热循环，直到平台恢复。现在失败落进循环的
+   * `catch`，那条 1→60s 的指数退避（成功即复位）才真的生效。游标语义不变：失败
+   * 不推进游标，那些 update 下一轮还在（平台侧未 ack）。
+   *
+   * 抛出的错误只带**类别**与数字 `status`，不带 URL / token / 原始异常文本。
+   * `status` 由 `pollUpdates` 透传（R-1a/R-1b）：502 与 429 在账面上从此分得开；
+   * 没有状态码的失败（`network_error`）照旧不带这一位。
    */
   async poll(offset: number, options: { timeoutS: number }): Promise<TelegramUpdate[]> {
     const result = await this.#api.pollUpdates({ offset, timeoutS: options.timeoutS })
+    if (result.error !== undefined) throw new TelegramPollError(result.error, result.status)
     const updates: TelegramUpdate[] = []
     for (const raw of result.updates) {
       const message = raw.message
