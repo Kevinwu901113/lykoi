@@ -187,7 +187,15 @@ test('D-7 覆盖面：空转周期照样结算衰减（与 promoteDueInsights �
     // 真发出去就会抛"unexpected extra LLM call"）。
     const { iid, touched } = seedActiveInsight(store, '一条转正结论')
     seedCyclesUpTo(path, touched + INSIGHT_STALE_AFTER_CYCLES - 1)
+    let finalized = 0
+    const finalize = store.finalizeFocusCycle.bind(store)
+    store.finalizeFocusCycle = (...args) => {
+      assert.equal(store.getFocusInsightState(iid)!.status, 'dormant', '衰减先于周期收尾')
+      finalized++
+      return finalize(...args)
+    }
     const s = await runFocusCycle(mkDeps(store, log, hoursAfter(T0, 72)))
+    assert.equal(finalized, 1)
     assert.deepEqual([s.outcome, s.note, s.llm_calls], ['idle', 'no selectable concern', 0])
     assert.equal(s.cycle_id! - touched, INSIGHT_STALE_AFTER_CYCLES)
     assert.deepEqual(s.retired, [iid])

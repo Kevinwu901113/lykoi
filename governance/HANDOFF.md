@@ -1106,25 +1106,12 @@ Codex 接手期间的四单**全部经独立验证通过**，非采信自述：
 
 ## 八、接手第一步建议
 
-> ⚠️ 本节写于 2026-08-08：第 3 条的期望值（HEAD/服务数）与第 4 条的"下一步"
-> 早已过时，现状一律以第五节 2026-08-31 快照为准；本节保留的是流程骨架。
+当前 Cordis 流程（2026-09-05）：
 
-1. 读白皮书 v1.2 + 协作方案 + 本文件（尤其第四节的教训清单）
-2. `ssh lykoi-gov` 确认能连；按第二节的表逐项验证权限边界（应能读代码、读不到 secrets 与 core.sock）
-3. 确认活体健康：`ssh lapw1ng.com 'cd ~/projects/lykoi && git log --oneline -1; systemctl is-active lykoi-server lykoi-autonomy lykoi-core lykoi-watchdog; curl -fsS http://127.0.0.1:8080/health'` —— 期望 `74f5907c`、四个 active、health 含 `browser_request_guard=ready`
-4. 下一步执行干净 Ubuntu 24.04 VM 从零重建演练；不要直接在生产恢复、不要把 secrets 放进备份。该门通过后再做 S4 Secret + 阶段 2 Delegation Gateway 联合边界设计。除非 Kevin 改变指示，不使用 Opus/Sonnet，主治理 Agent 直接实施
-5. 按标准流程收：复核代码 → **自己跑测试**（`git worktree` 到 `/tmp` + 活体 venv，别碰活体检出）→ **必跑 `pytest tests/test_p0_integrity.py`** → 给 Kevin 精确到权限位与顺序的部署命令 + 回滚点
+1. 核对当前工作目录、`git remote -v`、`git status --short` 与 `git log -1`；按第五节最新快照和相关工单定位任务。旧快照不是新的待办。
+2. 按根 `CLAUDE.md` 的读物顺序读取当前边界和相关规范；从第四节索引查与本次改动有关的事故原因。历史用模模板服从 Kevin 本次指令。
+3. 在隔离分支实施并复核完整 diff；运行根 `CLAUDE.md` 规定的构建与测试，对变更影响的真实行为补验证。测试代码事实与生产部署事实分开报告。
+4. 只有任务涉及生产状态时才由有通道的一方核验服务和部署版本。需要部署时准备匹配本次改动的命令、预期结果与回滚点；合并与 root 操作按既有授权边界执行。
+5. 将结果、验证与未解决项写入对应工单，提交并推送工作分支。执行报告须经独立复核。
 
-### 一次完整的复核长什么样（照抄这个流程）
-
-以 SEC-02 为例，五步缺一不可：
-
-1. 读 `git show --stat` 与完整 diff，判断改动方向是否符合工单
-2. `git worktree add /tmp/xx-test <分支>`（以 lykoi 身份），用 `~/projects/lykoi/.venv/bin/python -m pytest` 跑相关测试
-3. **功能性验证**——不止看测试绿，要真的调用它证明目标达成（如直接 `browser.navigate()` 打内网地址看是否 `UrlBlocked`）
-4. 反向核对（如遍历六目录确认每个 `.py` 都在 manifest 里）
-5. 写 `wo/<WO-ID>/review.md` 归档，记 `governance-ops.jsonl`，给 Kevin 部署命令
-
-**这套流程在 SEC-01 和 SEC-02 各抓出一个会导致三服务全停的缺陷。不要跳步。**
-
-> 一句话原则（白皮书结论章）：**可以重构 Lykoi 的软件身体，但不能未经判断地丢弃她已经形成的经历、关系和身份。**
+旧 Python 运行时的起步步骤与 SEC-02 复核示例已移至[历史存档](docs/archive/handoff-startup-2026-08-08.md)，只用于查事故原因，不再作为当前操作清单。
