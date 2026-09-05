@@ -1,6 +1,6 @@
 # WO-UTTER-01 · 出站长文按通道上限切分（A4）
 
-- 状态：**已完成，待合并**（2026-09-05，主治理 Agent 自执行；`report.md` 在分支 `wo/utter-01` 末尾提交）。原派发方式：执行方：执行子 Agent。复核：主治理 Agent。
+- 状态：**已合入 main@257a72e，LANDING-Q 已落地（2026-09-05 11:31 CST）**（2026-09-05，主治理 Agent 自执行；`report.md` 在分支 `wo/utter-01` 末尾提交）。原派发方式：执行方：执行子 Agent。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：Kevin 裁定 R-B；memo 评估稿 §四 A4；白皮书 v1.3 候选 C-3（"出站切分在传输层，逐字，上限归通道不归契约"）。
 - 基线：`main@c557af2`（与 INGRESS/INTERRUPT 无代码交叉，可并行；若先于它们落地，从 main 开）。分支：`wo/utter-01`。
