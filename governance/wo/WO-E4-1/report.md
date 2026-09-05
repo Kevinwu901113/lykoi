@@ -90,4 +90,4 @@
 ## 7 · 落地要点
 
 - 零 src、零 root 域、零迁移、零依赖变更：本单**不需要单独落地**，随下一次 landing（LANDING-S，EXPECT_OLD = 257a72e）顺带上线；manifest 117 不因本单变化。
-- 合并后请把 §6 ① 的一行 profile 修正列入 Kevin 决断。
+- §6 ① 的一行 profile 修正已按 Kevin 2026-09-05「往前推」令在合并前补入本分支（`profile/cordis.yml:55` → `fixtures/instance/persona.toml`；root 域，随 LANDING-S 重签）。
