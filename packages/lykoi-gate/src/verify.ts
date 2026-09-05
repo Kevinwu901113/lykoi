@@ -1,5 +1,5 @@
 /**
- * 启动完整性门 —— 八检查项（SK-70..76 等价重建；CF-B1 形态）。
+ * 启动完整性门 —— 启动检查（SK-70..76 等价重建；CF-B1 形态）。
  *
  * 正本：治理仓库 wo/WO-M3-SPEC-KERNEL/guardian-live-20260825/startup_verify.py
  * （425 行，manifest 113 行）。SK-70：任一问题 exit 1；`--write-manifest` 是

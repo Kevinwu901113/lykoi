@@ -13,6 +13,7 @@
  * DatabaseSync 支持 readOnly 打开 + PRAGMA + prepare/get/all，M1 只读面所需
  * 能力齐备且零原生依赖（供应链面更小）；若后续波次需要其缺失能力再议 better-sqlite3。
  */
+import { regulationField, openThoughts, autonomyState, readMindSchemaVersion } from './queries.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { DatabaseSync } from 'node:sqlite'
@@ -257,18 +258,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
    * 不等则抛明确错误（不读不认识的 schema）。
    */
   #assertSchemaVersion(): void {
-    let version: unknown
-    try {
-      const row = this.#db.prepare('SELECT MAX(version) AS version FROM mind_schema').get() as
-        | { version: unknown }
-        | undefined
-      version = row?.version
-    } catch (err) {
-      throw new Error(
-        'lykoi-memory: cannot read mind_schema from this database — not a Lykoi state copy? '
-        + `(${(err as Error).message})`,
-      )
-    }
+    const version = readMindSchemaVersion(this.#db)
     if (version !== EXPECTED_MIND_SCHEMA_VERSION) {
       throw new Error(
         `lykoi-memory: mind_schema version ${String(version)} != expected `
@@ -279,15 +269,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   }
 
   regulationField(): RegulationFieldRow[] {
-    const rows = this.#db.prepare(
-      'SELECT name, value, baseline, updated_at FROM regulation_field ORDER BY name',
-    ).all() as { name: string; value: number; baseline: number; updated_at: string }[]
-    return rows.map((r) => ({
-      name: r.name as RegulationFieldRow['name'],
-      value: r.value,
-      baseline: r.baseline,
-      updatedAt: r.updated_at,
-    }))
+    return regulationField(this.#db)
   }
 
   activeConcerns(): ConcernRow[] {
@@ -312,21 +294,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   }
 
   openThoughts(): ThoughtRow[] {
-    const rows = this.#db.prepare(
-      `SELECT id, ts, content, kind, source, related_concern_id, source_ref, charge, status
-         FROM thoughts WHERE status = 'open' ORDER BY id`,
-    ).all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      id: r.id as number,
-      ts: r.ts as string,
-      content: r.content as string,
-      kind: r.kind as string,
-      source: r.source as string,
-      relatedConcernId: (r.related_concern_id ?? null) as number | null,
-      sourceRef: (r.source_ref ?? null) as string | null,
-      charge: r.charge as number,
-      status: r.status as string,
-    }))
+    return openThoughts(this.#db)
   }
 
   recentHistory(limit: number): HistoryRow[] {
@@ -381,17 +349,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   }
 
   autonomyState(): AutonomyStateRow | undefined {
-    const row = this.#db.prepare(
-      'SELECT next_wake_at, last_wake_at, updated_at FROM autonomy_state WHERE id = 1',
-    ).get() as
-      | { next_wake_at: string; last_wake_at: string | null; updated_at: string }
-      | undefined
-    if (!row) return undefined
-    return {
-      nextWakeAt: row.next_wake_at,
-      lastWakeAt: row.last_wake_at ?? null,
-      updatedAt: row.updated_at,
-    }
+    return autonomyState(this.#db)
   }
 
   close(): void {

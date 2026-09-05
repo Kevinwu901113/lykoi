@@ -6,11 +6,13 @@
 ## 读物顺序（新会话先读这些，再动手）
 
 1. 本文件
-2. `governance/HANDOFF.md` — 治理平面接手文档：角色边界、工单机制、教训清单、**进度快照**（状态以它为准）
-3. `governance/docs/lykoi_whitepaper_v1.2_2026-08-18.md` — **最高层规范**，一切冲突以白皮书为准
+2. `governance/HANDOFF.md` — 先读第一至三节的角色/边界/工单机制、第五节最新进度快照、第八节当前接手流程；第四节按教训索引查本任务相关条目，旧快照仅作历史证据
+3. `governance/docs/lykoi_whitepaper_v1.2_2026-08-18.md` — **最高层规范**；按任务读取相关条款，架构重构通读。历史实现快照须与当前代码核对
 4. `governance/docs/lykoi_collaboration_plan_v1_2026-08-07.md` — 协作制度正本
 5. 手头任务涉及的 `docs/m*_blueprint.md` / `docs/m4_handoff.md` / `governance/wo/<工单>/`
 6. 云端（claude.ai/code）会话额外必读：`governance/CLOUD_HANDOFF.md`
+
+当前会话中 Kevin 的明确指令优先于历史用模与派发模板。不要将旧 Python 运行时的命令、服务名、测试计数或已关闭事故的处置步骤复制进新任务。
 
 ## 硬规矩（按重要性排）
 

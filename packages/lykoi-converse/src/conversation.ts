@@ -334,6 +334,20 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
+function parseToolArguments(call: ToolCall):
+  | { args: Record<string, unknown>; error: null }
+  | { args: null; error: Fields } {
+  try {
+    const parsed: unknown = JSON.parse(call.function.arguments || '{}')
+    return { args: isPlainObject(parsed) ? parsed : {}, error: null }
+  } catch (exc) {
+    return { args: null, error: {
+      success: false,
+      error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}`,
+    } }
+  }
+}
+
 /** 简单互斥（asyncio.Lock 对应）：回合与摘要各一把（S-12）。 */
 class AsyncLock {
   #tail: Promise<void> = Promise.resolve()
@@ -1328,16 +1342,8 @@ export class Conversation {
       })
       return [null, { success: false, error: `organ not wired: '${name}'` }]
     }
-    let params: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      params = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return [null, {
-        success: false,
-        error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}`,
-      }]
-    }
+    const { args: params, error } = parseToolArguments(call)
+    if (error !== null) return [null, error]
     if (actionType === 'notify.owner') {
       params.origin = 'interactive' // provenance is stamped by this loop, never by the model
     }
@@ -1372,13 +1378,8 @@ export class Conversation {
   }
 
   async #handleVision(call: ToolCall): Promise<Fields> {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const attachmentId = args.attachment_id
     if (!attachmentId || typeof attachmentId !== 'string') {
       return { success: false, error: "vision_describe requires 'attachment_id'" }
@@ -1410,13 +1411,8 @@ export class Conversation {
    * 在回合成功后调度成后台跟进；后台回合是挂起信号（无递归自动续跑）。
    */
   #handleFollowup(call: ToolCall): Fields {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const task = String(args.task ?? '').trim()
     if (!task) {
       return { success: false, error: "promise_followup 需要 'task':写清要完成什么、卡在哪里" }
@@ -1432,13 +1428,8 @@ export class Conversation {
 
   /** post_progress —— 后台执行中的进度推送：写对话出站队列，不过 dispatch（S-54）。 */
   #handleProgress(call: ToolCall): Fields {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const content = String(args.content ?? '').trim()
     if (!content) {
       return { success: false, error: "post_progress 需要 'content':要发给 Kevin 的进展" }

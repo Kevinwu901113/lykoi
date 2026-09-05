@@ -34,6 +34,7 @@
  * audit 的存在）；wake 编排把 auditLogEvent 递进来。事件是遥测不是控制流：
  * 全部在事务 COMMIT 之后发（拒绝类事件在拒绝点发），发射失败由注入方自吞。
  */
+import { regulationField, openThoughts, autonomyState, readMindSchemaVersion } from './queries.ts'
 import { DatabaseSync } from 'node:sqlite'
 import { classifyExperience, RULE_VERSION } from 'lykoi-learn/l1'
 import {
@@ -431,18 +432,7 @@ export class ReadWriteMemory {
    * 拒开（不写不认识的 schema，更甚于不读）。
    */
   #assertSchemaVersion(): void {
-    let version: unknown
-    try {
-      const row = this.#db.prepare('SELECT MAX(version) AS version FROM mind_schema').get() as
-        | { version: unknown }
-        | undefined
-      version = row?.version
-    } catch (err) {
-      throw new Error(
-        'lykoi-memory: cannot read mind_schema from this database — not a Lykoi state copy? '
-        + `(${(err as Error).message})`,
-      )
-    }
+    const version = readMindSchemaVersion(this.#db)
     if (version !== EXPECTED_MIND_SCHEMA_VERSION) {
       throw new Error(
         `lykoi-memory: mind_schema version ${String(version)} != expected `
@@ -609,15 +599,7 @@ export class ReadWriteMemory {
 
   /** regulation_field 原始四行（同只读入口口径；供装配/测试断言）。 */
   regulationField(): RegulationFieldRow[] {
-    const rows = this.#db.prepare(
-      'SELECT name, value, baseline, updated_at FROM regulation_field ORDER BY name',
-    ).all() as { name: string; value: number; baseline: number; updated_at: string }[]
-    return rows.map((r) => ({
-      name: r.name as RegulationFieldRow['name'],
-      value: r.value,
-      baseline: r.baseline,
-      updatedAt: r.updated_at,
-    }))
+    return regulationField(this.#db)
   }
 
   /**
@@ -1355,21 +1337,7 @@ export class ReadWriteMemory {
 
   /** open 念头（写层调用方 / 测试断言用；与只读入口同口径）。 */
   openThoughts(): ThoughtRow[] {
-    const rows = this.#db.prepare(
-      `SELECT id, ts, content, kind, source, related_concern_id, source_ref, charge, status
-         FROM thoughts WHERE status = 'open' ORDER BY id`,
-    ).all() as Record<string, unknown>[]
-    return rows.map((r) => ({
-      id: r.id as number,
-      ts: r.ts as string,
-      content: r.content as string,
-      kind: r.kind as string,
-      source: r.source as string,
-      relatedConcernId: (r.related_concern_id ?? null) as number | null,
-      sourceRef: (r.source_ref ?? null) as string | null,
-      charge: r.charge as number,
-      status: r.status as string,
-    }))
+    return openThoughts(this.#db)
   }
 
   // ============================== history ==============================
@@ -1390,17 +1358,7 @@ export class ReadWriteMemory {
   // ============================== autonomy_state / autonomy_runs ==============================
 
   autonomyState(): AutonomyStateRow | undefined {
-    const row = this.#db.prepare(
-      'SELECT next_wake_at, last_wake_at, updated_at FROM autonomy_state WHERE id = 1',
-    ).get() as
-      | { next_wake_at: string; last_wake_at: string | null; updated_at: string }
-      | undefined
-    if (!row) return undefined
-    return {
-      nextWakeAt: row.next_wake_at,
-      lastWakeAt: row.last_wake_at ?? null,
-      updatedAt: row.updated_at,
-    }
+    return autonomyState(this.#db)
   }
 
   /**
