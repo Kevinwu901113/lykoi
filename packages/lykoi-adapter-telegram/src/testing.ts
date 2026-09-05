@@ -5,11 +5,13 @@
  * （S-01/S-02 第一道：offset 即 Bot API 的 ack——平台不再重发 < offset 的 update）。
  */
 import type { TelegramSendResult, TelegramTransport, TelegramUpdate } from './index.ts'
+import { splitForTelegram } from './transport.ts'
 
 export interface RecordedSend {
   chatId: string
   text: string
-  replyTo: string
+  /** WO-UTTER-01 D-6：切分时只有第一段带 replyTo，其余段记 null（与生产面同形）。 */
+  replyTo: string | null
 }
 
 export class MemoryTelegramTransport implements TelegramTransport {
@@ -21,6 +23,12 @@ export class MemoryTelegramTransport implements TelegramTransport {
   /** 置为非 null 让 send 走失败分支。 */
   failNextSendWith: string | null = null
   #nextMessageId = 9000
+  /** WO-UTTER-01 D-6：设了才切（用与生产同一个 `splitForTelegram`）；缺省不限制。 */
+  readonly #maxChars: number | undefined
+
+  constructor(options: { maxChars?: number } = {}) {
+    this.#maxChars = options.maxChars
+  }
 
   queueUpdate(update: TelegramUpdate): void {
     this.#updates.push(update)
@@ -32,15 +40,22 @@ export class MemoryTelegramTransport implements TelegramTransport {
     return this.#updates.filter((u) => u.updateId >= offset)
   }
 
-  async send(chatId: string, text: string, replyTo: string): Promise<TelegramSendResult> {
+  async send(chatId: string, text: string, replyTo: string | null): Promise<TelegramSendResult> {
     if (this.failNextSendWith !== null) {
       const error = this.failNextSendWith
       this.failNextSendWith = null
       // WO-FIX-UNDELIVERED-BRIDGE-01 D-2：假体不记账 → 明说 false，与生产面同形。
       return { messageId: null, sent: false, error, undelivered_recorded: false }
     }
-    this.sends.push({ chatId, text, replyTo })
-    return { messageId: `m${++this.#nextMessageId}`, sent: true }
+    const segments = this.#maxChars === undefined ? [text] : splitForTelegram(text, this.#maxChars)
+    const messageId = `m${++this.#nextMessageId}`
+    segments.forEach((segment, k) => {
+      // D-6 与 D-3 同形：replyTo 只在第一段；每段各占一个 message id。
+      this.sends.push({ chatId, text: segment, replyTo: k === 0 ? replyTo : null })
+      if (k > 0) this.#nextMessageId += 1
+    })
+    if (segments.length >= 2) return { messageId, sent: true, parts: segments.length }
+    return { messageId, sent: true }
   }
 }
 
