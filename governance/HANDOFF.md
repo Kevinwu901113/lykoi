@@ -503,7 +503,7 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ### 📍 状态快照（2026-09-05 刷新；比下方一切条目新，先读这里）
 
-- **队列 #1 #2 #5 已做完（2026-09-05，主治理 Agent 自执行，Kevin 令不派 GPT；各在分支待 Kevin 合并；LANDING-Q 稿已备）**：
+- **LANDING-Q 已落（2026-09-05 11:31 CST，产线钉 main@257a72e，零迁移 schema 18，manifest 117 重签，一次通过，downtime 5 秒）；队列 #1 #2 #5 已合入 main（主治理 Agent 自执行，Kevin 令不派 GPT）**：
   - `wo/fix-tailbrace-01`@3698def — WO-FIX-TAILBRACE-01：lykoi-decide `repairTrailingClosers`（单遍栈、≤ 4 个闭合符、`JSON.parse` 复验）；
     converse 重试链前先本地修（只在 `not_json` + `first_char:brace`），事件 `u3_cycle_repaired {step, attempt, added_chars, finish_reason}`；
     修不动或修后仍非 envelope 走原 K/L 安全网。分支树 1122/1111/0/11。
@@ -513,9 +513,13 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
     （`\n\n` → `\n` → 空白 → 硬切，不拆代理对，逐字）；`BotApiTransport.sendMessage` 内顺序发、reply_to 只首段、第 k ≥ 1 段失败 →
     `partial_delivery` + 账本一条（剩余原文）；`telegram_transport_split {parts, chars}`；`telegram/sent` 增 `parts`；Memory fake 可选 `maxChars`。
     合并树 1131/1120/0/11，typecheck 净。三单 report 各在分支末尾提交；order 状态已改「已完成，待合并」。
-  - 合并顺序 main ← tailbrace、bridge ← utter。**LANDING-Q 稿** `wo/LANDING-Q-20260905/landing-q-threefix.sh`（记录稿 `record.md` 同目录）：
-    EXPECT_OLD = 产线 8da87dc（教训 55），NEW 自 bundle 取并断言三分支尖为祖先；零迁移（schema 仍 18）、零 profile/deploy/依赖；
-    src 改动恰 7 文件无新文件 → manifest 仍 117 重签；prompts.ts sha 钉住（G-2）。Kevin 合并推远端后告知，主治理 Agent 出 bundle。
+  - Kevin 四个 --no-ff 合并（tailbrace、bridge、utter、governance/progress-2026-09-05-q）得 main@257a72e 并推远端。**LANDING-Q 已落**
+    （稿 `wo/LANDING-Q-20260905/landing-q-threefix.sh`，回执 `record.md` 同目录）：8da87dc → 257a72e，备份 21.3 MB，prompts.ts sha 不变，
+    src 改动 7 文件，npm ci 43 包树净，manifest 117 重签 gate OK，downtime 5 秒，7a 服务器单测 65/65（387 s = repair 13 + cycle 27 + bridge 4 + split 21），
+    NRestarts 0，autonomy_runs 2679。窗后核验（治理账户只读）：HEAD / 四单元 active / timer 回位 / journal 4 行零 error / manifest 117 / 记账行，全对。
+    落地前基线：`telegram/sent` 16 行皆无 `parts`、`u3_cycle_repaired` 0、`telegram_transport_split` 0、`partial_delivery` 0——观察项见 record.md。
+    通道事实：bundle 与 root 稿都可经 `ssh lykoi-gov 'cat > /tmp/…' < 文件` 上传（两端 sha 对过），不再必须走聊天正文；上传要落实到 ssh 命令，只发文件卡稿不会到服务器。
+    稿内坑：git pathspec `packages/*/src` 对全路径 fnmatch 不中（本地演练抓到），落地稿的路径过滤用 `-- packages | grep '/src/'`。
   - #3 / #4 / #6 暂缓：另一会话在 `wo/turn-01` 工作树上有未提交的 INGRESS / INTERRUPT 方向改动（Durable Ingress + Turn Assembler、
     `packages/lykoi-ingress/`、mind_schema 19 候选），与 #3/#4 重叠，等其结果再定派法。下一步自执行候选：#7 PULSE、#8 E4-1、#13 PROBE-RECALL-01。
 
