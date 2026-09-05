@@ -32,7 +32,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
-  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
+  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION, repairTrailingClosers,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
 import { retrieveForConcern } from 'lykoi-learn'
@@ -45,9 +45,10 @@ import { pyRound, renderRestartNotice, type RestartEvent } from 'lykoi-snapshot'
 import {
   buildEnvelopeMessages, classifyFailure, cycleCall, cycleRecord, parseEnvelope,
   envelopeJsonMode,
-  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_RETRY_EVENT,
+  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_REPAIRED_EVENT,
+  CYCLE_RETRY_EVENT,
   CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_DEMOTED_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
-  CYCLE_UNKNOWN_TOOL_EVENT,
+  CYCLE_UNKNOWN_TOOL_EVENT, DETAIL_FIRST_CHAR_BRACE,
   ENVELOPE_RESPONSE_FORMAT, ENVELOPE_RETRY_MAX, FAIL_NOT_JSON, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
   TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
@@ -974,17 +975,47 @@ export class Conversation {
         lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
-        const injected = new Set(this.#lastInjectedThoughtIds)
+        const parseOpts = {
+          logEvent: this.#deps.logEvent,
+          runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
+        }
         try {
           decision = parseEnvelope({ content: result.content }, {
-            injectedThoughtIds: injected,
-            logEvent: this.#deps.logEvent,
-            runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
+            ...parseOpts,
+            injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
           })
           break
-        } catch (exc) {
+        } catch (firstExc) {
           // 契约失败 = 这一轮沉默，不是回合崩掉。
-          const [reason, detail] = classifyFailure(exc, result.content)
+          let exc: unknown = firstExc
+          let [reason, detail] = classifyFailure(exc, result.content)
+          if (reason === FAIL_NOT_JSON && detail === DETAIL_FIRST_CHAR_BRACE) {
+            // WO-FIX-TAILBRACE-01 D-2：首字符是 `{` 却解析不了 —— PROBE-CAP-01
+            // 读数里这一形态多数只是缺尾括号。先本地补齐再解析一次（零 LLM
+            // 调用）；补不了或补完仍坏，才落到下面既有的重试/失败路径
+            // （LANDING-K/L 那条链原样保留为安全网）。修复事件零正文。
+            const repaired = repairTrailingClosers(result.content ?? '')
+            if (repaired !== null) {
+              this.#log(CYCLE_REPAIRED_EVENT, {
+                step,
+                attempt: attempt + 1,
+                added_chars: repaired.added.length,
+                finish_reason: result.finishReason ?? null,
+              })
+              try {
+                decision = parseEnvelope({ content: repaired.text }, {
+                  ...parseOpts,
+                  injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
+                })
+                break
+              } catch (repairedExc) {
+                // 修复文本过了 JSON 关却倒在后面几关（unknown_kind 等）：按
+                // 修复后的归因走既有路径 —— 理解偏差不重试，与未修复时同口径。
+                exc = repairedExc
+                ;[reason, detail] = classifyFailure(exc, repaired.text)
+              }
+            }
+          }
           if (attempt < ENVELOPE_RETRY_MAX && reason === FAIL_NOT_JSON) {
             // D-01（WO-FIX-NOTJSON-01 D-3 改口）：只对 not_json 有界重试，
             // 至多两次、且从第二次起带引导语 —— 空回复/截断在同一前缀上是

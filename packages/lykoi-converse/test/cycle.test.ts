@@ -551,3 +551,61 @@ test('信封契约恒在生成点最后（CACHE-INVERT 第 13 块）', async () 
   assert.ok(last.content!.startsWith('上面是你此刻的全部处境。'))
   assert.ok(last.content!.includes('只有那一个 JSON 对象。'))
 })
+
+// --- WO-FIX-TAILBRACE-01 D-2：缺尾括号的本地修复（不重调 LLM） -----------------
+//
+// PROBE-CAP-01 读数：json_object 下非法样本多数只是缺尾 `}`。修复在 classifyFailure
+// 归因为 `first_char:brace` 之后、既有重试链之前；J/K/L 那条链原样保留为安全网。
+
+test('WO-FIX-TAILBRACE-01 D-2：信封只缺尾 `}` → 本地补齐一次解析成功：LLM 调用 1 次、u3_cycle_repaired 一条（零正文）、无 u3_cycle_retried / u3_cycle_failed', async () => {
+  const h = makeConversation()
+  const full = envelope()
+  assert.equal(full.endsWith('}'), true)
+  h.llm.push({ content: full.slice(0, -1), finishReason: 'stop', completionTokens: 40 })
+  const reply = await h.conversation.send('在吗', { runId: 'r1', turnId: 't1' })
+  assert.equal(reply, '在的，怎么了？')
+  assert.equal(h.llm.calls.length, 1, '修复不重调 LLM')
+  const names = eventNames(h.events)
+  assert.equal(names.filter((n) => n === 'u3_cycle_repaired').length, 1)
+  assert.equal(names.includes('u3_cycle_retried'), false)
+  assert.equal(names.includes('u3_cycle_failed'), false)
+  const repaired = lastEvent(h.events, 'u3_cycle_repaired')!
+  assert.deepEqual(repaired, {
+    step: 0, attempt: 1, added_chars: 1, finish_reason: 'stop', run_id: 'r1', turn_id: 't1',
+  })
+  // D-08：修复事件零正文。
+  assert.equal(JSON.stringify(repaired).includes('在的'), false)
+  assert.equal(lastEvent(h.events, 'u3_cycle_envelope')!.kind, 'reply')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'reply', step: 0 })
+})
+
+test('WO-FIX-TAILBRACE-01 D-2：补齐后 kind 非法 → unknown_kind 不重试：LLM 1 次、u3_cycle_repaired 一条、u3_cycle_failed.reason=unknown_kind', async () => {
+  const h = makeConversation()
+  const bad = envelope({ decision: { kind: 'REPLY', content: '在的', reason: '他问我在不在' } })
+  h.llm.push({ content: bad.slice(0, -1), finishReason: 'stop' })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '')
+  assert.equal(h.llm.calls.length, 1, '理解偏差不重试（与未修复时同口径）')
+  const names = eventNames(h.events)
+  assert.equal(names.filter((n) => n === 'u3_cycle_repaired').length, 1)
+  assert.equal(names.includes('u3_cycle_retried'), false)
+  const failed = lastEvent(h.events, 'u3_cycle_failed')!
+  assert.equal(failed.reason, 'unknown_kind')
+  assert.equal(failed.detail, 'kind:REPLY')
+  assert.equal(failed.attempts, 1)
+  assert.equal(failed.content_chars, [...bad.slice(0, -1)].length, 'content_chars 记原始回包长度')
+  assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'envelope_failed', step: 0 })
+})
+
+test('WO-FIX-TAILBRACE-01 安全网：首字符 `{` 但补不出合法 JSON → 不发 u3_cycle_repaired，仍走既有 not_json 有界重试', async () => {
+  const h = makeConversation()
+  h.llm.push({ content: '{"trunc', finishReason: 'length' })
+  h.llm.push({ content: envelope() })
+  const reply = await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(reply, '在的，怎么了？')
+  assert.equal(h.llm.calls.length, 2)
+  assert.equal(eventNames(h.events).includes('u3_cycle_repaired'), false)
+  const retried = lastEvent(h.events, 'u3_cycle_retried')!
+  assert.equal(retried.reason, 'not_json')
+  assert.equal(retried.detail, 'first_char:brace')
+})
