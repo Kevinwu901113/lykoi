@@ -11,15 +11,17 @@
  *
  * ② memory/seed.py —— 后天 insights 的起步种子。她是谁（名字/身体/所有者）
  *    如今在先天内核里，不再作 insight 播种 —— 那只会重复内核（SA-168）。
- *    后天层几乎空着出生，靠整合一点点长；这里只种从她第一句回话就值得知道的
- *    那一小撮 Kevin 偏好。upsert 按 (category, content) 去重，每次启动播种
- *    对已存在者是 no-op，never disturbs what she learns later。
+ *    后天层几乎空着出生，靠整合一点点长；这里只种实例包 `seeds.toml` 里那一小撮
+ *    出生偏好（WO-E4-2：种子住在实例包，框架零缺省种子；装载见 instance.ts）。
+ *    upsert 按 (category, content) 去重，每次启动播种对已存在者是 no-op，never
+ *    disturbs what she learns later。
  *
  * 接线纪律（mind/bootstrap.py:8-10 逐字方向）：seedConcerns 是显式的 owner 侧
  * 引导步骤（going live is an explicit owner-side step, not an import side
  * effect）—— **不**挂进任何 service 的启动路径；seedPersona 沿 surface/app.py
  * 的先例在对话面启动时调（首次 persona 投影之前）。
  */
+import type { MemorySeed } from './instance.ts'
 import type { PersonaConfig } from './persona.ts'
 
 // 初值,待观察期校准 —— 种子关切的出生权重（mind/seed.py:17；SA-167）
@@ -71,21 +73,18 @@ export function seedConcerns(
   return created
 }
 
-/** memory/seed.SEEDS 逐字：只有一条 preference（SA-168）。 */
-export const MEMORY_SEEDS: readonly (readonly [string, string])[] = [
-  ['preference', 'Kevin 用中文交流，技术术语用英文'],
-]
-
 /**
  * Insert the initial seeds if missing (idempotent). Returns the seed count.
- * （memory/seed.py:20-24 逐字；upsert 去重在库层。）
+ * （memory/seed.py:20-24 逐字；upsert 去重在库层。）种子来自实例包
+ * （`loadInstancePackage(personaPath).seeds`，WO-E4-2）；框架不再自带任何一条。
  */
 export function seedPersona(
   store: { upsertInsight(category: string, content: string, opts: { now: Date }): number },
+  seeds: readonly MemorySeed[],
   opts: { now: Date },
 ): number {
-  for (const [category, content] of MEMORY_SEEDS) {
+  for (const [category, content] of seeds) {
     store.upsertInsight(category, content, { now: opts.now })
   }
-  return MEMORY_SEEDS.length
+  return seeds.length
 }

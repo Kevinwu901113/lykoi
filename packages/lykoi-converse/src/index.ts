@@ -34,7 +34,7 @@ import {
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
 import {
-  getPersona, seedPersona, OrganInventoryCache, type LogEvent,
+  getPersona, loadInstancePackage, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
 import { stagedInstructions } from 'lykoi-learn'
 import {
@@ -313,7 +313,10 @@ export function apply(ctx: Context, config: Config) {
   const persona = getPersona(resolve(config.personaToml))
 
   // --- 出生序（文件头注释） ---
-  seedPersona(store, { now: new Date() })
+  // WO-E4-2：种子住在实例包（persona TOML 所在目录的 seeds.toml），框架零缺省种子；
+  // 文件缺失 = 零种子，损坏 = 启动即炸（出生证阶段抛错比静默好）。
+  const instance = loadInstancePackage(resolve(config.personaToml))
+  seedPersona(store, instance.seeds, { now: new Date() })
   // M3-W4 接线（M2 遗留 #8）：restart 线索的**生产采集器**。
   // SA-164 纪律不变 —— 采集器每一样各自 try/catch，读不到就是 null，
   // `recordRestartEvent` 那边缺席即省略，**绝不编造**。dev profile 两个采集配置
