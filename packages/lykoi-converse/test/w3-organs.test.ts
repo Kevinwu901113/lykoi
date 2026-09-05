@@ -35,9 +35,9 @@ import {
 import { _reserveProactiveSlot, messengerProactiveRemainingToday } from 'lykoi-adapter-telegram'
 import { composeSurfaceReply } from '../src/index.ts'
 import * as converse from '../src/index.ts'
-import { envelope, seedBinding } from './fixture.ts'
+import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
 function isolateAll(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-w3-'))

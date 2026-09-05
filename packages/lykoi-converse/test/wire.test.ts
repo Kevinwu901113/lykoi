@@ -37,9 +37,9 @@ import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { toDshEnvelopeMessages, type ConverseMessage } from '../src/index.ts'
-import { envelope, seedBinding, makeConversation } from './fixture.ts'
+import { FIXTURE_PERSONA_TOML, envelope, seedBinding, makeConversation } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
 /** 照抄真身（lykoi-llm-deepseek vendor）的 off 档形态，供 resolveModel 声明。 */
 const OFF_REASONING_EFFORT = ReasoningEffortId('off')

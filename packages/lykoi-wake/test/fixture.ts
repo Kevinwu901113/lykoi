@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createStateFixture } from 'lykoi-memory/testing'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
-import type { BuildMessagesDeps, ChatMessage, PersonaConfig } from 'lykoi-decide'
+import { loadPersona, type BuildMessagesDeps, type ChatMessage, type PersonaConfig } from 'lykoi-decide'
 import type { SnapshotDeps } from 'lykoi-snapshot'
 import type { DispatchFn, Observation } from 'lykoi-reflow'
 import { VirtualClock } from '../src/clock.ts'
@@ -59,36 +59,15 @@ export function logicalDigest(path: string): string {
 }
 
 /**
- * wake 测试用 persona（本地形状件——内核字节对拍的 fixture persona 在 lykoi-decide）。
- *
- * D-FIX-1（WO-M4-FIX-WAKE）后有**两个入口、一份数据**：直接喂对象的纯函数测试
- * （learn-e2e 等）用这个常量；经 Config/apply 走插件全链的测试喂
- * `test/fixtures/persona.toml`（同一份数据的文件形态）。两者的等价由
- * `persona-toml.test.ts` 的等价钉守住 —— 改了一边必须改另一边。
+ * wake 测试用 persona —— 由合成测试实例包（lykoi-decide/test/fixtures/instance/
+ * persona.toml，WO-E4-1）装载派生；本包不再有自己的 TOML 副本。直接喂对象的纯函数
+ * 测试（learn-e2e 等）用这个常量；经 Config/apply 走插件全链的测试喂
+ * TEST_PERSONA_TOML —— 同一个文件，一份数据两入口。
  */
-export const TEST_PERSONA: PersonaConfig = {
-  identity: {
-    name: 'Lykoi',
-    self: '我是 Lykoi（wake 测试形状件）。',
-    nature_known: true,
-    embodiment: 'test VM',
-  },
-  voice: {
-    language: 'zh',
-    register: '自然',
-    emoji: '克制',
-    address_owner: 'Kevin',
-    profile_ref: 'default',
-  },
-  relationship: {
-    partner: 'Kevin',
-    stance: '测试形状件。',
-    evolution_anchor: 'deepen',
-    owner_authority: '审批归 Kevin。',
-  },
-  personality: { traits: ['直接'], evolves: true },
-  interests: { seeds: ['测试'] },
-}
+export const TEST_PERSONA_TOML = new URL(
+  '../../lykoi-decide/test/fixtures/instance/persona.toml', import.meta.url,
+).pathname
+export const TEST_PERSONA: PersonaConfig = loadPersona(TEST_PERSONA_TOML)
 
 export function stubSnapshotDeps(
   logEvent?: (name: string, fields: Record<string, unknown>) => void,

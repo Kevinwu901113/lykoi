@@ -30,10 +30,10 @@ import { readOutboxAfter } from 'lykoi-adapter-telegram'
 import { getNotifications } from 'lykoi-kernel'
 import * as wake from '../src/index.ts'
 import type { WakeService } from '../src/index.ts'
-import { makeStore } from './fixture.ts'
+import { makeStore, TEST_PERSONA_TOML } from './fixture.ts'
 
 /** D-FIX-1：装配面只给路径（owner 域 TOML）；内容 = TEST_PERSONA 的文件形态。 */
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = TEST_PERSONA_TOML
 
 function isolateKernelFiles(): void {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-wake-kernel-'))

@@ -13,10 +13,10 @@ import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import { DatabaseSync } from 'node:sqlite'
 import * as wake from '../src/index.ts'
-import { makeStore } from './fixture.ts'
+import { makeStore, TEST_PERSONA, TEST_PERSONA_TOML } from './fixture.ts'
 
 /** D-FIX-1：装配面只给路径（owner 域 TOML）；内容 = TEST_PERSONA 的文件形态。 */
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = TEST_PERSONA_TOML
 
 function fakeAudit(): AuditService & { events: AuditEvent[] } {
   const events: AuditEvent[] = []
@@ -90,7 +90,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
   // user 快照是唯一 message；runId 贯穿。
   assert.equal(llmCalls.length, 1)
   assert.ok(llmCalls[0]!.system!.includes(DECIDE_SYSTEM_PROMPT))
-  assert.ok(llmCalls[0]!.system!.includes('我是 Lykoi'))
+  assert.ok(llmCalls[0]!.system!.includes(`我是 ${TEST_PERSONA.identity.name}`))
   assert.equal(llmCalls[0]!.messageCount, 1)
 
   // 拍的账面落在 state 副本：completed run + 两条经验。

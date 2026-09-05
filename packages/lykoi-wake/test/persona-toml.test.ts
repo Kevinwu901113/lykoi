@@ -3,9 +3,9 @@
  * owner 域 TOML 装载 —— 与 lykoi-converse 同形同源。
  *
  * 这三条钉的是切换窗事故（2026-09-01 00:54）根因①的修法：
- *  ① 等价钉：`test/fixtures/persona.toml` 与 `fixture.ts` 的 TEST_PERSONA 逐字段
- *    等价 —— 两份形状件不许漂（漂了以后「经 Config 的测试」和「直接喂对象的
- *    测试」就在测两个不同的她）。
+ *  ① 等价钉：Config 喂的路径就是合成测试实例包（lykoi-decide/test/fixtures/instance，
+ *    WO-E4-1），装载结果与 `fixture.ts` 的 TEST_PERSONA 逐字段等价 —— 「经 Config 的
+ *    测试」和「直接喂对象的测试」测的是同一份人格。
  *  ② 缺 personaToml → **Config 校验就拒**（ValidationError）。事故那条是
  *    `$.persona missing required value`：必填项 + profile 从没填过 = 条目一翻开
  *    就炸在 loader 阶段。必填这件事本身是对的（半个自我不许开机），所以修法
@@ -21,9 +21,9 @@ import { loadPersona, PersonaConfigError } from 'lykoi-decide'
 import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import * as wake from '../src/index.ts'
-import { TEST_PERSONA, makeStore } from './fixture.ts'
+import { TEST_PERSONA, TEST_PERSONA_TOML, makeStore } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = TEST_PERSONA_TOML
 
 /** 一套够 apply 跑起来的最小服务面（inject = heart / lykoiLlm / audit）。 */
 function stubbedContext(): Context {
@@ -46,7 +46,8 @@ function stubbedContext(): Context {
   return ctx
 }
 
-test('等价钉：fixtures/persona.toml 装载结果 === TEST_PERSONA（两份形状件不许漂）', () => {
+test('等价钉：Config 喂的 TOML 就是合成测试实例包，装载结果 === TEST_PERSONA（一份数据两入口）', () => {
+  assert.ok(PERSONA_TOML.endsWith('/lykoi-decide/test/fixtures/instance/persona.toml'))
   assert.deepEqual(loadPersona(PERSONA_TOML), TEST_PERSONA)
 })
 
