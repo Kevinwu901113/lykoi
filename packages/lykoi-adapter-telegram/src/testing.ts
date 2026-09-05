@@ -36,7 +36,8 @@ export class MemoryTelegramTransport implements TelegramTransport {
     if (this.failNextSendWith !== null) {
       const error = this.failNextSendWith
       this.failNextSendWith = null
-      return { messageId: null, sent: false, error }
+      // WO-FIX-UNDELIVERED-BRIDGE-01 D-2：假体不记账 → 明说 false，与生产面同形。
+      return { messageId: null, sent: false, error, undelivered_recorded: false }
     }
     this.sends.push({ chatId, text, replyTo })
     return { messageId: `m${++this.#nextMessageId}`, sent: true }

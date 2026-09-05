@@ -106,7 +106,8 @@ export class ProductionTelegramTransport implements TelegramTransport {
 
   /**
    * 出站。两种结局（有 message_id / 进未送达账本）已经由 `sendMessage` 保证 ——
-   * 这里只把结果换个形状。`error` **只取类别**，绝不取任何原始异常文本。
+   * 这里只把结果换个形状，记账位（undelivered_recorded / ambiguous）原样带过
+   * （WO-FIX-UNDELIVERED-BRIDGE-01）。`error` **只取类别**，绝不取任何原始异常文本。
    */
   async send(
     chatId: string,
@@ -125,6 +126,12 @@ export class ProductionTelegramTransport implements TelegramTransport {
         messageId: null,
         sent: false,
         error: result.error ?? 'send_failed',
+        // WO-FIX-UNDELIVERED-BRIDGE-01 D-1：`sendMessage` 失败分支已经记过账
+        // （undelivered_recorded:true）—— 原样透传，下游兜底才知道不必再记。
+        ...(result.undelivered_recorded === undefined
+          ? {}
+          : { undelivered_recorded: result.undelivered_recorded }),
+        ...(result.ambiguous === undefined ? {} : { ambiguous: result.ambiguous }),
       }
     }
     return { messageId: result.message_id, sent: true }
