@@ -15,7 +15,7 @@ import {
   THOUGHT_LAPSE_SALIENCE,
   THOUGHT_OPEN_CAP,
 } from 'lykoi-regulation'
-import { parseStateTimestamp } from '../src/index.ts'
+import { parseStateTimestamp, ReadOnlyMemory } from '../src/index.ts'
 import { formatPyIso, ReadWriteMemory } from '../src/rw.ts'
 import { makeWritableFixture, PY_ISO_RE, rawOpen, tmp } from './fixture.ts'
 
@@ -340,4 +340,27 @@ test('autonomy_runs：start/finish/getAutonomyRuns（计数走 DDL 缺省 0；�
   assert.deepEqual(runs.map((r) => r.id), ['run_b', 'run_a']) // 最近在前
   assert.equal(rw.getAutonomyRuns(1).length, 1)
   rw.close(); raw.close()
+})
+
+
+test('共享读模型：RO/RW 返回同一状态和字段形状，后续写入可见', (t) => {
+  const path = makeWritableFixture()
+  const rw = new ReadWriteMemory(path)
+  const ro = new ReadOnlyMemory(path)
+  t.after(() => { ro.close(); rw.close() })
+  assert.deepEqual(ro.openThoughts(), [])
+  assert.deepEqual(rw.openThoughts(), [])
+  const id = rw.createThought('留意变化', 'intent', 'wake', { now: T0, chargeHint: 0.6 })
+  const expected = [{
+    id, ts: formatPyIso(T0), content: '留意变化', kind: 'intent', source: 'wake',
+    relatedConcernId: null, sourceRef: null, charge: 0.6, status: 'open',
+  }]
+  assert.deepEqual(ro.openThoughts(), expected)
+  assert.deepEqual(rw.openThoughts(), expected)
+  rw.setAutonomyNextWake(T0, { now: T0 })
+  const state = { nextWakeAt: formatPyIso(T0), lastWakeAt: null, updatedAt: formatPyIso(T0) }
+  assert.deepEqual(ro.autonomyState(), state)
+  assert.deepEqual(rw.autonomyState(), state)
+  assert.deepEqual(ro.regulationField(), rw.regulationField())
+  assert.equal(ro.regulationField().length, 4)
 })

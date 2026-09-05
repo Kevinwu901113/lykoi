@@ -92,11 +92,12 @@ export function* floorCandidates(
  * （dormant 残骸自己老化掉），代价不对称性偏向这一侧而不是饥饿侧。
  */
 export function floorMaintain(store: SnapshotStore, now: Date): number[] {
-  const live = store.listConcerns(['active', 'dimming']).length
+  const liveRows = store.listConcerns(['active', 'dimming'])
+  const live = liveRows.length
   const need = FLOOR_N - live
   if (need <= 0) return []
   const engagedFloorTitles = new Set(
-    store.listConcerns(['active', 'dimming'])
+    liveRows
       .filter((c) => c.origin === 'floor')
       .map((c) => c.title),
   )

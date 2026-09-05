@@ -13,7 +13,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -34,6 +34,7 @@ import {
   type Observation,
 } from 'lykoi-kernel'
 import { isolateOutboundState } from '../src/testing.ts'
+import { writeJsonAtomicSync } from '../src/jsonio.ts'
 
 const T0 = new Date('2026-08-25T10:00:00Z')
 
@@ -52,6 +53,20 @@ function telemetry(): { name: string; fields: Record<string, unknown> }[] {
   setTransportLogEvent((name, fields) => events.push({ name, fields }))
   return events
 }
+
+test('包内 JSON 原子写入：成功落盘，rename 失败清掉临时文件', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'lykoi-jsonio-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const target = join(dir, 'state.json')
+  writeJsonAtomicSync(target, { ok: true })
+  assert.equal(readFileSync(target, 'utf8'), JSON.stringify({ ok: true }, null, 2))
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith('.tmp-')), [])
+
+  const blocked = join(dir, 'blocked')
+  mkdirSync(blocked)
+  assert.throws(() => writeJsonAtomicSync(blocked, { should: 'fail' }))
+  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith('.tmp-')), [])
+})
 
 // ============================== SK-80 messenger 资源契约 ==============================
 
