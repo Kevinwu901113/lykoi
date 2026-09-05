@@ -8,6 +8,7 @@ import test from 'node:test'
 import { tableDigests, changedTables } from 'lykoi-memory/testing'
 import {
   conversationTurnReflow, executeAndReflow, emptyNotifications,
+  applyPulse, PULSE_APPLIED_EVENT, PULSE_APPLY_MAX, PULSE_SKIP_CAUSE,
   type NotificationsView, type WakeCounts,
 } from '../src/index.ts'
 import { makeStore, makeDecision, minutesAfter, T0 } from './fixture.ts'
@@ -141,5 +142,43 @@ test('写集对拍分立：对话轮只动 experiences+regulation_*；自主拍�
     )
   } finally {
     wake.store.close()
+  }
+})
+
+// --- WO-PULSE-01 D-2：情绪脉冲消费 ----------------------------------------------------
+
+test('WO-PULSE-01 applyPulse：跳过 normal_interaction、按序取前 PULSE_APPLY_MAX 个、审计只在非空时记且零正文', () => {
+  const calls: string[] = []
+  const events: [string, Record<string, unknown>][] = []
+  const store = { applyRegulationCause: (cause: string) => { calls.push(cause); return null } }
+  const pulse = [PULSE_SKIP_CAUSE, 'rested', 'action_taken', 'explore_completed', 'contact_answered']
+  const applied = applyPulse(store, pulse, {
+    now: NOW, logEvent: (n, f) => events.push([n, f]), runId: 'r1', turnId: 't1',
+  })
+  assert.equal(PULSE_APPLY_MAX, 3)
+  assert.deepEqual(applied, ['rested', 'action_taken', 'explore_completed'])
+  assert.deepEqual(calls, applied)
+  assert.deepEqual(events, [[PULSE_APPLIED_EVENT, {
+    run_id: 'r1', turn_id: 't1', applied: ['rested', 'action_taken', 'explore_completed'], skipped: 2,
+  }]])
+  // 空脉冲 / 只有 normal_interaction：零写入、零事件。
+  assert.deepEqual(applyPulse(store, [], { now: NOW, logEvent: (n, f) => events.push([n, f]) }), [])
+  assert.deepEqual(applyPulse(store, [PULSE_SKIP_CAUSE], { now: NOW, logEvent: (n, f) => events.push([n, f]) }), [])
+  assert.equal(events.length, 1)
+  assert.equal(calls.length, 3)
+})
+
+test('WO-PULSE-01 conversationTurnReflow(pulse)：explore_completed 恰一次写入，normal_interaction 仍只一次（不双打）', () => {
+  const { store } = makeStore()
+  try {
+    conversationTurnReflow({
+      store, notifications: emptyNotifications,
+      userText: '找到了吗', replyText: '找到了', historyId: 9, now: NOW,
+      pulse: ['explore_completed', 'normal_interaction'],
+    })
+    const causes = store.recentRegulationEvents(null, 10).map((r) => r.cause).sort()
+    assert.deepEqual(causes, ['experience_recorded', 'explore_completed', 'normal_interaction'])
+  } finally {
+    store.close()
   }
 })

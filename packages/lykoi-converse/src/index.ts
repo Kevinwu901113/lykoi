@@ -52,7 +52,7 @@ import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { recordExperience } from 'lykoi-reflow'
 import { collectRestartClues, latestRestartEvent, recordDeployEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
-  ContextBudgetError, Conversation, composeSurfaceReply,
+  ContextBudgetError, Conversation, composeSurfaceReply, selfStateBlock,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import {
@@ -484,6 +484,9 @@ export function apply(ctx: Context, config: Config) {
     llm,
     logEvent,
     organs,
+    // WO-PULSE-01 D-1（断点 ①③）：调节场四变量进对话 prompt —— 只在偏离基线
+    // ≥ SELF_STATE_DEVIATION_MIN 时出块；now 由 Conversation 的时钟递入。
+    selfState: (now) => selfStateBlock(store, now),
     restartEvent: () => latestRestartEvent(store),
     // M3-W3 ③ contact 链接通：真 kernel 通知队列（`get_notifications(unread_only=
     // False)` 的结构化子集 —— `_pending_contact_ts` 的读面），markReplied 同批。

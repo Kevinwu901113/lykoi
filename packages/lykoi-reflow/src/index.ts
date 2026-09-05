@@ -598,6 +598,11 @@ export function conversationTurnReflow(opts: {
   /** kernel/notifications.mark_replied 接口位（M3 接真队列；首写幂等归实现方）。 */
   markReplied?: (notificationId: number, historyId: number, now: Date) => void
   logEvent?: LogEvent
+  /** WO-PULSE-01 D-2：本轮最终被接受信封的情绪脉冲（已 sanitizePulse：CAUSES 名、去重保序）。 */
+  pulse?: readonly string[]
+  /** converse/pulse_applied 的两个 id 栏。 */
+  runId?: string | null
+  turnId?: string | null
 }): void {
   const { store, notifications, now, logEvent } = opts
   // 摘要模板逐字（reflow.py:308-311）：user/reply 各裁 80 字。
@@ -615,5 +620,46 @@ export function conversationTurnReflow(opts: {
   }
   recordExperience(store, 'conversation', content, { now })
   store.applyRegulationCause('normal_interaction', { now })
+  // WO-PULSE-01 D-2（断点 ②）：信封脉冲在这里消费 —— normal_interaction 上面已固定
+  // 打过一次，applyPulse 会跳过它，不双打。
+  applyPulse(store, opts.pulse ?? [], {
+    now, logEvent, runId: opts.runId ?? null, turnId: opts.turnId ?? null,
+  })
   resolveContactAnswered({ store, notifications, now, via, logEvent })
+}
+
+// --- 情绪脉冲消费（WO-PULSE-01 D-2，断点 ②） ------------------------------------
+
+/** 一轮对话最多消费的脉冲因数（超出按信封序丢弃）。 */
+export const PULSE_APPLY_MAX = 3
+/** 脉冲里这个名字跳过 —— conversationTurnReflow 每轮已固定打一次，再打就是双打。 */
+export const PULSE_SKIP_CAUSE = 'normal_interaction'
+/** 脉冲消费审计（只在 applied 非空时记；零正文 —— 只有 CAUSES 枚举名与计数）。 */
+export const PULSE_APPLIED_EVENT = 'converse/pulse_applied'
+
+/**
+ * 信封 `情绪脉冲` 的消费侧（契约 contract.ts:342「调节场唯一合法的因果入口」此前
+ * 只落审计，回路断在这里）。每个名字调一次 applyRegulationCause —— delta 仍只从
+ * CAUSES 查（SA-75 不变）；跳过 PULSE_SKIP_CAUSE；单轮最多 PULSE_APPLY_MAX 个
+ * （过滤后按信封序取前几个）。返回 applied 名单。
+ */
+export function applyPulse(
+  store: Pick<ReflowStore, 'applyRegulationCause'>,
+  pulse: readonly string[],
+  opts: { now: Date; logEvent?: LogEvent; runId?: string | null; turnId?: string | null },
+): string[] {
+  const applied: string[] = []
+  for (const cause of pulse.filter((name) => name !== PULSE_SKIP_CAUSE).slice(0, PULSE_APPLY_MAX)) {
+    store.applyRegulationCause(cause, { now: opts.now })
+    applied.push(cause)
+  }
+  if (applied.length > 0) {
+    opts.logEvent?.(PULSE_APPLIED_EVENT, {
+      run_id: opts.runId ?? null,
+      turn_id: opts.turnId ?? null,
+      applied,
+      skipped: pulse.length - applied.length,
+    })
+  }
+  return applied
 }

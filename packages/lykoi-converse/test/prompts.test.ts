@@ -15,6 +15,7 @@ import {
   UNDELIVERED_LINE_SKELETON, envelopeSystemPrompt, envelopeToolNames,
   ASK_FALLBACK, DELEGATED_ASK_FIELDS,
   renderSystemPrompt, TOOL_TO_ACTION, renderToolTable, buildEnvelopeMessages,
+  SELF_STATE_TEMPLATE,
 } from '../src/index.ts'
 
 function sha(text: string): string {
@@ -36,7 +37,7 @@ test('§3.2 A 表：系统提示词逐字（chars + sha256 全等）', () => {
   assert.equal(sha(CYCLE_CLOSING_NOTE), '575ffe30c167b2e111789deee1a4702ffe93bc0384e381ff9d78b35eaf06a36a')
 })
 
-test('§3.2 B 表：装配块头部/骨架字面量逐字（14 条 sha 全等）', () => {
+test('§3.2 B 表：装配块头部/骨架字面量逐字（15 条 sha 全等）', () => {
   const table: [string, number, string][] = [
     [PROMOTED_INSIGHTS_HEADER, 27, '48ddd6b81fdb4d597f65cdd658202667b1d7ef052945f6e20f20ced6df76ab29'],
     [BACKFILL_HEADER, 35, 'fbd7132d2046bca9c4f2f12fb33dc59347ef21876782e4de01a6ad23e6bf4777'],
@@ -54,6 +55,8 @@ test('§3.2 B 表：装配块头部/骨架字面量逐字（14 条 sha 全等）
     // WO-PERS-OVERLAY-01（D-5）：本单唯一新增的提示词面。
     [RELATIONSHIP_OVERLAY_HEADER, 38,
       'a0553be7100bd34013ac54ac67b11e3628beb5d0b3e48c3f5f9ac2b2b674c22e'],
+    // WO-PULSE-01（D-1）：本单唯一新增的提示词面（self_state 块骨架）。
+    [SELF_STATE_TEMPLATE, 29, '936c4350d8d5f1a3c81af9e12bf454c72d576e3da1a7f5247dc8b2ad8f0888f3'],
   ]
   for (const [text, chars, expected] of table) {
     assert.equal(cps(text), chars, `chars mismatch for ${expected.slice(0, 8)}`)
