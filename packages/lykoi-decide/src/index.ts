@@ -49,6 +49,7 @@ export * from './overlay.ts'
 export * from './persona-toml.ts'
 export * from './organs.ts'
 export * from './seed.ts'
+export * from './instance.ts'
 export * from './capability-gap.ts'
 
 // ============================== 词汇表常量（SA-01..03） ==============================

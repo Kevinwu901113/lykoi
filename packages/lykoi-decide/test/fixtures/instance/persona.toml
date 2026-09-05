@@ -5,7 +5,7 @@
 # FIXTURE_PERSONA、lykoi-wake TEST_PERSONA、lykoi-learn PERSONA）都由本文件派生，
 # 不再手写第二份真相；persona-toml.test.ts 的合成值守卫钉住"只许合成"。
 # 由它装配的内核对拍锚见 prompt.test.ts（SA-154）。
-# 本目录是"合成测试实例包"的雏形：E4-2 往里加 seeds.toml，E4-4 加 deploy.toml。
+# 本目录是"合成测试实例包"：seeds.toml 已在（E4-2），E4-4 加 deploy.toml。
 #
 # 内容必须落在 lykoi-decide 的严格 TOML 子集内（[section] 表头、bare key、
 # 基本字符串、布尔、字符串数组、注释）；内联表/点号键/日期一律会被大声拒绝。
@@ -40,4 +40,4 @@ traits = [
 evolves = true
 
 [interests]
-seeds = ["穿搭", "摄影", "游戏", "影视"]
+seeds = ["合成兴趣甲", "合成兴趣乙", "合成兴趣丙", "合成兴趣丁"]

@@ -10,11 +10,13 @@ import { join } from 'node:path'
 import { createStateFixture } from 'lykoi-memory/testing'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import {
-  MEMORY_SEEDS, SEED_DESCRIPTION, SEED_INITIAL_WEIGHT, seedConcerns, seedPersona,
+  loadInstancePackage, SEED_DESCRIPTION, SEED_INITIAL_WEIGHT, seedConcerns, seedPersona,
 } from '../src/index.ts'
-import { FIXTURE_PERSONA } from './persona-fixture.ts'
+import { FIXTURE_PERSONA, FIXTURE_PERSONA_TOML } from './persona-fixture.ts'
 
 const T0 = new Date('2026-08-24T10:00:00Z')
+/** 合成实例包的兴趣种子（persona TOML `interests.seeds`，四条）。 */
+const SEED_TITLES = FIXTURE_PERSONA.interests.seeds
 
 function mk(): ReadWriteMemory {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-seed-'))
@@ -33,7 +35,8 @@ test('seedConcerns：四种子按 TOML 序入库（weight 0.5 / origin=seed / �
     })
     assert.equal(ids.length, 4)
     const rows = store.listConcerns('active')
-    assert.deepEqual(rows.map((r) => r.title).sort(), ['影视', '摄影', '游戏', '穿搭'])
+    assert.equal(SEED_TITLES.length, 4)
+    assert.deepEqual(rows.map((r) => r.title).sort(), [...SEED_TITLES].sort())
     for (const row of rows) {
       assert.equal(row.kind, 'interest')
       assert.equal(row.origin, 'seed')
@@ -60,27 +63,32 @@ test('SA-166 幂等强形态：released 的种子**永不重种**——复活是
   try {
     seedConcerns(store, FIXTURE_PERSONA, { now: T0 })
     // 她在整合期放掉一颗种子（rw 释放路径要求 dormant；owner 后门绕过候选性检查）。
-    const released = store.listConcerns('active').find((r) => r.title === '穿搭')!
+    const released = store.listConcerns('active').find((r) => r.title === SEED_TITLES[0])!
     store.releaseConcern(released.id, 'no longer relevant', { now: T0, viaOwner: true })
     // 重启播种：released 的 title 仍算"存在过"，不重插。
     assert.deepEqual(seedConcerns(store, FIXTURE_PERSONA, { now: T0 }), [])
-    assert.equal(store.listConcerns('active').some((r) => r.title === '穿搭'), false)
+    assert.equal(store.listConcerns('active').some((r) => r.title === SEED_TITLES[0]), false)
   } finally {
     store.close()
   }
 })
 
-test('seedPersona：唯一一条 preference（SA-168）；upsert 去重——重跑单行、不扰后天层', () => {
+test('seedPersona：种子来自实例包 seeds.toml（WO-E4-2）——写入的正是夹具那一条；upsert 去重，重跑单行、不扰后天层', () => {
   const store = mk()
   try {
-    assert.equal(MEMORY_SEEDS.length, 1)
-    assert.equal(seedPersona(store, { now: T0 }), 1)
-    assert.equal(seedPersona(store, { now: T0 }), 1) // 幂等：返回种子数，不重插
+    const { seeds } = loadInstancePackage(FIXTURE_PERSONA_TOML)
+    assert.equal(seeds.length, 1)
+    assert.equal(seeds[0]![0], 'preference')
+    assert.equal(seedPersona(store, seeds, { now: T0 }), 1)
+    assert.equal(seedPersona(store, seeds, { now: T0 }), 1) // 幂等：返回种子数，不重插
     const rows = store.getInsights('preference')
     assert.equal(rows.length, 1)
-    assert.equal(rows[0]!.content, 'Kevin 用中文交流，技术术语用英文')
+    assert.equal(rows[0]!.content, seeds[0]![1])
     // 身份不再作 insight 播种（SA-168）：persona 类零行。
     assert.deepEqual(store.getInsights('persona'), [])
+    // 零种子（实例包没有 seeds.toml）：返回 0，一行不写。
+    assert.equal(seedPersona(store, [], { now: T0 }), 0)
+    assert.equal(store.getInsights('preference').length, 1)
   } finally {
     store.close()
   }
