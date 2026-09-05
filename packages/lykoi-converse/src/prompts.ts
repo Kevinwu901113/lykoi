@@ -160,6 +160,15 @@ export const UNDELIVERED_LINE_SKELETON = '- [{}] 「{}」'
 /** ContextBudgetError 文案骨架（conversation.py:1308；chars=33 sha=584ca3b4…）。 */
 export const CONTEXT_BUDGET_SKELETON = '这一轮的内容太长（约 {} tokens，上限 {}），无法处理。'
 
+/**
+ * WO-PULSE-01（D-1，断点 ①③）：BLOCK_SELF_STATE 骨架 —— 本单唯一新增的提示词面。
+ * `{}` 填一行一变量的 `<变量名>: <0.000>`（REGISTRY 键序），只在至少一个变量偏离
+ * 基线 ≥ SELF_STATE_DEVIATION_MIN 时出块。不渲染 cognitiveEffects（wake 的语义）。
+ */
+export const SELF_STATE_TEMPLATE
+  = '[自我状态(调节场;只读;只在明显偏离基线时出现)]\n'
+  + '{}'
+
 /** 骨架填充（`{}` 逐个替换；骨架自身是 sha 对拍的锚，填充是数据）。 */
 export function fmt(skeleton: string, ...args: (string | number)[]): string {
   let out = skeleton
