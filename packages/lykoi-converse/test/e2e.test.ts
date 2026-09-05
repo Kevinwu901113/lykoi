@@ -24,9 +24,9 @@ import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
-import { envelope, seedBinding } from './fixture.ts'
+import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-converse-e2e-'))

@@ -52,7 +52,7 @@
   disabled: true
   config:
     dbPath: var/dev-state.db
-    personaToml: packages/lykoi-decide/test/fixtures/lykoi_base.toml
+    personaToml: packages/lykoi-decide/test/fixtures/instance/persona.toml
     route: mock
     model: mock-model
     restartMarker: var/restart-marker.json

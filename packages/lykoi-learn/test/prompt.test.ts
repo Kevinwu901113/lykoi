@@ -33,14 +33,18 @@ test('SA-152：STAGED_TEMPLATE 逐字（240 字符，sha256=c4d946b5…780af）'
     'STAGED_TEMPLATE')
 })
 
-test('integrator 身份守卫 fixture 口径（40 字符，sha256=ce69ae2a…）', () => {
-  pin(integrationIdentityGuard(PERSONA), 40,
-    'ce69ae2ae060645af4ee593f0e8d57d04da077675227bb81442ac07a49c0ae2a',
+// 两条身份守卫吃 PERSONA（name / partner）：WO-E4-1 夹具换成合成测试实例包后钉面随之变，
+// 模板本身（l2.ts / l4.ts）一字未动。
+// 旧（第一实例夹具）：integration 40 字符 sha256=ce69ae2ae060645af4ee593f0e8d57d04da077675227bb81442ac07a49c0ae2a；
+//                     focus 43 字符 sha256=79577116796a009c3841724b3691f3a65f7dbb05f828e808e2d0e2d14d2635ae。
+test('integrator 身份守卫 fixture 口径（42 字符，sha256=c813d5ec…）', () => {
+  pin(integrationIdentityGuard(PERSONA), 42,
+    'c813d5ec8543754db0e7fa0cd54e6caf9e7afdaa57db1a799e62a3edd1db27a0',
     'integration identity guard')
 })
 
-test('focus 身份守卫 fixture 口径（43 字符，sha256=79577116…）', () => {
-  pin(focusIdentityGuard(PERSONA), 43,
-    '79577116796a009c3841724b3691f3a65f7dbb05f828e808e2d0e2d14d2635ae',
+test('focus 身份守卫 fixture 口径（45 字符，sha256=4d0c8df6…）', () => {
+  pin(focusIdentityGuard(PERSONA), 45,
+    '4d0c8df6b2c3c60177bb7a80d8fe2fac438a19f2a78c23f66b1bbe3cf8505d36',
     'focus identity guard')
 })

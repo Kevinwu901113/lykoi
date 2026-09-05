@@ -30,9 +30,9 @@ import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
-import { seedBinding } from './fixture.ts'
+import { FIXTURE_PERSONA_TOML, seedBinding } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
 /**
  * 事故现场的形状：LlmRuntime 把 adapter 的选路失败归一成
