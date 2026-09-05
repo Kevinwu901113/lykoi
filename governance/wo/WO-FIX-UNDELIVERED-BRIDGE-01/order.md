@@ -1,6 +1,6 @@
 # WO-FIX-UNDELIVERED-BRIDGE-01 · `undelivered_recorded` 过桥，杜绝双记
 
-- 状态：**待派**。执行方：执行子 Agent（小单）。复核：主治理 Agent。
+- 状态：**已完成，待合并**（2026-09-05，主治理 Agent 自执行；`report.md` 在分支 `wo/fix-undelivered-bridge-01` 末尾提交）。原派发方式：执行方：执行子 Agent（小单）。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：`governance/wo/WO-OUTCOME-01/review.md:49,71`（§4.4 候选小单）；`WO-OUTCOME-01/report.md:167`（out-of-scope 第 4 条）。
 - 基线：`main@c557af2`。分支：`wo/fix-undelivered-bridge-01`。若 WO-UTTER-01 先落地，从其分支尾开（同文件 `transport.ts` 返回值）。

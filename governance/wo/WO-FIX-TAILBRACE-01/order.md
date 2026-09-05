@@ -1,6 +1,6 @@
 # WO-FIX-TAILBRACE-01 · 信封尾缺括号的本地修复（不重调 LLM）
 
-- 状态：**待派**。执行方：执行子 Agent（小单，sonnet 可）。复核：主治理 Agent。
+- 状态：**已完成，待合并**（2026-09-05，主治理 Agent 自执行；`report.md` 在分支 `wo/fix-tailbrace-01` 末尾提交）。原派发方式：执行方：执行子 Agent（小单，sonnet 可）。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：`governance/wo/PROBE-CAP-01/report.md` §0（json_object 下出现"JSON 缺尾 `}`"新形态，low 档 34/36、off 档 32/34 合法，非法样本里此形态占多数）与 §6；LANDING-K/L 的 not_json 重试链是安全网，本单在它前面加一层零成本修复。
 - 基线：`main@c557af2`。分支：`wo/fix-tailbrace-01`。可与任何单并行。

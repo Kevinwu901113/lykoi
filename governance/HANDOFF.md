@@ -501,7 +501,23 @@ drop-in 判定）与 **6b**（「关于部署」节，guardian 属主）。仅�
 
 ## 五、当前进度
 
-### 📍 状态快照（2026-09-04 刷新；比下方一切条目新，先读这里）
+### 📍 状态快照（2026-09-05 刷新；比下方一切条目新，先读这里）
+
+- **队列 #1 #2 #5 已做完（2026-09-05，主治理 Agent 自执行，Kevin 令不派 GPT；各在分支待 Kevin 合并；LANDING-Q 稿已备）**：
+  - `wo/fix-tailbrace-01`@3698def — WO-FIX-TAILBRACE-01：lykoi-decide `repairTrailingClosers`（单遍栈、≤ 4 个闭合符、`JSON.parse` 复验）；
+    converse 重试链前先本地修（只在 `not_json` + `first_char:brace`），事件 `u3_cycle_repaired {step, attempt, added_chars, finish_reason}`；
+    修不动或修后仍非 envelope 走原 K/L 安全网。分支树 1122/1111/0/11。
+  - `wo/fix-undelivered-bridge-01`@5830ca8 — WO-FIX-UNDELIVERED-BRIDGE-01：`undelivered_recorded` / `ambiguous` 过 ProductionTelegramTransport 与桥；
+    实测（真 BotApiTransport 502 → 真 OutboundOrgan）sendReply 与 outbox 两路账本/经验 **2 → 1**；Memory fake 失败分支显式 false。1110/1099/0/11。
+  - `wo/utter-01`@ad41233（从 bridge 代码提交 2d40392 开出）— WO-UTTER-01：`TELEGRAM_TEXT_MAX = 4096`；纯函数 `splitForTelegram`
+    （`\n\n` → `\n` → 空白 → 硬切，不拆代理对，逐字）；`BotApiTransport.sendMessage` 内顺序发、reply_to 只首段、第 k ≥ 1 段失败 →
+    `partial_delivery` + 账本一条（剩余原文）；`telegram_transport_split {parts, chars}`；`telegram/sent` 增 `parts`；Memory fake 可选 `maxChars`。
+    合并树 1131/1120/0/11，typecheck 净。三单 report 各在分支末尾提交；order 状态已改「已完成，待合并」。
+  - 合并顺序 main ← tailbrace、bridge ← utter。**LANDING-Q 稿** `wo/LANDING-Q-20260905/landing-q-threefix.sh`（记录稿 `record.md` 同目录）：
+    EXPECT_OLD = 产线 8da87dc（教训 55），NEW 自 bundle 取并断言三分支尖为祖先；零迁移（schema 仍 18）、零 profile/deploy/依赖；
+    src 改动恰 7 文件无新文件 → manifest 仍 117 重签；prompts.ts sha 钉住（G-2）。Kevin 合并推远端后告知，主治理 Agent 出 bundle。
+  - #3 / #4 / #6 暂缓：另一会话在 `wo/turn-01` 工作树上有未提交的 INGRESS / INTERRUPT 方向改动（Durable Ingress + Turn Assembler、
+    `packages/lykoi-ingress/`、mind_schema 19 候选），与 #3/#4 重叠，等其结果再定派法。下一步自执行候选：#7 PULSE、#8 E4-1、#13 PROBE-RECALL-01。
 
 - **队列 #11 #12 已做完（2026-09-05，主治理 Agent 自执行，各在自己的分支待 Kevin 合并）**：
   - `wo/r2-newbody-01` — WO-R2-NEWBODY-01，9.4 重评 R2 四前置实证。**3 达成 1 未达，37.5 不解锁。**
