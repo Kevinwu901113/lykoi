@@ -132,9 +132,11 @@ export class ProductionTelegramTransport implements TelegramTransport {
           ? {}
           : { undelivered_recorded: result.undelivered_recorded }),
         ...(result.ambiguous === undefined ? {} : { ambiguous: result.ambiguous }),
+        ...(result.parts >= 2 ? { parts: result.parts } : {}),
       }
     }
-    return { messageId: result.message_id, sent: true }
+    // WO-UTTER-01 D-4：真切了段才带 parts（单段缺席，审计按 1 记）——单段结果形状不变。
+    return { messageId: result.message_id, sent: true, ...(result.parts >= 2 ? { parts: result.parts } : {}) }
   }
 }
 
