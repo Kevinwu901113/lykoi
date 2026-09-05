@@ -587,6 +587,69 @@ export function extractJson(content: string | null | undefined): unknown {
   throw new Error(`autonomous model did not return a decision JSON: ${pyRepr(cpSlice(text, 200))}`)
 }
 
+/**
+ * WO-FIX-TAILBRACE-01 D-1：尾括号补齐的上限（含补的那一个 `"`）。超过它就不是
+ * 「少写了尾」而是别的坏法，不修，交给现有重试链。
+ */
+export const REPAIR_CLOSERS_MAX = 4
+
+/** 剥 ``` 围栏：首行 ```lang 与末尾 ```（末尾那道可缺 —— 截断场景正是这样）。 */
+function stripFence(text: string): string {
+  if (!text.startsWith('```')) return text
+  const nl = text.indexOf('\n')
+  let body = nl === -1 ? '' : text.slice(nl + 1)
+  if (body.endsWith('```')) body = body.slice(0, -3)
+  return body.trim()
+}
+
+/**
+ * WO-FIX-TAILBRACE-01 D-1：信封**只**缺尾括号时的本地修复（不重调 LLM）。
+ * 纯函数、永不抛。去首尾空白、剥围栏后首字符必须是 `{`；单遍扫描跟踪字符串态
+ * 与转义，统计未闭合的 `{` / `[`；末尾在未闭合字符串内则先补 `"`；按栈序补
+ * `}` / `]`；总补齐 ≤ REPAIR_CLOSERS_MAX；补完 `JSON.parse` 成功才返回。
+ * 括号已平衡（含合法输入）、括号错配、补完仍非法 → null（**不改合法输入**）。
+ */
+export function repairTrailingClosers(text: string): { text: string; added: string } | null {
+  const body = stripFence((text || '').trim())
+  if (!body.startsWith('{')) return null
+  const stack: string[] = []
+  let inString = false
+  let escaped = false
+  for (const ch of body) {
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (ch === '\\') {
+        escaped = true
+      } else if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+    } else if (ch === '{') {
+      stack.push('}')
+    } else if (ch === '[') {
+      stack.push(']')
+    } else if (ch === '}' || ch === ']') {
+      if (stack.pop() !== ch) return null // 错配：不是"少写了尾"
+    }
+  }
+  if (stack.length === 0) return null // 已平衡：合法输入不动，别的坏法不归这里
+  if (escaped) return null // 末尾是悬空反斜杠：补 `"` 会被它吃掉
+  let added = inString ? '"' : ''
+  while (stack.length > 0) added += stack.pop()
+  if (added.length > REPAIR_CLOSERS_MAX) return null
+  const repaired = body + added
+  try {
+    JSON.parse(repaired)
+  } catch {
+    return null
+  }
+  return { text: repaired, added }
+}
+
 /** Python `str(x or '')` 的等价档：假值 → ''；标量 String；容器 → ''（不进接地面）。 */
 function pyStrOrEmpty(v: unknown): string {
   if (v === null || v === undefined || v === '' || v === 0 || v === false) return ''
