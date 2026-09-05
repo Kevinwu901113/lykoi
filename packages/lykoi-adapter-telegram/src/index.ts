@@ -66,6 +66,14 @@ export interface TelegramSendResult {
   messageId: string | null
   sent: boolean
   error?: string
+  /**
+   * WO-FIX-UNDELIVERED-BRIDGE-01 D-1：transport **自己已经**把这条落进未送达账本
+   * （`BotApiTransport.sendMessage` 失败分支恒 true；内存 fake 恒 false）。缺席 =
+   * 不知道 → 调用方（OutboundOrgan 两处兜底）按"未记账"补记。
+   */
+  undelivered_recorded?: boolean
+  /** 同源透传：失败是否**可能已送达**（网络类不确定失败，事后对账用）。 */
+  ambiguous?: boolean
 }
 
 export interface TelegramTransport {
@@ -785,6 +793,12 @@ export function messengerTransportBridge(adapter: TelegramAdapterService): Messe
         context_id: opts.contextId,
         sent: result.sent,
         ...(result.error === undefined ? {} : { error: result.error }),
+        // WO-FIX-UNDELIVERED-BRIDGE-01 D-1：两个记账位原样过桥 —— 桥吃掉它们的
+        // 代价是 device.ts 两处兜底把同一次失败再记一遍（账本两条 + 经验两条）。
+        ...(result.undelivered_recorded === undefined
+          ? {}
+          : { undelivered_recorded: result.undelivered_recorded }),
+        ...(result.ambiguous === undefined ? {} : { ambiguous: result.ambiguous }),
       }
     },
     async fetchUpdates() {
