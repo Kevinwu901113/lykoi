@@ -64,6 +64,29 @@ git log --oneline -5          # 确认自己基于哪个提交
 npm ci && npm test && npm run typecheck   # 确认基线绿（当前基线见 HANDOFF 进度节）
 ```
 
+两条环境实况（2026-08-31 云端首检实录，环境不同可能有出入）：
+
+1. **Node 版本**：沙箱默认 Node 22，本仓库要求 ≥24（`.nvmrc`）。若 §7 的 setup
+   script 未生效（`node -v` < 24），沙箱自带 `/opt/nvm` 可直接装：
+   `export NVM_DIR=/opt/nvm && source /opt/nvm/nvm.sh && nvm install 24`。
+2. **root 沙箱有 4 条已知假红**。云端沙箱以 root 跑测试，两类夹具前提被 root
+   特权破坏，产生 4 条**稳定**失败（首检实测 = 全量恰 4 失败，typecheck 净）：
+   - `lykoi-gate/test/gate-checks.test.ts`「⑦红④：服务用户不能 append」——
+     探针是 `accessSync(W_OK)`，root 无视 0444 权限位（Python 时代 GUARD-01
+     教训的 TS 同款形态）；
+   - `lykoi-converse/test/w3-organs.test.ts`「① 出站游标机在长轮询间隙跑…」与
+     `lykoi-kernel/test/approval-conversation.test.ts` 两条 SK-30（闸④后排失败
+     →RETRACT、四态汇总）——夹具把路径指到 `/nonexistent-dir-*` 期待写入必炸，
+     但 root 有权在 `/` 下建目录，写入反而成功（副作用：跑完会在文件系统根
+     留下 `/nonexistent-dir-xyz`、`/nonexistent-dir-lykoi-w2` 两个目录，无害可删）。
+
+   **判读口径**：root 身份下全量 = **恰好这 4 条失败**即视为基线绿；多一条
+   少一条都要查。已实测非 root 复跑（树复制到 nobody 可遍历处，
+   `setpriv --reuid=65534 --regid=65534 --clear-groups` 跑同一 glob）三包全绿
+   （gate 63/63、converse 93 过 0 败、kernel 193/193）。这 4 条**不是回归**，
+   不要为让 root 全绿去改测试或产品代码——gate/kernel 是治理特权层，动它们
+   必须有工单。
+
 然后确定"现在项目走到哪了"，按新鲜度取用（几份文档的快照日期可能不一致，
 **以日期最新者为准**）：
 
