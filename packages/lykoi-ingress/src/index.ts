@@ -20,7 +20,13 @@ export const DEFAULT_HARD_WINDOW_MS = 4_000
 // 仅重试本进程的持久化/审计收尾；不会重跑 cognition，也不是任务重试策略。
 const RECOVERY_RETRY_MS = 1_000
 
+export interface RunInterruptor {
+  canInterrupt(runId: string): boolean
+  interrupt(runId: string): boolean
+}
+
 export interface IngressService {
+  registerInterruptor?(interruptor: RunInterruptor): void
   accept(part: InboundPart, onDurable?: () => void): Promise<AcceptInboundResult>
   registerExecutor(executor: TurnExecutor): void
   finishReplay?(channel: string): Promise<void>
@@ -52,6 +58,9 @@ export interface IngressRuntimeOptions {
 }
 
 export class DurableIngress implements IngressService {
+  #interruptor: RunInterruptor | null = null
+  #active: { turn: UserTurn; runId: string } | null = null
+  #pendingRevision: string | null = null
   #store: DurableTurnStore
   #audit: AuditService
   #idleMs: number
@@ -104,7 +113,16 @@ export class DurableIngress implements IngressService {
 
   async accept(part: InboundPart, onDurable?: () => void): Promise<AcceptInboundResult> {
     if (this.#closed) throw new Error('lykoi-ingress: closed')
-    const result = this.#store.accept(part, this.#idleMs, this.#hardMs)
+    const active = this.#active
+    const revise = active !== null && !active.runId.endsWith(':r2') && part.isOwner && !part.replay
+      && part.replyToPlatformMessageId === undefined && active.turn.isOwner
+      && active.turn.channel === part.channel && active.turn.contextId === part.contextId
+      && active.turn.userId === part.userId && this.#interruptor?.canInterrupt(active.runId) === true
+    // 此处直到 interrupt 都无 await：资格判断与 durable append 之间不能插入 dispatch。
+    const result = this.#store.accept(part, this.#idleMs, this.#hardMs, revise ? active!.turn.turnId : undefined)
+    if (result.revised && !this.#interruptor!.interrupt(active!.runId)) {
+      throw new Error('lykoi-ingress: synchronous interrupt contract violated')
+    }
     // 同步通知 durable commit；即使后续审计暂时不可用，wake 也已获入站活动信号。
     onDurable?.()
     await this.#audit.record({
@@ -140,6 +158,8 @@ export class DurableIngress implements IngressService {
       partCount: result.partCount,
     }
   }
+
+  registerInterruptor(interruptor: RunInterruptor): void { this.#interruptor = interruptor }
 
   async finishReplay(channel: string): Promise<void> {
     for (const turn of this.#store.finishReplay(channel, this.#now())) await this.#recordCommitted(turn)
@@ -227,6 +247,7 @@ export class DurableIngress implements IngressService {
         const claimed = this.#store.claimNext(this.#now())
         if (claimed === null) break
         let terminal: TurnTerminalPayload
+        this.#active = claimed
         try {
           terminal = (await this.#executor(claimed.turn, { runId: claimed.runId })).terminal
         } catch (err) {
@@ -235,7 +256,15 @@ export class DurableIngress implements IngressService {
             ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0,
             continuation_id: null,
           }
-          this.#onError('executor', err)
+          if (!this.#store.revisionPending(claimed.turn.turnId)) this.#onError('executor', err)
+        } finally {
+          this.#active = null
+        }
+        if (this.#store.revisionPending(claimed.turn.turnId)) {
+          this.#pendingRevision = claimed.turn.turnId
+          this.#finishPending()
+          await this.#flushTerminals()
+          continue
         }
         this.#pendingFinish = { turnId: claimed.turn.turnId, terminal }
         this.#finishPending()
@@ -254,6 +283,10 @@ export class DurableIngress implements IngressService {
   }
 
   #finishPending(): void {
+    if (this.#pendingRevision !== null) {
+      this.#store.revise(this.#pendingRevision, this.#now())
+      this.#pendingRevision = null
+    }
     if (this.#pendingFinish === null) return
     const { turnId, terminal } = this.#pendingFinish
     if (!this.#store.finish(turnId, terminal, this.#now())) {
@@ -268,6 +301,14 @@ export class DurableIngress implements IngressService {
   }
 
   async #flushTerminals(): Promise<void> {
+    for (const abort of this.#store.unauditedRunAborts()) {
+      const event = { type: 'converse/run_aborted', turn_id: abort.turnId, run_id: abort.runId,
+        reason: 'revision', ts: abort.ts }
+      const eventId = `run-aborted:${abort.runId}`
+      if (this.#audit.recordOnce) await this.#audit.recordOnce(eventId, event)
+      else await this.#audit.record({ ...event, event_id: eventId })
+      this.#store.markRunAbortAudited(abort.turnId, abort.index)
+    }
     for (const row of this.#store.unauditedTerminals()) {
       const last = row.turn.parts.at(-1)!
       const terminalEvent = {

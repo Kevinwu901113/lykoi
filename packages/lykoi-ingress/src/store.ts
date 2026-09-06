@@ -53,6 +53,7 @@ interface PartRow {
 }
 
 export interface StoreAcceptResult extends AcceptInboundResult {
+  revised?: boolean
   committed: UserTurn[]
 }
 
@@ -85,11 +86,17 @@ export class DurableTurnStore {
       const tables = this.#db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]
       const version = Number(this.#db.prepare('PRAGMA user_version').get()!.user_version)
       if (tables.some(({ name }) => !['inbound_parts', 'user_turns'].includes(name))
-        || (tables.length > 0 && version !== INGRESS_SCHEMA_VERSION)
-        || (version !== 0 && version !== INGRESS_SCHEMA_VERSION)) {
+        || (tables.length > 0 && version !== 1 && version !== INGRESS_SCHEMA_VERSION)
+        || (version !== 0 && version !== 1 && version !== INGRESS_SCHEMA_VERSION)) {
         throw new Error('lykoi-ingress: requires its own supported infrastructure database')
       }
       this.#tx(() => {
+        if (version === 1 && tables.length > 0) {
+          this.#db.exec(`ALTER TABLE user_turns ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision BETWEEN 0 AND 2);
+            ALTER TABLE user_turns ADD COLUMN revision_pending INTEGER NOT NULL DEFAULT 0 CHECK (revision_pending IN (0, 1));
+            ALTER TABLE user_turns ADD COLUMN aborted_runs_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(aborted_runs_json));
+            ALTER TABLE user_turns ADD COLUMN run_aborts_audited INTEGER NOT NULL DEFAULT 0;`)
+        }
         this.#db.exec(INGRESS_SCHEMA_DDL)
         this.#db.exec(`PRAGMA user_version = ${INGRESS_SCHEMA_VERSION}`)
       })
@@ -112,7 +119,7 @@ export class DurableTurnStore {
     }
   }
 
-  accept(part: InboundPart, idleMs: number, hardMs: number): StoreAcceptResult {
+  accept(part: InboundPart, idleMs: number, hardMs: number, revisionTarget?: string): StoreAcceptResult {
     for (const [value, name] of [
       [part.inboundId, 'inboundId'], [part.channel, 'channel'],
       [part.platformMessageId, 'platformMessageId'], [part.userId, 'userId'],
@@ -160,7 +167,14 @@ export class DurableTurnStore {
 
       const committed: UserTurn[] = []
       let turnId: string
-      if (collecting !== undefined && (collecting.is_owner !== (part.isOwner ? 1 : 0)
+      if (revisionTarget !== undefined) {
+        const target = this.#db.prepare("SELECT id FROM user_turns WHERE id=? AND state='running' AND revision<2 AND channel=? AND context_id=? AND user_id=? AND is_owner=1").get(revisionTarget, part.channel, part.contextId, part.userId)
+        if (!target || !part.isOwner || part.replay || part.replyToPlatformMessageId !== undefined) {
+          throw new Error('lykoi-ingress: invalid revision target')
+        }
+        turnId = revisionTarget
+        this.#db.prepare('UPDATE user_turns SET revision_pending=1 WHERE id=?').run(turnId)
+      } else if (collecting !== undefined && (collecting.is_owner !== (part.isOwner ? 1 : 0)
         || (!part.replay && receivedAt.getTime() >= dueOf(collecting, idleMs, hardMs).at.getTime()))) {
         committed.push(this.#commit(collecting, idleMs, hardMs, collecting.replay ? receivedAt : undefined))
         turnId = this.#createTurn(part)
@@ -193,6 +207,7 @@ export class DurableTurnStore {
         duplicate: false,
         partCount: this.#partCount(turnId),
         committed,
+        revised: revisionTarget !== undefined,
       }
     })
   }
@@ -271,11 +286,11 @@ export class DurableTurnStore {
   claimNext(now: Date): { turn: UserTurn; runId: string } | null {
     return this.#tx(() => {
       const row = this.#db.prepare(
-        `SELECT id FROM user_turns WHERE state = 'queued'
+        `SELECT id, revision FROM user_turns WHERE state = 'queued'
           ORDER BY queue_seq ASC LIMIT 1`,
-      ).get() as { id: string } | undefined
+      ).get() as { id: string; revision: number } | undefined
       if (row === undefined) return null
-      const runId = `run:${row.id}:r0`
+      const runId = `run:${row.id}:r${row.revision}`
       const info = this.#db.prepare(
         `UPDATE user_turns SET state = 'running', run_id = ?, updated_at = ?
           WHERE id = ? AND state = 'queued'`,
@@ -300,11 +315,36 @@ export class DurableTurnStore {
     })
   }
 
+  revisionPending(turnId: string): boolean {
+    const row = this.#db.prepare('SELECT revision_pending FROM user_turns WHERE id=?').get(turnId)
+    return row?.revision_pending === 1
+  }
+
+  revise(turnId: string, now: Date): void { this.#tx(() => this.#revise(turnId, now)) }
+
+  #revise(turnId: string, now: Date): void {
+    const row = this.#db.prepare("SELECT run_id, aborted_runs_json FROM user_turns WHERE id=? AND state='running' AND revision_pending=1 AND revision<2").get(turnId) as { run_id: string; aborted_runs_json: string } | undefined
+    if (!row) throw new Error('lykoi-ingress: no pending revision')
+    const runs = JSON.parse(row.aborted_runs_json) as unknown[]
+    runs.push({ run_id: row.run_id, reason: 'revision', ts: now.toISOString() })
+    this.#db.prepare("UPDATE user_turns SET state='queued', revision=revision+1, revision_pending=0, aborted_runs_json=?, run_id=NULL, updated_at=? WHERE id=?").run(JSON.stringify(runs), now.toISOString(), turnId)
+  }
+
+  unauditedRunAborts(): { turnId: string; index: number; runId: string; ts: string }[] {
+    const rows = this.#db.prepare('SELECT id, aborted_runs_json, run_aborts_audited FROM user_turns WHERE json_array_length(aborted_runs_json)>run_aborts_audited').all() as { id: string; aborted_runs_json: string; run_aborts_audited: number }[]
+    return rows.flatMap(row => (JSON.parse(row.aborted_runs_json) as { run_id: string; ts: string }[])
+      .flatMap((run, index) => index >= row.run_aborts_audited ? [{ turnId: row.id, index, runId: run.run_id, ts: run.ts }] : []))
+  }
+
+  markRunAbortAudited(turnId: string, index: number): void {
+    this.#db.prepare('UPDATE user_turns SET run_aborts_audited=MAX(run_aborts_audited, ?) WHERE id=?').run(index + 1, turnId)
+  }
+
   recoverRunning(now: Date): UserTurn[] {
     return this.#tx(() => {
       const rows = this.#db.prepare(
-        `SELECT id FROM user_turns WHERE state = 'running' ORDER BY first_received_at, rowid`,
-      ).all() as { id: string }[]
+        `SELECT id, revision_pending FROM user_turns WHERE state = 'running' ORDER BY first_received_at, rowid`,
+      ).all() as { id: string; revision_pending: number }[]
       const terminal: TurnTerminalPayload = {
         status: 'failed', reason: 'interrupted', followup_registered: false,
         ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0,
@@ -312,6 +352,7 @@ export class DurableTurnStore {
       }
       const moment = now.toISOString()
       for (const row of rows) {
+        if (row.revision_pending) { this.#revise(row.id, now); continue }
         this.#db.prepare(
           `UPDATE user_turns
               SET state = 'terminal', terminal_status = 'failed', terminal_reason = 'interrupted',

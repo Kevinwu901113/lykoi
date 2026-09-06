@@ -30,6 +30,8 @@ import {
   sha256File,
 } from '../../../packages/lykoi-gate/src/manifest.ts'
 
+import { INGRESS_SCHEMA_VERSION } from '../../../packages/lykoi-ingress/src/schema.ts'
+
 const BASE_MS = Date.parse('2026-09-05T00:00:00.000Z')
 const IDLE_MS = DEFAULT_IDLE_WINDOW_MS
 const HARD_MS = DEFAULT_HARD_WINDOW_MS
@@ -610,7 +612,7 @@ async function main() {
     },
     database: {
       fixture: 'DurableTurnStore infrastructure schema 1',
-      expectedSchemaVersion: 1,
+      expectedSchemaVersion: INGRESS_SCHEMA_VERSION,
       temporary: true,
     },
     scope: {
@@ -635,7 +637,7 @@ async function main() {
     const dbPath = join(dir, 'state.db')
     new DurableTurnStore(dbPath).close()
     const snapshot = dbSnapshot(dbPath)
-    assert.equal(snapshot.schemaVersion, 1, `${name} uses infrastructure schema-1 fixture`)
+    assert.equal(snapshot.schemaVersion, INGRESS_SCHEMA_VERSION, `${name} uses infrastructure schema-1 fixture`)
     assert.deepEqual(snapshot.tables, ['inbound_parts', 'user_turns'])
     return dbPath
   }

@@ -62,7 +62,7 @@ import {
 import { ContinuationRunner, type ContinuationsService } from './continuation.ts'
 import { failureReason } from './failure.ts'
 import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
-import { D01_DEFAULTS, runInterpretWithDeadline } from './deadline.ts'
+import { D01_DEFAULTS, runInterpretWithDeadline, RunAbortedError } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
 import {
   SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome, type TurnStatus,
@@ -648,6 +648,10 @@ export function apply(ctx: Context, config: Config) {
     }))
   }
 
+  ctx.ingress.registerInterruptor?.({
+    canInterrupt: runId => conversation.canInterrupt(runId),
+    interrupt: runId => conversation.interrupt(runId),
+  })
   ctx.ingress.registerExecutor(async (turn, { runId }) =>
     await handleTurn(ctx, conversation, turn, runId, continuations))
 }
@@ -886,6 +890,7 @@ export async function handleTurn(
       await sendFailureNotice(terminal.reason as TurnFailReason)
     }
   } catch (err) {
+    if (err instanceof RunAbortedError) throw err // ingress 保留原 turn，另落 run_aborted
     const reason = failureReason(err)
     if (err instanceof ContextBudgetError) {
       await ctx.audit.record({

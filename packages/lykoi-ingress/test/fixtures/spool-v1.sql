@@ -1,6 +1,4 @@
-/** 入站基础设施库；不属于主体 memory.db，不推进 mind_schema。 */
-export const INGRESS_SCHEMA_VERSION = 2
-export const INGRESS_SCHEMA_DDL = `
+
     CREATE TABLE IF NOT EXISTS user_turns (
       id TEXT PRIMARY KEY,
       channel TEXT NOT NULL,
@@ -16,10 +14,6 @@ export const INGRESS_SCHEMA_DDL = `
       replay INTEGER NOT NULL DEFAULT 0 CHECK (replay IN (0, 1)),
       queue_seq INTEGER UNIQUE,
       run_id TEXT,
-      revision INTEGER NOT NULL DEFAULT 0 CHECK (revision BETWEEN 0 AND 2),
-      revision_pending INTEGER NOT NULL DEFAULT 0 CHECK (revision_pending IN (0, 1)),
-      aborted_runs_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(aborted_runs_json)),
-      run_aborts_audited INTEGER NOT NULL DEFAULT 0,
       terminal_status TEXT,
       terminal_reason TEXT,
       terminal_at TEXT,
@@ -56,4 +50,5 @@ export const INGRESS_SCHEMA_DDL = `
     CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_parts_turn
       ON inbound_parts(turn_id, part_order);
 
-`
+
+PRAGMA user_version=1;

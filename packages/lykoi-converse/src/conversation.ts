@@ -28,6 +28,7 @@
  * 替身的是 vision 模型 / 出站进度队列 / interactive_lock / 未送达账本的生产侧
  * （随 W3 出站器官波）。
  */
+import { RunAbortedError } from './deadline.ts'
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
@@ -422,6 +423,19 @@ export function selfStateBlock(
 }
 
 export class Conversation {
+  #runController: AbortController | null = null
+  #runSealed = true
+
+  canInterrupt(runId: string): boolean {
+    return this.#runController !== null && !this.#runSealed && !this.#background && this.#lastRunId === runId
+  }
+
+  interrupt(runId: string): boolean {
+    if (!this.canInterrupt(runId)) return false
+    this.#runController!.abort(new RunAbortedError())
+    return true
+  }
+
   #deps: ConverseDeps
   #messages: ConverseMessage[]
   #prefixEpoch: string | null
@@ -1041,6 +1055,8 @@ export class Conversation {
         // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
         const nudge = attempt >= 1
         const result = await this.#completion(signal, nudge)
+        // 旧调用即使不合作、晚到成功，也不能进入 parse/inner/tool 或下一 run 状态。
+        signal?.throwIfAborted()
         lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
@@ -1124,6 +1140,8 @@ export class Conversation {
           return ''
         }
       }
+      // 同步提交段从这里开始；inner、进度等内部写入也不允许事后回滚。
+      this.#runSealed = true
       // D-05（修正版）：这一周期最终成立之后才收未送达展示期。
       this.#markUndeliveredSurfaced()
       const injected = new Set(this.#lastInjectedThoughtIds)
@@ -1545,12 +1563,18 @@ export class Conversation {
       this.#messages.push({ role: 'user', content: message })
       // 来话即探针 —— 一轮一次检索，结果贴进易变尾部（零 LLM）。
       this.#relevantMemories = this.#buildRelevantMemories(message)
+      this.#runSealed = false
+      this.#runController = new AbortController()
       let reply: string
       try {
         // D-01（M4-W1）：整个周期有一条边。撞线 = AbortSignal 掐断那一跳 +
         // 下面的 S-14 回滚 + `u3_cycle_timeout` 落账（elapsed 与判定读同一只表）。
         const timeoutMs = deadlineMs(this.#deps.cycleTimeoutS ?? D01_CYCLE_TIMEOUT_S)
-        reply = await withDeadline('conversation_cycle', timeoutMs, (signal) => this.#runCycle(signal))
+        const controller = this.#runController
+        reply = await withDeadline('conversation_cycle', timeoutMs, async signal => {
+          try { return await this.#runCycle(signal) }
+          finally { if (this.#runController === controller) this.#runSealed = true }
+        }, controller.signal)
       } catch (exc) {
         if (exc instanceof DeadlineExceededError) {
           // 风格对齐 G-10 的 u3_cycle_failed：类别/时延/原因/零正文。
@@ -1569,6 +1593,8 @@ export class Conversation {
         this.#log('chat_turn_rolled_back', { dropped_messages: dropped })
         throw exc
       } finally {
+        this.#runController = null
+        this.#runSealed = true
         // S-15：召回是针对这句话的，展示期就是这一轮。
         this.#relevantMemories = null
       }
