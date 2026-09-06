@@ -23,4 +23,3 @@
 - **动手实现 → `sonnet`**
 - **opus 的 effort = medium**（已固化在服务器 `~/.claude/settings.json`）
 - 服务器默认模型是 **Haiku 4.5**，不显式指定就会用它——分析类任务用它质量明显不够。
-
