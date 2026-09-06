@@ -37,7 +37,7 @@
 
 - 一律开分支干活（工单单 = `wo/<name>`；杂项 = `cloud/<主题>`），**不直接 push main**。
 - 完成即 push + 出 PR（或按工单要求出报告文件），由 Mac 治理线复核合并。
-- 报告一次性完整输出，写进 `governance/wo/<WO-ID>/report.md` 随分支提交。
+- 完整报告和证据写进 `governance/wo/<WO-ID>/report.md` 随分支提交；最终回复给结论、分支与文件链接。检查要求及阶段完成口径统一见根 `CLAUDE.md`。
 
 ## 三、你能做什么 / 不能做什么
 
@@ -61,7 +61,8 @@
 
 ```
 git log --oneline -5          # 确认自己基于哪个提交
-npm ci && npm test && npm run typecheck   # 确认基线绿（当前基线见 HANDOFF 进度节）
+# 涉及代码、依赖或运行配置时，按 CLAUDE.md 核验适用基线；
+# 纯文档或 Skill 任务无需安装依赖、运行代码全量测试。
 ```
 
 然后确定"现在项目走到哪了"，按新鲜度取用（几份文档的快照日期可能不一致，
