@@ -206,6 +206,64 @@ function _recordUndeliveredExperience(record: UndeliveredRecord): void {
 }
 
 // ============================================================================
+// WO-UTTER-01：出站长文按通道上限切分（上限归通道，不进契约不进提示词）
+// ============================================================================
+
+/**
+ * WO-UTTER-01 D-1：Telegram Bot API `sendMessage` 的 text 上限。Telegram 按 UTF-16
+ * code unit 计，正是 JS 的 `text.length`。这是**通道事实**：大脑不知道它，
+ * `contract.ts` / `prompts.ts` 里没有它，超长的话在这一层切，不在上游劝短。
+ */
+export const TELEGRAM_TEXT_MAX = 4096
+
+const WHITESPACE = /\s/
+const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff
+const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
+
+/**
+ * WO-UTTER-01 D-2：把正文切成若干段，每段 `.length ≤ max`。**逐字**：各段拼回
+ * 恒等于原文——不加省略号、不加编号、不 trim、不改任何字符。
+ *
+ * 每一轮在前 `max` 个 code unit 的窗口里找切点，优先级：最后一个 `\n\n` →
+ * 最后一个 `\n` → 最后一个空白 → 硬切。切点落在分隔符**之后**（分隔符归前一段），
+ * 所以拼回逐字。硬切不落在 UTF-16 代理对中间（`max ≥ 2` 时总能退一格）。
+ * 不超长 → 原文一段（空串也是一段，`['']`）。
+ */
+export function splitForTelegram(text: string, max: number = TELEGRAM_TEXT_MAX): string[] {
+  if (!Number.isInteger(max) || max < 1) {
+    throw new RangeError('splitForTelegram: max must be a positive integer')
+  }
+  if (text.length <= max) return [text]
+  const parts: string[] = []
+  let rest = text
+  while (rest.length > max) {
+    const window = rest.slice(0, max)
+    let cut = -1
+    const paragraph = window.lastIndexOf('\n\n')
+    if (paragraph >= 0) cut = paragraph + 2
+    if (cut < 1) {
+      const line = window.lastIndexOf('\n')
+      if (line >= 0) cut = line + 1
+    }
+    if (cut < 1) {
+      for (let i = max - 1; i >= 0; i -= 1) {
+        if (WHITESPACE.test(window[i]!)) { cut = i + 1; break }
+      }
+    }
+    if (cut < 1) {
+      cut = max
+      if (cut > 1 && isHighSurrogate(rest.charCodeAt(cut - 1)) && isLowSurrogate(rest.charCodeAt(cut))) {
+        cut -= 1
+      }
+    }
+    parts.push(rest.slice(0, cut))
+    rest = rest.slice(cut)
+  }
+  parts.push(rest)
+  return parts
+}
+
+// ============================================================================
 // Bot API 传输真身（HTTP 那一跳是注入 seam —— 本波零真网）
 // ============================================================================
 
@@ -415,6 +473,13 @@ export class BotApiTransport {
   /**
    * `messenger.Transport.send_message` 真身。失败 = 终局，而**终局不许静默**：
    * 这里是所有出站调用方共同的最后一道关口，所以记在这一层就等于全都记上了。
+   *
+   * WO-UTTER-01 D-2/D-3：超过 `TELEGRAM_TEXT_MAX` 的正文在这里切段、**顺序**发
+   * （段间不并发），`reply_to_message_id` 只带在第一段。全部送达 → `message_id`
+   * 取第一段的；第 k（k ≥ 1）段失败 → 停，`error:'partial_delivery'`，未送达账本
+   * 记**一条**，正文 = 尚未送出的剩余原文（账本本来只存 200 字摘要 + chars），
+   * `attempts` = 该段的。第一段就失败与从前完全一样（那不叫 partial）。
+   * `parts` 恒返回（单段 = 1），给 `telegram/sent` 审计（D-4）。
    */
   async sendMessage(opts: {
     contextId: string
@@ -428,44 +493,62 @@ export class BotApiTransport {
     error?: string
     ambiguous?: boolean
     undelivered_recorded?: boolean
+    parts: number
   }> {
-    const payload: Record<string, unknown> = { chat_id: opts.contextId, text: opts.text }
+    const segments = splitForTelegram(opts.text, TELEGRAM_TEXT_MAX)
+    const parts = segments.length
+    if (parts >= 2) {
+      // D-4：零正文——只有段数与全文字数。
+      logEvent('telegram_transport_split', { parts, chars: opts.text.length })
+    }
+    let replyToId: number | null = null
     if (opts.replyTo !== null && opts.replyTo !== undefined) {
       const n = Number.parseInt(String(opts.replyTo), 10)
       // 不是 Telegram 的 message id（例如我们自己的本地 ref）→ 略去，照样发。
-      if (Number.isFinite(n)) payload.reply_to_message_id = n
+      if (Number.isFinite(n)) replyToId = n
     }
-    const result = await this.#postApi('sendMessage', payload, {
-      retryBackoff: SEND_RETRY_BACKOFF_S,
-    })
-    if (result.ok !== true) {
-      const error = (result.error as string | undefined) || 'send_failed'
-      recordUndelivered({
-        contextId: opts.contextId,
-        text: opts.text,
-        error: (result.error_type as string | undefined) || error,
-        ambiguous: Boolean(result.ambiguous),
-        attempts: Number(result.attempts ?? 1),
-        source: 'telegram_transport.send_message',
-        recordUndeliveredExperience: opts.recordUndeliveredExperience,
+    let firstMessageId: string | null = null
+    let firstTs: unknown
+    for (let k = 0; k < parts; k += 1) {
+      const payload: Record<string, unknown> = { chat_id: opts.contextId, text: segments[k] }
+      // D-3：reply_to_message_id 只带在第一段。
+      if (k === 0 && replyToId !== null) payload.reply_to_message_id = replyToId
+      const result = await this.#postApi('sendMessage', payload, {
+        retryBackoff: SEND_RETRY_BACKOFF_S,
       })
-      return {
-        message_id: null,
-        context_id: opts.contextId,
-        sent: false,
-        error,
-        ambiguous: Boolean(result.ambiguous),
-        // 调用方据此知道"未送达"已经落过账了，不必再记一笔（③）。
-        undelivered_recorded: true,
+      if (result.ok !== true) {
+        const partial = k > 0
+        const category = (result.error as string | undefined) || 'send_failed'
+        const error = partial ? 'partial_delivery' : category
+        recordUndelivered({
+          contextId: opts.contextId,
+          // D-3：账本记的是**尚未送出**的部分（第一段就失败 = 全文，与从前同）。
+          text: segments.slice(k).join(''),
+          error: partial ? error : ((result.error_type as string | undefined) || category),
+          ambiguous: Boolean(result.ambiguous),
+          attempts: Number(result.attempts ?? 1),
+          source: 'telegram_transport.send_message',
+          recordUndeliveredExperience: opts.recordUndeliveredExperience,
+        })
+        return {
+          message_id: null,
+          context_id: opts.contextId,
+          sent: false,
+          error,
+          ambiguous: Boolean(result.ambiguous),
+          // 调用方据此知道"未送达"已经落过账了，不必再记一笔（③）。
+          undelivered_recorded: true,
+          parts,
+        }
+      }
+      if (k === 0) {
+        const message = (result.result ?? {}) as Record<string, unknown>
+        const messageId = message.message_id
+        firstMessageId = messageId === undefined || messageId === null ? null : String(messageId)
+        firstTs = message.date
       }
     }
-    const message = (result.result ?? {}) as Record<string, unknown>
-    const messageId = message.message_id
-    return {
-      message_id: messageId === undefined || messageId === null ? null : String(messageId),
-      context_id: opts.contextId,
-      ts: message.date,
-    }
+    return { message_id: firstMessageId, context_id: opts.contextId, ts: firstTs, parts }
   }
 
   /** 非消费性的近期更新读（不推进 offset）—— `messenger.read` 的后端。 */

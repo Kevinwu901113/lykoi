@@ -14,7 +14,7 @@ import {
   THOUGHTS_HEADER, UNDELIVERED_HEADER, estimateTokens, stripMarkup,
 } from '../src/index.ts'
 import {
-  envelope, eventNames, lastEvent, makeConversation, makeStore, MemoryUndelivered,
+  envelope, eventNames, FIXTURE_PERSONA, lastEvent, makeConversation, makeStore, MemoryUndelivered,
   rawOpen, seedArchivedExperience, seedBinding, seedPromotedInsight,
   seedRelationshipInsight, T0,
 } from './fixture.ts'
@@ -48,7 +48,7 @@ test('S-23/24/25 顺序：稳定前缀(persona→organs→backfill→concerns) �
   ])
 })
 
-test('persona 头分层：内核(1f5960b7 的那份)→重启叙事→纪律→acquired→转正结论（S-34 唯一消费口）', async () => {
+test('persona 头分层：内核(合成实例包的那份)→重启叙事→纪律→acquired→转正结论（S-34 唯一消费口）', async () => {
   const prepared = makeStore()
   prepared.store.upsertInsight('preference', 'Kevin 用中文交流，技术术语用英文', { now: T0 })
   seedPromotedInsight(prepared.path, '我在深夜想事情更清楚')
@@ -62,7 +62,7 @@ test('persona 头分层：内核(1f5960b7 的那份)→重启叙事→纪律→a
   const head = h.llm.calls[0]!.messages[0]!
   assert.equal(head.role, 'system')
   const content = head.content!
-  assert.ok(content.startsWith('我是 Lykoi，'), '内核第一')
+  assert.ok(content.startsWith(`我是 ${FIXTURE_PERSONA.identity.name}，`), '内核第一')
   assert.ok(content.includes('[你重启了一次——之前是睡着的，现在醒了。]'), 'SA-162 重启叙事')
   assert.ok(content.includes('以下是你的操作环境与纪律'), 'SYSTEM_PROMPT 在内核后')
   assert.ok(content.includes('Kevin 的偏好：\n- Kevin 用中文交流，技术术语用英文'), 'acquired 投影')

@@ -35,7 +35,7 @@ import {
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
 import {
-  getPersona, seedPersona, OrganInventoryCache, type LogEvent,
+  getPersona, loadInstancePackage, seedPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
 import { stagedInstructions } from 'lykoi-learn'
 import {
@@ -53,7 +53,7 @@ import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { recordExperience } from 'lykoi-reflow'
 import { collectRestartClues, latestRestartEvent, recordDeployEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
-  ContextBudgetError, Conversation, composeSurfaceReply,
+  ContextBudgetError, Conversation, composeSurfaceReply, selfStateBlock,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import {
@@ -314,7 +314,10 @@ export function apply(ctx: Context, config: Config) {
   const persona = getPersona(resolve(config.personaToml))
 
   // --- 出生序（文件头注释） ---
-  seedPersona(store, { now: new Date() })
+  // WO-E4-2：种子住在实例包（persona TOML 所在目录的 seeds.toml），框架零缺省种子；
+  // 文件缺失 = 零种子，损坏 = 启动即炸（出生证阶段抛错比静默好）。
+  const instance = loadInstancePackage(resolve(config.personaToml))
+  seedPersona(store, instance.seeds, { now: new Date() })
   // M3-W4 接线（M2 遗留 #8）：restart 线索的**生产采集器**。
   // SA-164 纪律不变 —— 采集器每一样各自 try/catch，读不到就是 null，
   // `recordRestartEvent` 那边缺席即省略，**绝不编造**。dev profile 两个采集配置
@@ -485,6 +488,9 @@ export function apply(ctx: Context, config: Config) {
     llm,
     logEvent,
     organs,
+    // WO-PULSE-01 D-1（断点 ①③）：调节场四变量进对话 prompt —— 只在偏离基线
+    // ≥ SELF_STATE_DEVIATION_MIN 时出块；now 由 Conversation 的时钟递入。
+    selfState: (now) => selfStateBlock(store, now),
     restartEvent: () => latestRestartEvent(store),
     // M3-W3 ③ contact 链接通：真 kernel 通知队列（`get_notifications(unread_only=
     // False)` 的结构化子集 —— `_pending_contact_ts` 的读面），markReplied 同批。

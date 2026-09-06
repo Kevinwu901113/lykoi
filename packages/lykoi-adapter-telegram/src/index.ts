@@ -67,6 +67,20 @@ export interface TelegramSendResult {
   messageId: string | null
   sent: boolean
   error?: string
+  /**
+   * WO-FIX-UNDELIVERED-BRIDGE-01 D-1：transport **自己已经**把这条落进未送达账本
+   * （`BotApiTransport.sendMessage` 失败分支恒 true；内存 fake 恒 false）。缺席 =
+   * 不知道 → 调用方（OutboundOrgan 两处兜底）按"未记账"补记。
+   */
+  undelivered_recorded?: boolean
+  /** 同源透传：失败是否**可能已送达**（网络类不确定失败，事后对账用）。 */
+  ambiguous?: boolean
+  /**
+   * WO-UTTER-01 D-4：这条话在通道上实际发成了几段。只在真切了（≥ 2）时出现：
+   * 生产 transport 按 `BotApiTransport` 的段数带，内存 fake 按 `maxChars` 切了才带。
+   * 缺席 = 单段，`telegram/sent` 审计按 1 记 —— 单段结果形状与从前完全一样。
+   */
+  parts?: number
 }
 
 export interface TelegramTransport {
@@ -509,8 +523,10 @@ export class TelegramAdapter implements TelegramAdapterService {
         type: 'telegram/sent',
         contextId,
         replyTo,
+        // WO-UTTER-01 D-4：chars 仍是全文长度；parts 是通道上实际的段数。
         chars: text.length,
         messageId: result.messageId,
+        parts: result.parts ?? 1,
       })
     } else {
       // M3-W3：未送达账本已就位（`transport.recordUndelivered` 是**唯一**产生入口）。
@@ -523,6 +539,7 @@ export class TelegramAdapter implements TelegramAdapterService {
         replyTo,
         chars: text.length,
         ...(result.error === undefined ? {} : { error: result.error }),
+        ...(result.parts === undefined ? {} : { parts: result.parts }),
       })
     }
     return result
@@ -737,6 +754,12 @@ export function messengerTransportBridge(adapter: TelegramAdapterService): Messe
         context_id: opts.contextId,
         sent: result.sent,
         ...(result.error === undefined ? {} : { error: result.error }),
+        // WO-FIX-UNDELIVERED-BRIDGE-01 D-1：两个记账位原样过桥 —— 桥吃掉它们的
+        // 代价是 device.ts 两处兜底把同一次失败再记一遍（账本两条 + 经验两条）。
+        ...(result.undelivered_recorded === undefined
+          ? {}
+          : { undelivered_recorded: result.undelivered_recorded }),
+        ...(result.ambiguous === undefined ? {} : { ambiguous: result.ambiguous }),
       }
     },
     async fetchUpdates() {

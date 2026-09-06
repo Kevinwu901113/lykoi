@@ -32,15 +32,18 @@ test('G-2：DECIDE_SYSTEM_PROMPT 新 sha 钉死；next_wake_after_minutes 字段
   assert.ok(!DECIDE_SYSTEM_PROMPT.includes('next_wake_after_minutes'))
 })
 
-test('SA-154：persona 内核九段装配 fixture 对拍（chars=401、sha=1f5960b7…bec71）', () => {
+test('SA-154：persona 内核九段装配 fixture 对拍（chars=367、sha=72b48e63…4f43f）', () => {
+  // 旧（第一实例夹具，WO-E4-1 前）：chars=401
+  //   sha256=1f5960b79d5e5251ba9be96922806879cd7d434e7ae0e52a6bc57fec1b5bec71
+  // 新（合成测试实例包 fixtures/instance/persona.toml；装配函数一字未动）：
   const kernel = buildPersonaKernel(FIXTURE_PERSONA)
-  assert.equal([...kernel].length, 401)
+  assert.equal([...kernel].length, 367)
   assert.equal(
     sha256(kernel),
-    '1f5960b79d5e5251ba9be96922806879cd7d434e7ae0e52a6bc57fec1b5bec71',
+    '72b48e63ea01e3e214f6bcae7a17ae6c34fff815e603697a01ca63842814f43f',
   )
   // 全角标点是字节契约的一部分
-  assert.ok(kernel.includes('（我的身体：lapwing-home VM (vmid 110)。）'))
+  assert.ok(kernel.includes(`（我的身体：${FIXTURE_PERSONA.identity.embodiment}。）`))
   assert.ok(kernel.includes('默认用中文，技术术语用英文。')) // 'zh' 特判
   // 确定性：同 cfg 两次装配逐字节相同（PATH-AGNOSTIC 的前提）
   assert.equal(buildPersonaKernel(FIXTURE_PERSONA), kernel)

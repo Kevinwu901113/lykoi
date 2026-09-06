@@ -6,7 +6,7 @@
  * **readOnly** 打开（零写、行内容零输出——断言消息只带 id 不带 content）。
  * 写集对拍用 tableDigests / changedTables（同一出处的逐表逻辑摘要）。
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -60,10 +60,24 @@ export function rawOpen(path: string): DatabaseSync {
   return db
 }
 
-/** 身份守卫 fixture 口径（与 lykoi-decide 的 FIXTURE_PERSONA 同名同伴侣）。 */
+/** 合成测试实例包的 persona TOML（lykoi-decide/test/fixtures/instance；WO-E4-1 一份真相）。 */
+export const INSTANCE_PERSONA_TOML = new URL(
+  '../../lykoi-decide/test/fixtures/instance/persona.toml', import.meta.url,
+).pathname
+
+/** 本包不依赖 lykoi-decide（不引 loadPersona），只从 TOML 正文取两个基本字符串标量。 */
+function instanceScalar(section: string, key: string): string {
+  const text = readFileSync(INSTANCE_PERSONA_TOML, 'utf8')
+  const body = text.split(`\n[${section}]\n`)[1]?.split(/\n\[/)[0]
+  const found = body === undefined ? null : new RegExp(`^${key} = "([^"]*)"$`, 'm').exec(body)
+  if (found === null) throw new Error(`instance persona fixture: ${section}.${key} not found`)
+  return found[1]!
+}
+
+/** 身份守卫 fixture 口径（与 lykoi-decide 的 FIXTURE_PERSONA 同名同伴侣：同一份 TOML）。 */
 export const PERSONA: PersonaLike = {
-  identity: { name: 'Lykoi' },
-  relationship: { partner: 'Kevin' },
+  identity: { name: instanceScalar('identity', 'name') },
+  relationship: { partner: instanceScalar('relationship', 'partner') },
 }
 
 /** 队列式 fake completion：按序吐 replies；耗尽即抛（测试据此钉调用次数上限）。 */

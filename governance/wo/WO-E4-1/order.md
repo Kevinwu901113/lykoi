@@ -1,6 +1,6 @@
 # WO-E4-1 · 合成测试实例包与七份夹具收敛（E4 第一批）
 
-- 状态：**待派**。执行方：执行子 Agent。复核：主治理 Agent。
+- 状态：**已完成，待合并**（2026-09-05；分支 `wo/e4-1`，代码 0242a43，report 见同目录 `report.md`）。执行方：主治理 Agent 自执行（Kevin 令：不派 GPT）。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：Kevin 裁定 R-A（框架/实例分离立项，E4-SPEC 先行）；`governance/docs/e4_spec_framework_instance_separation_draft_2026-09-04.md` §3.4、§4 表 E4-1；`governance/docs/instance_fact_audit_2026-09-04.md` A3。
 - 基线：`main@c557af2`。分支：`wo/e4-1`。前置：无。**零运行时改动**（只动 `test/` 与夹具）。

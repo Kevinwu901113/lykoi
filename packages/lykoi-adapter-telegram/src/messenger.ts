@@ -18,12 +18,9 @@
  * send 返回一个正常的 `{sent: false, ...}` **结果** —— dispatch 永不为一次策略
  * 拒绝抛异常，于是认知体验到的是一个结局，绝不是一次崩溃。
  */
-import { existsSync, readFileSync } from 'node:fs'
-import {
-  appendFileSync, closeSync, fsyncSync, mkdirSync, openSync, renameSync, unlinkSync, writeSync,
-} from 'node:fs'
-import { randomBytes } from 'node:crypto'
-import { dirname, join } from 'node:path'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { writeJsonAtomicSync } from './jsonio.ts'
+import { dirname } from 'node:path'
 
 type LogEventFn = (name: string, fields: Record<string, unknown>) => void
 
@@ -33,23 +30,6 @@ export function setMessengerLogEvent(fn: LogEventFn | null): void {
 }
 function logEvent(name: string, fields: Record<string, unknown> = {}): void {
   try { _logEvent(name, fields) } catch { /* 遥测失败静默 */ }
-}
-
-function writeJsonAtomicSync(path: string, obj: unknown): void {
-  const directory = dirname(path) || '.'
-  mkdirSync(directory, { recursive: true })
-  const tmp = join(directory, `.tmp-${randomBytes(8).toString('hex')}.json`)
-  const fd = openSync(tmp, 'w')
-  try {
-    writeSync(fd, JSON.stringify(obj, null, 2), null, 'utf8')
-    fsyncSync(fd)
-    closeSync(fd)
-    renameSync(tmp, path)
-  } catch (exc) {
-    try { closeSync(fd) } catch { /* 已关闭 */ }
-    try { unlinkSync(tmp) } catch { /* 未落地 */ }
-    throw exc
-  }
 }
 
 // --- transport 抽象 -----------------------------------------------------------

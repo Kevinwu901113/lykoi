@@ -41,10 +41,13 @@ test('titleFrom：首个非空行 strip 后按码点截 80；全空回退整体 
   assert.equal([...titleFrom('长'.repeat(100))].length, 80)
 })
 
-test('空库：线+叙事都缺 → 通用模板补满 N（乏味但合法的吸收目标）', () => {
+test('空库：活关切只查一次，线+叙事都缺则模板补满 N', (t) => {
   const path = makeFixture()
   const rw = new ReadWriteMemory(path)
+  const query = t.mock.method(rw, 'listConcerns')
   const created = floorMaintain(rw as SnapshotStore, NOW)
+  assert.equal(query.mock.calls.length, 1)
+  assert.deepEqual(query.mock.calls[0]!.arguments, [['active', 'dimming']])
   assert.equal(created.length, 2)
   const floors = rw.listConcerns('active')
   assert.deepEqual(floors.map((c) => [c.kind, c.title]), [

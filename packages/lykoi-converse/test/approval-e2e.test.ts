@@ -46,9 +46,9 @@ import { bootstrapOwnerPreauthorization } from 'lykoi-kernel'
 import { TOOL_TO_ACTION } from '../src/contract.ts'
 import { ImmediateTestIngress } from './turn-fixture.ts'
 import * as converse from '../src/index.ts'
-import { envelope, seedBinding } from './fixture.ts'
+import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
 
-const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
+const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
 function isolateKernelFiles(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-approval-'))

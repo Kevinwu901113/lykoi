@@ -1,6 +1,6 @@
 /**
- * persona TOML 装载面（SA-156；W5 身份收口）：fixture TOML → 与
- * persona-fixture.ts 数据逐字段相同 → 内核 sha 全等；装载失败姿态逐字
+ * persona TOML 装载面（SA-156；W5 身份收口）：合成测试实例包 TOML → 合成值守卫
+ * （只许合成，零第一实例事实）→ 内核 sha 全等；装载失败姿态逐字
  * （not found / not valid TOML / 五 section 校验）；getPersona 进程级缓存。
  */
 import assert from 'node:assert/strict'
@@ -13,9 +13,9 @@ import {
   buildPersonaKernel, getPersona, loadPersona, parseTomlSubset, PersonaConfigError,
   resetPersonaCacheForTest,
 } from '../src/index.ts'
-import { FIXTURE_PERSONA } from './persona-fixture.ts'
+import { FIXTURE_PERSONA, FIXTURE_PERSONA_TOML } from './persona-fixture.ts'
 
-const FIXTURE_TOML = new URL('./fixtures/lykoi_base.toml', import.meta.url).pathname
+const FIXTURE_TOML = FIXTURE_PERSONA_TOML
 
 function sha(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
@@ -28,14 +28,22 @@ function tmpToml(content: string): string {
   return path
 }
 
-test('fixture TOML 装载 → 五 section 逐字段等于 persona-fixture 数据（同一数据两形态）', () => {
+test('合成值守卫：夹具是合成测试实例包（name=Fixture / partner=Owner / embodiment=test VM），正文零第一实例事实', () => {
   assert.deepEqual(loadPersona(FIXTURE_TOML), FIXTURE_PERSONA)
+  assert.equal(FIXTURE_PERSONA.identity.name, 'Fixture')
+  assert.equal(FIXTURE_PERSONA.relationship.partner, 'Owner')
+  assert.equal(FIXTURE_PERSONA.voice.address_owner, 'Owner')
+  assert.equal(FIXTURE_PERSONA.identity.embodiment, 'test VM')
+  // 正文（去掉注释行）里出现的英文专名只许是这三个；数字一个都不许有（无主机编号/日期）。
+  const body = readFileSync(FIXTURE_TOML, 'utf8').split('\n').filter((line) => !line.startsWith('#')).join('\n')
+  assert.deepEqual([...new Set(body.match(/[A-Z][A-Za-z]+/g))].sort(), ['Fixture', 'Owner', 'VM'])
+  assert.equal(/[0-9]/.test(body), false)
 })
 
-test('fixture TOML → 内核九段 sha 全等（chars=401, 1f5960b7…；SA-154 装配点唯一的文件侧对拍）', () => {
+test('fixture TOML → 内核九段 sha 全等（chars=367, 72b48e63…；SA-154 装配点唯一的文件侧对拍）', () => {
   const kernel = buildPersonaKernel(loadPersona(FIXTURE_TOML))
-  assert.equal([...kernel].length, 401)
-  assert.equal(sha(kernel), '1f5960b79d5e5251ba9be96922806879cd7d434e7ae0e52a6bc57fec1b5bec71')
+  assert.equal([...kernel].length, 367)
+  assert.equal(sha(kernel), '72b48e63ea01e3e214f6bcae7a17ae6c34fff815e603697a01ca63842814f43f')
 })
 
 test('装载失败姿态逐字：文件缺失 → "persona TOML not found: {target}"', () => {
@@ -125,7 +133,8 @@ test('TOML 子集解析细节：注释/多行数组/字面字符串/转义/井�
 /** 与 fixture 同形、identity.name 不同的第二份**合法**内核 —— 守卫要挡的正是它。 */
 function divergentToml(): string {
   const text = readFileSync(FIXTURE_TOML, 'utf8')
-  const swapped = text.replace('name = "Lykoi"', 'name = "NotLykoi"')
+  const name = FIXTURE_PERSONA.identity.name
+  const swapped = text.replace(`name = "${name}"`, `name = "${name}_other"`)
   assert.notEqual(swapped, text, 'fixture 的 identity.name 行漂了，本用例的前提失效')
   return tmpToml(swapped)
 }
@@ -153,10 +162,10 @@ test('getPersona 守卫：相对/绝对写法指向同一文件不误炸（resol
 test('getPersona 守卫：第二个 path 不同 → PersonaConfigError（不再静默给错人格）', () => {
   resetPersonaCacheForTest()
   const other = divergentToml()
-  // 前提钉：第二份文件确实是**另一个**她 —— 旧行为下第二个器官会拿到 Lykoi 且无声。
-  assert.equal(loadPersona(other).identity.name, 'NotLykoi')
+  // 前提钉：第二份文件确实是**另一个**人格 —— 旧行为下第二个器官会拿到夹具人格且无声。
+  assert.equal(loadPersona(other).identity.name, FIXTURE_PERSONA.identity.name + '_other')
 
-  assert.equal(getPersona(FIXTURE_TOML).identity.name, 'Lykoi')
+  assert.equal(getPersona(FIXTURE_TOML).identity.name, FIXTURE_PERSONA.identity.name)
   assert.throws(
     () => getPersona(other),
     (exc: unknown) =>
@@ -166,7 +175,7 @@ test('getPersona 守卫：第二个 path 不同 → PersonaConfigError（不再�
     '两器官配置分叉必须启动即炸，且 message 两个 path 都在（人话可排障）',
   )
   // 炸归炸，进程既有内核不受影响（守卫在装载之前就拦，缓存原样）。
-  assert.equal(getPersona(FIXTURE_TOML).identity.name, 'Lykoi')
+  assert.equal(getPersona(FIXTURE_TOML).identity.name, FIXTURE_PERSONA.identity.name)
 })
 
 test('getPersona 守卫：失败装载不占坑（坏 path 先抛，好 path 后仍装得上）', () => {

@@ -32,7 +32,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
-  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
+  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION, repairTrailingClosers,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
 import { retrieveForConcern } from 'lykoi-learn'
@@ -40,14 +40,15 @@ import {
   conversationTurnReflow, emptyNotifications,
   type NotificationsView, type ReplyToNotification,
 } from 'lykoi-reflow'
-import { THOUGHT_SNAPSHOT_TOP } from 'lykoi-regulation'
+import { REGISTRY, THOUGHT_SNAPSHOT_TOP, type RegulationVariableName } from 'lykoi-regulation'
 import { pyRound, renderRestartNotice, type RestartEvent } from 'lykoi-snapshot'
 import {
   buildEnvelopeMessages, classifyFailure, cycleCall, cycleRecord, parseEnvelope,
   envelopeJsonMode,
-  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_RETRY_EVENT,
+  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_REPAIRED_EVENT,
+  CYCLE_RETRY_EVENT,
   CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_DEMOTED_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
-  CYCLE_UNKNOWN_TOOL_EVENT,
+  CYCLE_UNKNOWN_TOOL_EVENT, DETAIL_FIRST_CHAR_BRACE,
   ENVELOPE_RESPONSE_FORMAT, ENVELOPE_RETRY_MAX, FAIL_NOT_JSON, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
   TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
@@ -65,7 +66,7 @@ import {
   BACKFILL_HEADER, CONCERNS_HEADER, CONTEXT_BUDGET_SKELETON, CYCLE_CLOSING_NOTE,
   MEMORIES_HEADER, NARRATIVE_HEADER, PROMOTED_INSIGHTS_HEADER,
   SUMMARIZE_SYSTEM_PROMPT,
-  SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt,
+  SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt, SELF_STATE_TEMPLATE,
 } from './prompts.ts'
 import type { CycleOutcome } from './outcome.ts'
 
@@ -291,8 +292,12 @@ export interface ConverseDeps {
   describeImage?: (path: string, question: string | null) => Promise<string>
   /** 出站进度队列接口位（chat_outbox.append 对应；M3 出站器官）。 */
   postProgress?: (content: string) => void
-  /** self-state 注入接口位（活体缺省 disabled = null 不注入）。 */
-  selfState?: () => ConverseMessage | null
+  /**
+   * self-state 注入接口位（活体缺省 disabled = null 不注入）。WO-PULSE-01 D-1：
+   * 生产装配接 `selfStateBlock(store, now)`（调节场四变量投影）；`now` 由本类的
+   * 时钟递入 —— 懒衰减读依赖 now，接口位里不许裸 new Date()（测试时钟纪律）。
+   */
+  selfState?: (now: Date) => ConverseMessage | null
   /** interactive_lock.mark_active 接口位（S-17；M3 接 wake 仲裁）。 */
   markActive?: () => void
   /** 演化叙事 flag 文件路径（存在才注入；owner 域动作）。 */
@@ -327,6 +332,20 @@ function sha16(text: string): string {
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function parseToolArguments(call: ToolCall):
+  | { args: Record<string, unknown>; error: null }
+  | { args: null; error: Fields } {
+  try {
+    const parsed: unknown = JSON.parse(call.function.arguments || '{}')
+    return { args: isPlainObject(parsed) ? parsed : {}, error: null }
+  } catch (exc) {
+    return { args: null, error: {
+      success: false,
+      error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}`,
+    } }
+  }
 }
 
 /** 简单互斥（asyncio.Lock 对应）：回合与摘要各一把（S-12）。 */
@@ -367,6 +386,41 @@ export function composeSurfaceReply(
 
 // --- Conversation --------------------------------------------------------------
 
+// --- self_state 块（WO-PULSE-01 D-1，断点 ①③） --------------------------------
+
+/** D-1：至少一个变量偏离其 REGISTRY 基线达到此值才注入 self_state 块（省 token）。 */
+export const SELF_STATE_DEVIATION_MIN = 0.05
+
+/**
+ * 调节场四变量 → self_state 块正文（纯函数，零 I/O）。按 REGISTRY 键序一行一变量
+ * `<name>: <0.000>`；四个都在基线 ± SELF_STATE_DEVIATION_MIN 之内 → null（块不出现）。
+ * 不渲染 cognitiveEffects：那是 wake 候选权重的语义，对话路径不消费。
+ */
+export function renderSelfState(
+  values: Readonly<Partial<Record<RegulationVariableName, number>>>,
+): string | null {
+  const lines: string[] = []
+  let deviates = false
+  for (const name of Object.keys(REGISTRY) as RegulationVariableName[]) {
+    const value = values[name]
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    // 按呈现精度（三位小数）比：0.25 − 0.2 在浮点下是 0.04999…，读数上却是 0.050。
+    if (Number(Math.abs(value - REGISTRY[name].baseline).toFixed(3)) >= SELF_STATE_DEVIATION_MIN) deviates = true
+    lines.push(`${name}: ${value.toFixed(3)}`)
+  }
+  if (!deviates) return null
+  return SELF_STATE_TEMPLATE.replace('{}', lines.join('\n'))
+}
+
+/** 生产装配的接口位实现：懒衰减后的四值（纯读不落账）→ system 块；不偏离 → null。 */
+export function selfStateBlock(
+  store: { getRegulation(opts: { now: Date }): Readonly<Partial<Record<RegulationVariableName, number>>> },
+  now: Date,
+): ConverseMessage | null {
+  const content = renderSelfState(store.getRegulation({ now }))
+  return content === null ? null : { role: 'system', content }
+}
+
 export class Conversation {
   #deps: ConverseDeps
   #messages: ConverseMessage[]
@@ -385,6 +439,8 @@ export class Conversation {
   #delegatedAsk: DelegatedAsk | null = null
   #background = false
   #cycleInner: string | null = null
+  /** WO-PULSE-01 D-2：本轮最终被接受信封的情绪脉冲（一轮一份；S-13 清、S-14 丢）。 */
+  #cyclePulse: string[] = []
   #lastRunId = ''
   #lastTurnId: string | null = null
   #lastCycleOutcome: CycleOutcome | null = null
@@ -768,8 +824,22 @@ export class Conversation {
 
   // --- 装配 --------------------------------------------------------------------
 
+  /** WO-PULSE-01 D-1：接口位读失败只记账不毁轮（与 undelivered 块同口径）。 */
+  #selfState(): ConverseMessage | null {
+    const provider = this.#deps.selfState
+    if (provider === undefined) return null
+    try {
+      return provider(this.#now())
+    } catch (exc) {
+      this.#log('self_state_read_failed', {
+        error_type: exc instanceof Error ? exc.name : 'Error',
+      })
+      return null
+    }
+  }
+
   #assemble(): ConverseMessage[] {
-    const selfState = this.#deps.selfState?.() ?? null
+    const selfState = this.#selfState()
     const assembled = this.#stablePrefix().map(([, message]) => message)
     assembled.push(...this.#messages.slice(1))
     assembled.push(...this.#volatileTail(selfState).map(([, message]) => message))
@@ -778,7 +848,7 @@ export class Conversation {
 
   /** 结构守恒测试的断言面（S-23）：本轮会装配的块标签序，history 代活窗。 */
   assembleLayout(): string[] {
-    const selfState = this.#deps.selfState?.() ?? null
+    const selfState = this.#selfState()
     const tags = this.#stablePrefix().map(([tag]) => tag)
     tags.push(BLOCK_HISTORY)
     tags.push(...this.#volatileTail(selfState).map(([tag]) => tag))
@@ -974,17 +1044,47 @@ export class Conversation {
         lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
-        const injected = new Set(this.#lastInjectedThoughtIds)
+        const parseOpts = {
+          logEvent: this.#deps.logEvent,
+          runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
+        }
         try {
           decision = parseEnvelope({ content: result.content }, {
-            injectedThoughtIds: injected,
-            logEvent: this.#deps.logEvent,
-            runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
+            ...parseOpts,
+            injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
           })
           break
-        } catch (exc) {
+        } catch (firstExc) {
           // 契约失败 = 这一轮沉默，不是回合崩掉。
-          const [reason, detail] = classifyFailure(exc, result.content)
+          let exc: unknown = firstExc
+          let [reason, detail] = classifyFailure(exc, result.content)
+          if (reason === FAIL_NOT_JSON && detail === DETAIL_FIRST_CHAR_BRACE) {
+            // WO-FIX-TAILBRACE-01 D-2：首字符是 `{` 却解析不了 —— PROBE-CAP-01
+            // 读数里这一形态多数只是缺尾括号。先本地补齐再解析一次（零 LLM
+            // 调用）；补不了或补完仍坏，才落到下面既有的重试/失败路径
+            // （LANDING-K/L 那条链原样保留为安全网）。修复事件零正文。
+            const repaired = repairTrailingClosers(result.content ?? '')
+            if (repaired !== null) {
+              this.#log(CYCLE_REPAIRED_EVENT, {
+                step,
+                attempt: attempt + 1,
+                added_chars: repaired.added.length,
+                finish_reason: result.finishReason ?? null,
+              })
+              try {
+                decision = parseEnvelope({ content: repaired.text }, {
+                  ...parseOpts,
+                  injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
+                })
+                break
+              } catch (repairedExc) {
+                // 修复文本过了 JSON 关却倒在后面几关（unknown_kind 等）：按
+                // 修复后的归因走既有路径 —— 理解偏差不重试，与未修复时同口径。
+                exc = repairedExc
+                ;[reason, detail] = classifyFailure(exc, repaired.text)
+              }
+            }
+          }
           if (attempt < ENVELOPE_RETRY_MAX && reason === FAIL_NOT_JSON) {
             // D-01（WO-FIX-NOTJSON-01 D-3 改口）：只对 not_json 有界重试，
             // 至多两次、且从第二次起带引导语 —— 空回复/截断在同一前缀上是
@@ -1050,6 +1150,11 @@ export class Conversation {
         })
       }
       const kind = decision.kind
+      if (kind === SILENCE || kind === REPLY || kind === PROMISE_FOLLOWUP) {
+        // WO-PULSE-01 D-2/D-4：只有**最终被接受**的那个信封的脉冲进回流 ——
+        // 工具步中间信封的脉冲不累加（它们描述的是半途，不是这一轮的落点）。
+        this.#cyclePulse = [...((decision.envelope.pulse as string[] | undefined) ?? [])]
+      }
       if (kind === SILENCE) {
         // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
         this.#lastCycleOutcome = { kind: 'silence', step }
@@ -1237,16 +1342,8 @@ export class Conversation {
       })
       return [null, { success: false, error: `organ not wired: '${name}'` }]
     }
-    let params: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      params = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return [null, {
-        success: false,
-        error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}`,
-      }]
-    }
+    const { args: params, error } = parseToolArguments(call)
+    if (error !== null) return [null, error]
     if (actionType === 'notify.owner') {
       params.origin = 'interactive' // provenance is stamped by this loop, never by the model
     }
@@ -1281,13 +1378,8 @@ export class Conversation {
   }
 
   async #handleVision(call: ToolCall): Promise<Fields> {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const attachmentId = args.attachment_id
     if (!attachmentId || typeof attachmentId !== 'string') {
       return { success: false, error: "vision_describe requires 'attachment_id'" }
@@ -1319,13 +1411,8 @@ export class Conversation {
    * 在回合成功后调度成后台跟进；后台回合是挂起信号（无递归自动续跑）。
    */
   #handleFollowup(call: ToolCall): Fields {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const task = String(args.task ?? '').trim()
     if (!task) {
       return { success: false, error: "promise_followup 需要 'task':写清要完成什么、卡在哪里" }
@@ -1341,13 +1428,8 @@ export class Conversation {
 
   /** post_progress —— 后台执行中的进度推送：写对话出站队列，不过 dispatch（S-54）。 */
   #handleProgress(call: ToolCall): Fields {
-    let args: Record<string, unknown>
-    try {
-      const parsed: unknown = JSON.parse(call.function.arguments || '{}')
-      args = isPlainObject(parsed) ? parsed : {}
-    } catch (exc) {
-      return { success: false, error: `bad tool arguments: ${exc instanceof Error ? exc.message : String(exc)}` }
-    }
+    const { args, error } = parseToolArguments(call)
+    if (error !== null) return error
     const content = String(args.content ?? '').trim()
     if (!content) {
       return { success: false, error: "post_progress 需要 'content':要发给 Kevin 的进展" }
@@ -1455,6 +1537,7 @@ export class Conversation {
       this.#followupRequest = null
       this.#delegatedAsk = null
       this.#cycleInner = null
+      this.#cyclePulse = [] // WO-PULSE-01 D-2：一轮一份
       this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
       this.#lastTurnId = opts.turnId ?? null
@@ -1482,6 +1565,7 @@ export class Conversation {
         // 会毒化之后每一次装配）。已 dispatch 的副作用留在 audit 里。
         const dropped = this.#messages.length - checkpoint
         this.#messages.splice(checkpoint)
+        this.#cyclePulse = [] // WO-PULSE-01 D-3：失败轮不打脉冲
         this.#log('chat_turn_rolled_back', { dropped_messages: dropped })
         throw exc
       } finally {
@@ -1516,6 +1600,10 @@ export class Conversation {
           historyId,
           now,
           replyToNotification: opts.replyToNotification ?? null,
+          // WO-PULSE-01 D-2（断点 ②）：本轮被接受信封的脉冲交给回流消费。
+          pulse: this.#cyclePulse,
+          runId: this.#lastRunId,
+          turnId: this.#lastTurnId,
           markReplied: this.#deps.markReplied,
           logEvent: this.#deps.logEvent,
         })

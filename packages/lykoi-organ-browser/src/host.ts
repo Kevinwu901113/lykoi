@@ -265,17 +265,16 @@ export function createHostServer(opts: HostServerOptions): SocketServer {
         data: { alive: true, pid: process.pid, uptime_s: Math.round((Date.now() - startedAt) / 1000) },
       }
     }
+    let result: Awaited<ReturnType<HostDriverLike['getText']>>
     if (op === 'navigate' || op === 'research_read_text') {
       const url = typeof args.url === 'string' ? args.url.trim() : ''
       if (!url) return { ok: false, error: HOST_ERRORS.badRequest, detail: 'url 必填' }
-      const result = op === 'navigate'
+      result = op === 'navigate'
         ? await opts.driver.navigate(url)
         : await opts.driver.researchReadText(url, args.max_chars)
-      return result.ok
-        ? { ok: true, data: result.data ?? {} }
-        : { ok: false, error: result.error ?? HOST_ERRORS.internal, detail: result.detail }
+    } else {
+      result = await opts.driver.getText(args.max_chars)
     }
-    const result = await opts.driver.getText(args.max_chars)
     return result.ok
       ? { ok: true, data: result.data ?? {} }
       : { ok: false, error: result.error ?? HOST_ERRORS.internal, detail: result.detail }

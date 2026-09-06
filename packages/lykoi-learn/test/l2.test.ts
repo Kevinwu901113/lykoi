@@ -160,7 +160,7 @@ test('SA-102/103 两道门单元：4 字窗口连续性（首版免检）+ 忠�
   assert.equal(violatesFidelity(PERSONA, '我们关系结束了。'), true)
   assert.equal(violatesFidelity(PERSONA, 'i am not lykoi anymore'), true)
   // 伴侣名不符：REL 标记 + 内核外的名字。
-  assert.equal(violatesFidelity(PERSONA, '我的 partner 是 Kevin。'), false)
+  assert.equal(violatesFidelity(PERSONA, `我的 partner 是 ${PERSONA.relationship.partner}。`), false)
   assert.equal(violatesFidelity(PERSONA, '我的 partner 是 Alice。'), true)
 })
 

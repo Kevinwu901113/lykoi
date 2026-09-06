@@ -522,6 +522,15 @@ export const CYCLE_FAILURE_EVENT = 'u3_cycle_failed'
 /** D-01：有界重试的账（每次重试一条）。 */
 export const CYCLE_RETRY_EVENT = 'u3_cycle_retried'
 
+/**
+ * WO-FIX-TAILBRACE-01 D-2：信封只缺尾括号、本地补齐后解析成功（**没有**重调
+ * LLM）。字段：step / attempt / added_chars / finish_reason —— 零正文。
+ */
+export const CYCLE_REPAIRED_EVENT = 'u3_cycle_repaired'
+
+/** classifyFailure 对「首字符是 `{` 却不是 JSON」的归因 detail（D-2 的触发键）。 */
+export const DETAIL_FIRST_CHAR_BRACE = 'first_char:brace'
+
 /** 一周期一账（影子事件的继任者；字段语义见 cycleRecord）。 */
 export const CYCLE_EVENT = 'u3_cycle_envelope'
 

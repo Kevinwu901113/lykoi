@@ -489,6 +489,18 @@ function safeFinalize(
   }
 }
 
+function finishFocusCycle(
+  cycleId: number,
+  summary: FocusSummary,
+  deps: FocusDeps,
+  matchReasons?: readonly unknown[] | null,
+): FocusSummary {
+  promoteDueInsights(cycleId, summary, deps)
+  retireStaleInsights(cycleId, summary, deps)
+  safeFinalize(cycleId, summary, deps, matchReasons)
+  return summary
+}
+
 async function runCycleBody(
   cycleId: number,
   summary: FocusSummary,
@@ -503,10 +515,7 @@ async function runCycleBody(
     summary.outcome = 'idle'
     summary.note = 'no selectable concern'
     logEvent('focus_cycle_idle', { cycle_id: cycleId, ...reason })
-    promoteDueInsights(cycleId, summary, deps)
-    retireStaleInsights(cycleId, summary, deps)
-    safeFinalize(cycleId, summary, deps)
-    return summary
+    return finishFocusCycle(cycleId, summary, deps)
   }
   summary.concern_id = concern.id as number
 
@@ -530,10 +539,7 @@ async function runCycleBody(
     summary.outcome = 'no_progress'
     summary.note = 'empty recall'
     applyConcernProgress(concern, cycleId, summary, false, deps)
-    promoteDueInsights(cycleId, summary, deps)
-    retireStaleInsights(cycleId, summary, deps)
-    safeFinalize(cycleId, summary, deps, matchReasons)
-    return summary
+    return finishFocusCycle(cycleId, summary, deps, matchReasons)
   }
 
   // --- 4. 一次 LLM 调用 -------------------------------------------------
@@ -554,10 +560,7 @@ async function runCycleBody(
     summary.outcome = 'failed'
     summary.note = cpSlice(errStr(exc), 500)
     recordCycleTouch(concern, cycleId, deps)
-    promoteDueInsights(cycleId, summary, deps)
-    retireStaleInsights(cycleId, summary, deps)
-    safeFinalize(cycleId, summary, deps, matchReasons)
-    return summary
+    return finishFocusCycle(cycleId, summary, deps, matchReasons)
   }
 
   if (parsedRaw === null) {
@@ -565,10 +568,7 @@ async function runCycleBody(
     summary.outcome = 'failed'
     summary.note = 'parse_failed'
     recordCycleTouch(concern, cycleId, deps)
-    promoteDueInsights(cycleId, summary, deps)
-    retireStaleInsights(cycleId, summary, deps)
-    safeFinalize(cycleId, summary, deps, matchReasons)
-    return summary
+    return finishFocusCycle(cycleId, summary, deps, matchReasons)
   }
 
   const envelope = parseFocusEnvelope(parsedRaw)
@@ -588,10 +588,7 @@ async function runCycleBody(
   // D-7：衰减排在 applyConclusion 之后——本周期刚重申/新建的结论其 history 最后
   // 一行的 cycle_id 已是本周期，距离 0，自然不降。
   applyConcernProgress(concern, cycleId, summary, madeProgress, deps)
-  promoteDueInsights(cycleId, summary, deps)
-  retireStaleInsights(cycleId, summary, deps)
-  safeFinalize(cycleId, summary, deps, matchReasons)
-  return summary
+  return finishFocusCycle(cycleId, summary, deps, matchReasons)
 }
 
 /**
