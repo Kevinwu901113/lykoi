@@ -60,7 +60,7 @@
   name: lykoi-ingress
   disabled: true
   config:
-    dbPath: ../lykoi-cordis-devstate/memory.db
+    dbPath: var/inbound-spool.db
     idleWindowMs: 1500
     hardWindowMs: 4000
     autoStart: true

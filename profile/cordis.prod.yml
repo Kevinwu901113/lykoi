@@ -107,7 +107,7 @@
 - id: ingress
   name: lykoi-ingress
   config:
-    dbPath: /home/lykoi/state/memory.db
+    dbPath: /home/lykoi/state/inbound-spool.db
     idleWindowMs: 1500
     hardWindowMs: 4000
     autoStart: true

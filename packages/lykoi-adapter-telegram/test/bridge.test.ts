@@ -12,6 +12,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { DurableIngress } from 'lykoi-ingress'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
 import type { LykoiMemoryService } from 'lykoi-memory'
 import type { TelegramAdapterService } from '../src/index.ts'
@@ -69,6 +70,8 @@ async function setup(transport: ProductionTelegramTransport | MemoryTelegramTran
   const ctx = new Context()
   const audit = fakeAudit()
   ctx.provide('audit', audit)
+  const ingress = new DurableIngress({ dbPath: ':memory:', audit, autoStart: false })
+  ctx.provide('ingress', ingress)
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(adapterPlugin, {

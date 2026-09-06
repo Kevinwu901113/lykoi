@@ -11,7 +11,7 @@
  * 共用 `schema.ts` 那一份 DDL。
  *
  * DDL/索引/触发器逐字取自 WO-M0-STATE-CONTRACT §1（触发器消息是契约的一部分，
- * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=19、
+ * 不得改字 —— R-06）。**只含 schema 与中性基线行**（mind_schema=17、
  * regulation_field 四行 baseline、integration_state 单行、learning_layer_state
  * 两键），不含她的任何数据。
  *
@@ -80,7 +80,6 @@ export const STATE_FIXTURE_DDL = STATE_SCHEMA_DDL + stateBaselineDdl({
     { version: 16, appliedAt: '2026-09-01T00:00:00.000Z' },
     { version: 17, appliedAt: '2026-09-02T00:00:00.000Z' },
     { version: 18, appliedAt: '2026-09-04T00:00:00.000Z' },
-    { version: 19, appliedAt: '2026-09-05T00:00:00.000Z' },
   ],
   regulationUpdatedAt: '2026-08-20T00:00:00+00:00',
   learningSetAt: '2026-08-24T00:00:00+00:00',

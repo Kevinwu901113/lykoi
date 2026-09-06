@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import test from 'node:test'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
-import { createStateFixture } from 'lykoi-memory/testing'
 import {
   DurableIngress, DurableTurnStore, type InboundPart,
   type TurnTerminalPayload, type UserTurn,
@@ -50,8 +49,8 @@ function terminal(status = 'replied'): TurnTerminalPayload {
 }
 
 function fixture(): string {
-  const path = join(mkdtempSync(join(tmpdir(), 'lykoi-ingress-')), 'state.db')
-  createStateFixture(path)
+  const path = join(mkdtempSync(join(tmpdir(), 'lykoi-ingress-')), 'ingress.db')
+  new DurableTurnStore(path).close()
   return path
 }
 

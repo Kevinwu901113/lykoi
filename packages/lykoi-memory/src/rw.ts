@@ -428,7 +428,7 @@ export class ReadWriteMemory {
   }
 
   /**
-   * 与只读入口同一道门：mind_schema != `EXPECTED_MIND_SCHEMA_VERSION`（现 19）
+   * 与只读入口同一道门：mind_schema != `EXPECTED_MIND_SCHEMA_VERSION`（现 17）
    * 拒开（不写不认识的 schema，更甚于不读）。
    */
   #assertSchemaVersion(): void {

@@ -6,7 +6,7 @@
  * This is deliberately an ingress-layer probe. It feeds normalized
  * InboundPart values into the real DurableIngress and DurableTurnStore, so
  * no Telegram transport, cursor, network, or production state is involved.
- * Every timestamp comes from the fixed clock below; the temporary schema-19
+ * Every timestamp comes from the fixed clock below; the temporary infrastructure schema-1
  * database and synthetic persona are removed before the single JSON result is
  * written to stdout.
  */
@@ -22,7 +22,6 @@ import {
   DurableIngress,
   DurableTurnStore,
 } from '../../../packages/lykoi-ingress/src/index.ts'
-import { createStateFixture } from '../../../packages/lykoi-memory/src/testing.ts'
 import {
   computeManifest,
   parseManifest,
@@ -114,7 +113,7 @@ function service(dbPath, initialNowMs = 0, options = {}) {
 function dbSnapshot(dbPath) {
   const db = new DatabaseSync(dbPath, { readOnly: true })
   try {
-    const schema = db.prepare('SELECT MAX(version) AS version FROM mind_schema').get()
+    const schema = { version: db.prepare('PRAGMA user_version').get().user_version }
     const tables = db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('user_turns', 'inbound_parts') ORDER BY name",
     ).all().map((row) => row.name)
@@ -610,15 +609,15 @@ async function main() {
       wallClockReads: 0,
     },
     database: {
-      fixture: 'lykoi-memory/testing.createStateFixture',
-      expectedSchemaVersion: 19,
+      fixture: 'DurableTurnStore infrastructure schema 1',
+      expectedSchemaVersion: 1,
       temporary: true,
     },
     scope: {
       real: [
         'DurableIngress',
         'DurableTurnStore',
-        'lykoi-memory schema-19 fixture',
+        'lykoi-memory infrastructure schema-1 fixture',
         'lykoi-gate protectedEntries/manifest pure functions',
       ],
       fake: ['in-memory AuditService sink', 'FIFO TurnExecutor'],
@@ -634,9 +633,9 @@ async function main() {
     mkdirSync(dir, { recursive: true })
     createdDbDirs.push(dir)
     const dbPath = join(dir, 'state.db')
-    createStateFixture(dbPath)
+    new DurableTurnStore(dbPath).close()
     const snapshot = dbSnapshot(dbPath)
-    assert.equal(snapshot.schemaVersion, 19, `${name} uses schema-19 fixture`)
+    assert.equal(snapshot.schemaVersion, 1, `${name} uses infrastructure schema-1 fixture`)
     assert.deepEqual(snapshot.tables, ['inbound_parts', 'user_turns'])
     return dbPath
   }

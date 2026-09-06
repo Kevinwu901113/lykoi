@@ -11,6 +11,23 @@ function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-audit-'))
 }
 
+test('recordOnce：撕裂尾行只追加换行隔离，重启后完整终局可解析且不重复', async () => {
+  const path = join(tmp(), 'audit.jsonl')
+  const torn = '{"type":"turn/terminal","event_id":"turn-1","status":'
+  writeFileSync(path, torn)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(audit, { path })
+    assert.equal(await ctx.audit.recordOnce!('turn-1', { type: 'turn/terminal', status: 'replied' }), attempt === 0)
+    await fiber.dispose()
+  }
+  const raw = readFileSync(path, 'utf8')
+  assert.equal(raw.startsWith(torn + '\n'), true, '不截断或改写历史字节')
+  const lines = raw.split('\n').filter(Boolean)
+  assert.equal(lines.length, 2)
+  assert.equal(JSON.parse(lines[1]!).event_id, 'turn-1')
+})
+
 test('并发 record 不交错：每行都是完整 JSON，一条不丢', async () => {
   const path = join(tmp(), 'audit.jsonl')
   const ctx = new Context()

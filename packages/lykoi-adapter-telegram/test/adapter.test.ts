@@ -9,7 +9,6 @@ import { Context } from '@deepseek-ai/cordis'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
 import { DurableIngress, type InboundPart, type IngressService } from 'lykoi-ingress'
 import type { BindingResolution, LykoiMemoryService } from 'lykoi-memory'
-import { createStateFixture } from 'lykoi-memory/testing'
 import type { TelegramAdapterService } from '../src/index.ts'
 import * as adapterPlugin from '../src/index.ts'
 import { OutboundOrgan } from '../src/device.ts'
@@ -20,6 +19,7 @@ import {
   BotApiTransport, setUndeliveredExperienceSink, TelegramPollError,
 } from '../src/transport.ts'
 import { undelivered } from '../src/outbox.ts'
+import { isActive, _resetInteractiveLockForTest } from 'lykoi-kernel'
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-telegram-'))
@@ -115,6 +115,37 @@ function ownerUpdate(updateId: number, text: string, messageId = updateId * 100)
   }
 }
 
+test('重启补收跨 poll 汇成一轮；durable accept 已让 wake 礼让，空批后才认知', async () => {
+  _resetInteractiveLockForTest()
+  const sink = fakeAudit()
+  const ingress = new DurableIngress({ dbPath: join(tmp(), 'spool.db'), audit: sink, autoStart: false })
+  const { svc, transport } = await setup({ ingressOverride: ingress })
+  const turns: import('lykoi-ingress').UserTurn[] = []
+  ingress.registerExecutor(async turn => {
+    turns.push(turn)
+    return { terminal: { status: 'intentional_silence', reason: null, followup_registered: false,
+      ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0 } }
+  })
+  for (let n = 1; n <= 3; n++) {
+    const update = ownerUpdate(n, ` 原文${n}\r\n`)
+    transport.queueUpdate({ ...update, message: { ...update.message, ts: `2026-09-05T00:00:0${n}.000Z` } })
+    assert.equal(await svc.pollOnce(), 1)
+    assert.equal(svc.cursor(), n)
+    assert.equal(isActive(), true, '在任何 cognition 前已 markActive')
+    await ingress.tick(new Date(Date.now() + 30_000))
+    await ingress.drain()
+    assert.equal(turns.length, 0)
+  }
+  assert.equal(await svc.pollOnce(), 0)
+  await ingress.drain()
+  assert.equal(turns.length, 1)
+  assert.equal(turns[0]!.commitReason, 'restart_replay')
+  assert.deepEqual(turns[0]!.parts.map(p => p.text), [' 原文1\r\n', ' 原文2\r\n', ' 原文3\r\n'])
+  assert.deepEqual(turns[0]!.parts.map(p => p.platformMessageId), ['100', '200', '300'])
+  await ingress.close()
+  _resetInteractiveLockForTest()
+})
+
 test('S-01/S-02/S-03：offset=cursor+1、双重去重、游标逐条推进并落盘', async () => {
   const { svc, transport, inbound, cursorPath } = await setup()
   transport.queueUpdate(ownerUpdate(7, '第一句'))
@@ -173,7 +204,6 @@ test('S-03/A2 时序：durable accept 失败才挡 cursor；认知已不在 poll
 test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', async () => {
   const dir = tmp()
   const dbPath = join(dir, 'state.db')
-  createStateFixture(dbPath)
   const audit = fakeAudit()
   const firstIngress = new DurableIngress({ dbPath, audit, autoStart: false })
   const blocker = join(dir, 'cursor-parent-is-file')
@@ -220,7 +250,6 @@ test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', asyn
 test('T8：A cognition 阻塞时，真实 adapter 仍接纳 B/C 并推进 cursor；executor FIFO', async () => {
   const dir = tmp()
   const dbPath = join(dir, 'state.db')
-  createStateFixture(dbPath)
   const audit = fakeAudit()
   const ingress = new DurableIngress({ dbPath, audit, autoStart: false })
   const ctx = new Context()

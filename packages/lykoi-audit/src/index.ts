@@ -52,6 +52,7 @@ class AuditWriter implements AuditService {
   #opening: Promise<FileHandle> | null = null
   #tail: Promise<unknown> = Promise.resolve()
   #onceIds: Set<string> | null = null
+  #needsLineBoundary = false
   #disposed = false
 
   constructor(path: string) {
@@ -83,15 +84,17 @@ class AuditWriter implements AuditService {
     }
     const line = { ts: new Date().toISOString(), ...event }
     // R-16: 整行（含换行符）序列化为单个 buffer，单次 write 写入，不分片。
-    const buf = Buffer.from(JSON.stringify(line) + '\n', 'utf8')
+    const buf = Buffer.from((this.#needsLineBoundary ? '\n' : '') + JSON.stringify(line) + '\n', 'utf8')
     const handle = await this.#open()
     const { bytesWritten } = await handle.write(buf, 0, buf.length)
     if (bytesWritten !== buf.length) {
+      this.#needsLineBoundary = true
       // 部分写意味着行可能被撕裂——fail-closed，抛给调用方。
       throw new Error(
         `lykoi-audit: partial write (${bytesWritten}/${buf.length} bytes) to ${this.#path}`,
       )
     }
+    this.#needsLineBoundary = false
     if (this.#onceIds !== null && typeof event.event_id === 'string') {
       this.#onceIds.add(event.event_id)
     }
@@ -124,6 +127,7 @@ class AuditWriter implements AuditService {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     }
+    this.#needsLineBoundary = raw.length > 0 && !raw.endsWith('\n')
     for (const line of raw.split('\n')) {
       if (line.length === 0 || !line.includes('"event_id"')) continue
       try {
@@ -143,11 +147,14 @@ class AuditWriter implements AuditService {
       return Promise.reject(new TypeError('lykoi-audit: event.type must be a non-empty string'))
     }
     return this.#enqueue(async () => {
+      if (this.#disposed) throw new Error('lykoi-audit: sink disposed; refusing to record')
       const ids = await this.#loadOnceIds()
-      if (ids.has(eventId)) return false
-      await this.#append({ ...event, event_id: eventId })
+      const duplicate = ids.has(eventId)
+      if (!duplicate) await this.#append({ ...event, event_id: eventId })
+      // SQLite 只有在 JSONL 真正落盘后才能标记已投影。sync 失败后的同 ID 重试也要 sync。
+      await (await this.#open()).sync()
       ids.add(eventId)
-      return true
+      return !duplicate
     })
   }
 

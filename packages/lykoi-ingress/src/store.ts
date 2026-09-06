@@ -1,7 +1,6 @@
 /** SQLite 正本：durable accept、确定性组装、FIFO claim、终局去重。 */
 import { DatabaseSync } from 'node:sqlite'
-import { EXPECTED_MIND_SCHEMA_VERSION, parseStateTimestamp } from 'lykoi-memory'
-import { formatPyIso } from 'lykoi-memory/rw'
+import { INGRESS_SCHEMA_DDL, INGRESS_SCHEMA_VERSION } from './schema.ts'
 import type {
   AcceptInboundResult,
   InboundPart,
@@ -10,6 +9,16 @@ import type {
   UserTurn,
 } from './types.ts'
 
+
+function parseInboundTimestamp(text: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(text)) {
+    throw new TypeError('lykoi-ingress: timestamp requires explicit timezone')
+  }
+  const date = new Date(text)
+  if (!Number.isFinite(date.getTime())) throw new TypeError('lykoi-ingress: invalid timestamp')
+  return date
+}
+
 interface TurnRow {
   id: string
   channel: string
@@ -17,6 +26,7 @@ interface TurnRow {
   context_id: string
   is_owner: number
   state: string
+  replay: number
   first_received_at: string
   last_received_at: string
   committed_at: string | null
@@ -56,8 +66,8 @@ function dueOf(row: Pick<TurnRow, 'first_received_at' | 'last_received_at'>, idl
   at: Date
   reason: TurnCommitReason
 } {
-  const idle = parseStateTimestamp(row.last_received_at).getTime() + idleMs
-  const hard = parseStateTimestamp(row.first_received_at).getTime() + hardMs
+  const idle = parseInboundTimestamp(row.last_received_at).getTime() + idleMs
+  const hard = parseInboundTimestamp(row.first_received_at).getTime() + hardMs
   return idle <= hard
     ? { at: new Date(idle), reason: 'idle_timeout' }
     : { at: new Date(hard), reason: 'hard_timeout' }
@@ -71,15 +81,18 @@ export class DurableTurnStore {
     try {
       this.#db.exec('PRAGMA busy_timeout = 10000')
       this.#db.exec('PRAGMA foreign_keys = ON')
-      const row = this.#db.prepare('SELECT MAX(version) AS version FROM mind_schema').get() as
-        | { version: unknown }
-        | undefined
-      if (row?.version !== EXPECTED_MIND_SCHEMA_VERSION) {
-        throw new Error(
-          `lykoi-ingress: mind_schema version ${String(row?.version)} != expected `
-          + `${EXPECTED_MIND_SCHEMA_VERSION}; durable ingress unavailable`,
-        )
+      // 拒绝认知库和其它基础设施库：误配路径不能给已有库加表。
+      const tables = this.#db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]
+      const version = Number(this.#db.prepare('PRAGMA user_version').get()!.user_version)
+      if (tables.some(({ name }) => !['inbound_parts', 'user_turns'].includes(name))
+        || (tables.length > 0 && version !== INGRESS_SCHEMA_VERSION)
+        || (version !== 0 && version !== INGRESS_SCHEMA_VERSION)) {
+        throw new Error('lykoi-ingress: requires its own supported infrastructure database')
       }
+      this.#tx(() => {
+        this.#db.exec(INGRESS_SCHEMA_DDL)
+        this.#db.exec(`PRAGMA user_version = ${INGRESS_SCHEMA_VERSION}`)
+      })
     } catch (err) {
       this.#db.close()
       throw err
@@ -105,7 +118,7 @@ export class DurableTurnStore {
       [part.platformMessageId, 'platformMessageId'], [part.userId, 'userId'],
       [part.contextId, 'contextId'], [part.receivedAt, 'receivedAt'],
     ] as const) requireNonEmpty(value, name)
-    parseStateTimestamp(part.receivedAt)
+    parseInboundTimestamp(part.receivedAt)
     if (!Number.isFinite(idleMs) || idleMs <= 0 || !Number.isFinite(hardMs) || hardMs <= 0) {
       throw new TypeError('lykoi-ingress: settle windows must be positive finite milliseconds')
     }
@@ -136,9 +149,9 @@ export class DurableTurnStore {
         }
       }
 
-      const receivedAt = parseStateTimestamp(part.receivedAt)
+      const receivedAt = parseInboundTimestamp(part.receivedAt)
       const collecting = this.#db.prepare(
-        `SELECT id, channel, user_id, context_id, is_owner, state, first_received_at,
+        `SELECT id, channel, user_id, context_id, is_owner, state, replay, first_received_at,
                 last_received_at, committed_at, commit_reason, queue_seq, run_id, terminal_payload_json
            FROM user_turns
           WHERE state = 'collecting' AND channel = ? AND context_id = ?
@@ -148,8 +161,8 @@ export class DurableTurnStore {
       const committed: UserTurn[] = []
       let turnId: string
       if (collecting !== undefined && (collecting.is_owner !== (part.isOwner ? 1 : 0)
-        || receivedAt.getTime() >= dueOf(collecting, idleMs, hardMs).at.getTime())) {
-        committed.push(this.#commit(collecting, idleMs, hardMs))
+        || (!part.replay && receivedAt.getTime() >= dueOf(collecting, idleMs, hardMs).at.getTime()))) {
+        committed.push(this.#commit(collecting, idleMs, hardMs, collecting.replay ? receivedAt : undefined))
         turnId = this.#createTurn(part)
       } else if (collecting === undefined) {
         turnId = this.#createTurn(part)
@@ -157,6 +170,7 @@ export class DurableTurnStore {
         turnId = collecting.id
       }
 
+      if (part.replay) this.#db.prepare('UPDATE user_turns SET replay = 1 WHERE id = ?').run(turnId)
       const partOrder = this.#partCount(turnId)
       this.#db.prepare(
         `INSERT INTO inbound_parts
@@ -204,9 +218,9 @@ export class DurableTurnStore {
     return Number(row.n)
   }
 
-  #commit(row: TurnRow, idleMs: number, hardMs: number): UserTurn {
-    const due = dueOf(row, idleMs, hardMs)
-    const at = formatPyIso(due.at)
+  #commit(row: TurnRow, idleMs: number, hardMs: number, replayAt?: Date): UserTurn {
+    const due = replayAt === undefined ? dueOf(row, idleMs, hardMs) : { at: replayAt, reason: 'restart_replay' }
+    const at = due.at.toISOString()
     const next = this.#db.prepare(
       'SELECT COALESCE(MAX(queue_seq), 0) + 1 AS n FROM user_turns',
     ).get() as { n: number }
@@ -224,9 +238,9 @@ export class DurableTurnStore {
   commitDue(now: Date, idleMs: number, hardMs: number): UserTurn[] {
     return this.#tx(() => {
       const rows = this.#db.prepare(
-        `SELECT id, channel, user_id, context_id, is_owner, state, first_received_at,
+        `SELECT id, channel, user_id, context_id, is_owner, state, replay, first_received_at,
                 last_received_at, committed_at, commit_reason, queue_seq, run_id, terminal_payload_json
-           FROM user_turns WHERE state = 'collecting'
+           FROM user_turns WHERE state = 'collecting' AND replay = 0
           ORDER BY first_received_at ASC, rowid ASC`,
       ).all() as unknown as TurnRow[]
       const nowMs = now.getTime()
@@ -236,9 +250,18 @@ export class DurableTurnStore {
     })
   }
 
+  finishReplay(channel: string, now: Date): UserTurn[] {
+    return this.#tx(() => {
+      const rows = this.#db.prepare(
+        "SELECT * FROM user_turns WHERE state='collecting' AND replay=1 AND channel=? ORDER BY rowid",
+      ).all(channel) as unknown as TurnRow[]
+      return rows.map(row => this.#commit(row, 1, 1, now))
+    })
+  }
+
   nextDeadline(idleMs: number, hardMs: number): Date | null {
     const rows = this.#db.prepare(
-      `SELECT first_received_at, last_received_at FROM user_turns WHERE state = 'collecting'`,
+      `SELECT first_received_at, last_received_at FROM user_turns WHERE state = 'collecting' AND replay = 0`,
     ).all() as Pick<TurnRow, 'first_received_at' | 'last_received_at'>[]
     let earliest = Number.POSITIVE_INFINITY
     for (const row of rows) earliest = Math.min(earliest, dueOf(row, idleMs, hardMs).at.getTime())
@@ -256,7 +279,7 @@ export class DurableTurnStore {
       const info = this.#db.prepare(
         `UPDATE user_turns SET state = 'running', run_id = ?, updated_at = ?
           WHERE id = ? AND state = 'queued'`,
-      ).run(runId, formatPyIso(now), row.id)
+      ).run(runId, now.toISOString(), row.id)
       if (Number(info.changes) !== 1) return null
       return { turn: this.#loadTurn(row.id), runId }
     })
@@ -270,8 +293,8 @@ export class DurableTurnStore {
                 terminal_payload_json = ?, terminal_audited = 0, updated_at = ?
           WHERE id = ? AND state = 'running'`,
       ).run(
-        terminal.status, terminal.reason, formatPyIso(now), JSON.stringify(terminal),
-        formatPyIso(now), turnId,
+        terminal.status, terminal.reason, now.toISOString(), JSON.stringify(terminal),
+        now.toISOString(), turnId,
       )
       return Number(info.changes) === 1
     })
@@ -287,7 +310,7 @@ export class DurableTurnStore {
         ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0,
         continuation_id: null,
       }
-      const moment = formatPyIso(now)
+      const moment = now.toISOString()
       for (const row of rows) {
         this.#db.prepare(
           `UPDATE user_turns
@@ -328,7 +351,7 @@ export class DurableTurnStore {
 
   #loadTurn(turnId: string): UserTurn {
     const row = this.#db.prepare(
-      `SELECT id, channel, user_id, context_id, is_owner, state, first_received_at,
+      `SELECT id, channel, user_id, context_id, is_owner, state, replay, first_received_at,
               last_received_at, committed_at, commit_reason, queue_seq, run_id, terminal_payload_json
          FROM user_turns WHERE id = ?`,
     ).get(turnId) as TurnRow | undefined

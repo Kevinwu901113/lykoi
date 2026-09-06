@@ -405,6 +405,6 @@ test('T10：多 part 只在末端确定性 render，普通回复锚定最后 pla
     lastReceivedAt: '2026-09-05T00:00:01.000Z',
   }
   await handleTurn(ctx, conversation.conversation, merged, RUN_ID)
-  assert.deepEqual(conversation.messages, ['第一句\n第二句\n第三句'])
+  assert.deepEqual(conversation.messages, ['[2026-09-05T00:00:00.000Z]\n第一句\n[2026-09-05T00:00:00.000Z]\n第二句\n[2026-09-05T00:00:00.000Z]\n第三句'])
   assert.deepEqual(telegram.replyAnchors, ['103'])
 })

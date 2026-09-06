@@ -2,7 +2,7 @@
   "name": "lykoi-ingress",
   "version": "0.1.0",
   "private": true,
-  "description": "Neutral durable inbound → UserTurn assembler → serial executor",
+  "description": "Neutral durable inbound \u2192 UserTurn assembler \u2192 serial executor",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -14,7 +14,6 @@
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/schemastery": "3.18.1",
-    "lykoi-audit": "0.1.0",
-    "lykoi-memory": "0.1.0"
+    "lykoi-audit": "0.1.0"
   }
 }

@@ -21,8 +21,9 @@ export const DEFAULT_HARD_WINDOW_MS = 4_000
 const RECOVERY_RETRY_MS = 1_000
 
 export interface IngressService {
-  accept(part: InboundPart): Promise<AcceptInboundResult>
+  accept(part: InboundPart, onDurable?: () => void): Promise<AcceptInboundResult>
   registerExecutor(executor: TurnExecutor): void
+  finishReplay?(channel: string): Promise<void>
   /** transport 在 durable cursor 落盘后显式放行 assembler timer / FIFO worker。 */
   kick(): Promise<void>
   tick(now?: Date): Promise<void>
@@ -101,9 +102,11 @@ export class DurableIngress implements IngressService {
     }
   }
 
-  async accept(part: InboundPart): Promise<AcceptInboundResult> {
+  async accept(part: InboundPart, onDurable?: () => void): Promise<AcceptInboundResult> {
     if (this.#closed) throw new Error('lykoi-ingress: closed')
     const result = this.#store.accept(part, this.#idleMs, this.#hardMs)
+    // 同步通知 durable commit；即使后续审计暂时不可用，wake 也已获入站活动信号。
+    onDurable?.()
     await this.#audit.record({
       type: 'inbound/accepted',
       inbound_id: result.inboundId,
@@ -136,6 +139,11 @@ export class DurableIngress implements IngressService {
       duplicate: result.duplicate,
       partCount: result.partCount,
     }
+  }
+
+  async finishReplay(channel: string): Promise<void> {
+    for (const turn of this.#store.finishReplay(channel, this.#now())) await this.#recordCommitted(turn)
+    await this.kick()
   }
 
   registerExecutor(executor: TurnExecutor): void {

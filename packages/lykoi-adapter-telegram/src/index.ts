@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type { AuditService } from 'lykoi-audit'
 import type { IngressService, InboundPart } from 'lykoi-ingress'
+import { markActive } from 'lykoi-kernel'
 import type { LykoiMemoryService } from 'lykoi-memory'
 import { readFileSync } from 'node:fs'
 import { mkdir, open, rename } from 'node:fs/promises'
@@ -238,6 +239,8 @@ export class TelegramAdapter implements TelegramAdapterService {
   #archivePath: string
   #pollTimeoutS: number
   #cursor: number
+  #bootTime = Date.now()
+  #catchingUp = true
   #archive: ArchiveFile
   #counters: TelegramAdapterCounters = {
     polls: 0,
@@ -363,7 +366,7 @@ export class TelegramAdapter implements TelegramAdapterService {
    */
   async pollOnce(): Promise<number> {
     this.#counters.polls += 1
-    const updates = await this.#transport.poll(this.#cursor + 1, { timeoutS: this.#pollTimeoutS })
+    const updates = await this.#transport.poll(this.#cursor + 1, { timeoutS: this.#catchingUp ? 0 : this.#pollTimeoutS })
     let processed = 0
     for (const update of updates) {
       // S-02 第二道：进程侧去重（update_id 缺失/非法与重复同路：跳过不推进）。
@@ -379,6 +382,11 @@ export class TelegramAdapter implements TelegramAdapterService {
       // WO-TURN-01：认知/assembler 只能在 durable accept 与 cursor 都落稳后抢跑。
       await this.#ingress.kick()
       processed += 1
+    }
+    // 启动时用零等待拉尽积压；空批是确定性边界，不猜服务器批大小。
+    if (this.#catchingUp && updates.length === 0) {
+      await this.#ingress.finishReplay?.('telegram')
+      this.#catchingUp = false
     }
     return processed
   }
@@ -455,6 +463,8 @@ export class TelegramAdapter implements TelegramAdapterService {
       isOwner,
       text,
       receivedAt: new Date(receivedAt).toISOString(),
+      ...(this.#catchingUp && message.ts !== undefined && Date.parse(message.ts) < this.#bootTime
+        ? { replay: true } : {}),
       ...(message.ts === undefined ? {} : { sourceTimestamp: message.ts }),
       ...(message.replyToMessageId === undefined
         ? {}
@@ -471,7 +481,10 @@ export class TelegramAdapter implements TelegramAdapterService {
       chars: text.length,
       inboundId: stamped.inboundId,
     })
-    const accepted = await this.#ingress.accept(stamped)
+    const accepted = await this.#ingress.accept(stamped, () => {
+      // 入站已持久化即让 wake 礼让，不等审计 I/O 或排队的 cognition。
+      markActive(undefined, new Date(receivedAt))
+    })
     if (accepted.duplicate) {
       this.#counters.duplicates += 1
       return

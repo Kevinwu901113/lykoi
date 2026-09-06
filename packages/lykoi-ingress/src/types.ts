@@ -10,11 +10,13 @@ export interface InboundPart {
   text: string
   receivedAt: string
   sourceTimestamp?: string
+  /** 适配器启动补收阶段，结束由 finishReplay 明确提交。 */
+  replay?: boolean
   /** 只用于既有 approval/suggestion attribution；不让 cognition 看 Telegram update。 */
   replyToPlatformMessageId?: string
 }
 
-export type TurnCommitReason = 'idle_timeout' | 'hard_timeout'
+export type TurnCommitReason = 'idle_timeout' | 'hard_timeout' | 'restart_replay'
 export type UserTurnState = 'collecting' | 'queued' | 'running' | 'terminal'
 
 /** parts[] 是正本；rendered text 只能在最后的 Converse 边界临时生成。 */

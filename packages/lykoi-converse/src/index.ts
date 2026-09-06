@@ -696,6 +696,12 @@ const NOTICE_REASONS = new Set<TurnFailReason>([
 const CONTINUATION_ELIGIBLE_STATUSES: ReadonlySet<TurnStatus>
   = new Set<TurnStatus>(['replied', 'intentional_silence', 'deferred'])
 
+/** 保留每条原文，时间戳是投影元数据；不回写 parts 正本。 */
+export function renderTurnParts(parts: UserTurn['parts'], replay = false): string {
+  if (parts.length === 1 && !replay) return parts[0]!.text
+  return parts.map(part => `[${part.sourceTimestamp ?? part.receivedAt}]\n${part.text}`).join('\n')
+}
+
 export async function handleTurn(
   ctx: Context,
   conversation: Conversation,
@@ -787,7 +793,7 @@ export async function handleTurn(
       terminal = { status: 'consumed', reason: consumedReason }
     } else {
       // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
-      const rendered = conversationalParts.map((part) => part.text).join('\n')
+      const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')
       const reply = await conversation.send(rendered, { runId, turnId })
       followupRegistered = conversation.hasFollowupRequest()
 

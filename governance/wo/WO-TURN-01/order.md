@@ -1,5 +1,17 @@
 # WO-TURN-01 · Durable Ingress + Turn Assembler
 
+## 2026-09-06 接续裁定（优先于下方原始施工建议）
+
+Kevin 在整批接续中明确：spool 属于基础设施，不能写认知状态库；入站落盘时立即 markActive；停机积压按原文与来源时间顺序合为一个 turn。落实如下：
+
+- 基线更新为 `origin/main@c17e148`；先保存遗留实现，再整合已合入的传输拆分、PULSE、实例包与 subtraction。
+- SQLite spool 独立路径 `inbound-spool.db`，`user_version=1`；新库确定性建表，误配到认知库拒开。`mind_schema` 保持 18，撤去本单未部署的 019 候选迁移。原文 §4.1 的认知迁移仅为可选建议，本次不采用。
+- 适配器开机零等待补收，来源时间早于启动的消息标为 replay；跨 poll 保留为 collecting，直到空批收齐才提交 `restart_replay`。replay collecting 的持久标记可跨崩溃恢复；普通实时输入仍用 idle 1500 / hard 4000 ms。
+- 多 part 与 replay 的认知投影使用 `[sourceTimestamp 或 receivedAt]\n原文` 按序拼接；单条实时消息原样。正本 parts 不改字，不写进审计。
+- durable accept 的同步完成通知调用 interactive-lock.markActive，发生在后续审计 I/O 之前；cursor 仍只在 accept 返回后推进。
+- `turn/terminal` 沿用已落地正本名称和状态；A3 只改 run/revision，不用第六种 turn 状态替代 run 终局。
+- 本次施工不等于合并或部署。manifest 本地验证与生产签名分开；生产仍由 Kevin 执行。
+
 ## 0. 基线与目标
 
 仓库：
