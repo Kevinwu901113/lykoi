@@ -63,3 +63,27 @@ test('fiber 卸载后 record 拒绝（audit 不在 = 不许静默继续）', asy
   const lines = readFileSync(path, 'utf8').split('\n').filter((l) => l.length > 0)
   assert.equal(lines.length, 1)
 })
+
+test('recordOnce：并发与进程重启后同一稳定 event_id 都只追加一次', async () => {
+  const path = join(tmp(), 'audit.jsonl')
+  const firstCtx = new Context()
+  const firstFiber = await firstCtx.plugin(audit, { path })
+  const first = firstCtx.get('audit') as AuditService
+  assert.ok(first.recordOnce !== undefined)
+  const writes = await Promise.all(Array.from({ length: 20 }, () =>
+    first.recordOnce!('turn-terminal:turn-1', { type: 'turn/terminal', turn_id: 'turn-1' })))
+  assert.equal(writes.filter(Boolean).length, 1)
+  await firstFiber.dispose()
+
+  const secondCtx = new Context()
+  const secondFiber = await secondCtx.plugin(audit, { path })
+  const second = secondCtx.get('audit') as AuditService
+  assert.equal(await second.recordOnce!('turn-terminal:turn-1', {
+    type: 'turn/terminal', turn_id: 'turn-1', status: 'replied',
+  }), false)
+  await secondFiber.dispose()
+
+  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean)
+  assert.equal(lines.length, 1)
+  assert.equal((JSON.parse(lines[0]!) as { event_id: string }).event_id, 'turn-terminal:turn-1')
+})

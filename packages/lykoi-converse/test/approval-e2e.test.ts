@@ -44,6 +44,7 @@ import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-tel
 import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
 import { bootstrapOwnerPreauthorization } from 'lykoi-kernel'
 import { TOOL_TO_ACTION } from '../src/contract.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 import * as converse from '../src/index.ts'
 import { envelope, seedBinding } from './fixture.ts'
 
@@ -107,6 +108,7 @@ async function assemble(replyText: string) {
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -223,8 +225,9 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
   const turn = audit.events.find((e) => e.type === 'telegram_approval_turn')!
   assert.equal(turn.outcome, 'execute_once')
   assert.equal(turn.executed, true)
-  // **消费即 return**：这条消息就是那次审批回合，不再当成一次对话提示
-  assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 1)
+  // 接收正本仍留痕；消费位钉住它没有进入 Conversation cognition。
+  assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 2)
+  assert.equal(audit.events.filter((e) => e.type === 'turn/part_consumed').length, 1)
 
   // ④ 执行：consume 原子点 → pre_approved 重派 → terminal.exec 真跑一次
   assert.deepEqual(terminal.ran, ['ls'])

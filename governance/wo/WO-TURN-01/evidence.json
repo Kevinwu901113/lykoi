@@ -1,0 +1,46 @@
+{
+  "work_order": "WO-TURN-01",
+  "stage": "A2",
+  "script": "evidence.mjs",
+  "run": {
+    "command": "cd /Users/wukevin/lykoi/wo-turn-01 && node governance/wo/WO-TURN-01/evidence.mjs",
+    "requires": "Node >= 24",
+    "stdout": "one structured JSON document; exit 0 only when every assertion passes"
+  },
+  "scope": {
+    "real_implementation": [
+      "packages/lykoi-ingress/src/index.ts",
+      "packages/lykoi-ingress/src/store.ts",
+      "packages/lykoi-ingress/src/types.ts",
+      "packages/lykoi-memory/src/testing.ts",
+      "packages/lykoi-gate/src/manifest.ts"
+    ],
+    "database": "temporary schema-19 createStateFixture database",
+    "executor": "fake in-memory executor; no real cognition or side effects",
+    "audit": "fake in-memory AuditService; terminal recordOnce semantics exercised",
+    "transport": "excluded deliberately; no Telegram update, cursor, or poll claim is invented",
+    "network": "zero external calls"
+  },
+  "clock": {
+    "base": "2026-09-05T00:00:00.000Z",
+    "idle_window_ms": 1500,
+    "hard_window_ms": 4000,
+    "policy": "all ingress now callbacks and tick dates derive from the fixed base"
+  },
+  "evidence": [
+    "three normalized messages preserve parts boundary/order and last-message reply anchor",
+    "idle timeout and hard maximum traces",
+    "A blocked while B/C are durably accepted, queued, and later executed A->B->C with max concurrency 1",
+    "platform identity duplicate redelivery is idempotent across part/turn/terminal counts",
+    "restart lifecycle covers collecting, queued, terminal, and terminal no-rerun",
+    "terminal linkage includes turn, constituent inbound/platform IDs, stable event ID, and reply anchor",
+    "manifest protectedEntries/computeManifest/renderManifest/parseManifest round-trip covers ingress package.json plus index/store/types src"
+  ],
+  "manifest": {
+    "mode": "ephemeral preflight",
+    "persona": "temporary synthetic fixture",
+    "production_signature": false,
+    "writes_manifest_sha256": false
+  },
+  "cleanup": "temporary database/persona directory is recursively removed before stdout"
+}

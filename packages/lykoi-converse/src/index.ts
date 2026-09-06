@@ -27,7 +27,8 @@ import {
   createUserMessage, ReasoningEffortId, type Message,
 } from '@deepseek-ai/dsh-llm'
 import { LlmFinishError } from 'lykoi-llm'
-import type { InboundMessage, TelegramAdapterService } from 'lykoi-adapter-telegram'
+import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
+import type { TurnExecutionResult, UserTurn } from 'lykoi-ingress'
 import {
   OutboundOrgan, markUndeliveredSurfaced, outboundOrganResources,
   outboxNotificationSink, setMessengerLogEvent, setTransportLogEvent,
@@ -81,7 +82,7 @@ export * from './vision.ts'
 export const name = 'lykoi-converse'
 // audit/lykoiLlm 硬依赖；telegram 经 ctx.get 可选消费（telegram 默认 disabled
 // 时本插件照常挂载、安静待命 —— dsh 形态的可选 seam）。
-export const inject = ['audit', 'lykoiLlm']
+export const inject = ['audit', 'ingress', 'lykoiLlm']
 
 export interface Config {
   /** state 副本路径（golden devstate 永远只读 —— 生产接治理侧发的可写副本）。 */
@@ -641,9 +642,8 @@ export function apply(ctx: Context, config: Config) {
     }))
   }
 
-  ctx.on('lykoi/telegram/inbound', async (message) => {
-    await handleTurn(ctx, conversation, message, continuations)
-  })
+  ctx.ingress.registerExecutor(async (turn, { runId }) =>
+    await handleTurn(ctx, conversation, turn, runId, continuations))
 }
 
 type TurnResolution =
@@ -693,27 +693,31 @@ const CONTINUATION_ELIGIBLE_STATUSES: ReadonlySet<TurnStatus>
 export async function handleTurn(
   ctx: Context,
   conversation: Conversation,
-  message: InboundMessage,
+  turn: UserTurn,
+  runId: string,
   continuations?: ContinuationsService,
-): Promise<void> {
+): Promise<TurnExecutionResult> {
   const started = performance.now()
-  const inboundId = `tg:${message.updateId}`
-  const turnId = inboundId
-  const runId = `converse-${message.updateId}-${message.messageId}`
+  const turnId = turn.turnId
+  const lastPart = turn.parts.at(-1)
+  if (lastPart === undefined) throw new Error(`lykoi-converse: UserTurn ${turnId} has no parts`)
+  const updateId = lastPart.platformUpdateId ?? null
+  const replyAnchor = lastPart.platformMessageId
   let terminal: Pick<TurnOutcome, 'status' | 'reason'> | null = null
   let followupRegistered = false
   let askSent = false
   let noticeSent = false
   let replyChars = 0
+  let routeComplete = false
   const sendFailureNotice = async (reason: TurnFailReason): Promise<void> => {
     if (!NOTICE_REASONS.has(reason)) return
     const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
     if (telegram === undefined) return
     try {
       const sent = await telegram.send(
-        message.contextId,
+        turn.contextId,
         SYSTEM_FAILURE_NOTICE(reason),
-        message.messageId,
+        replyAnchor,
         // 系统回执仍须落未送达账本与 telegram 审计，但不应作为她的经历回灌记忆。
         { recordUndeliveredExperience: false },
       )
@@ -732,21 +736,55 @@ export async function handleTurn(
   await ctx.audit.record({
     type: 'converse/received',
     turn_id: turnId,
-    inbound_id: inboundId,
-    updateId: message.updateId,
-    contextId: message.contextId,
-    userId: message.userId,
-    isOwner: message.isOwner,
-    chars: message.text.length,
+    inbound_id: turn.parts[0]!.inboundId,
+    inbound_ids: turn.parts.map((part) => part.inboundId),
+    platform_message_ids: turn.parts.map((part) => part.platformMessageId),
+    updateId,
+    contextId: turn.contextId,
+    userId: turn.userId,
+    isOwner: turn.isOwner,
+    part_count: turn.parts.length,
+    chars: turn.parts.reduce((total, part) => total + [...part.text].length, 0),
   })
-  // S-08 顺序位：审批回答 → 规则建议回答 → 普通对话。前两级仅 owner，随 M3
-  // 审批/建议器官在**此处、回合之前**按序消费；当前一律进入普通对话级。
 
   try {
-    const reply = await conversation.send(message.text, { runId, turnId })
-    followupRegistered = conversation.hasFollowupRequest()
-
     const telegram = ctx.get('telegram') as TelegramAdapterService | undefined
+    // S-08 仍严格逐 part 判定：owner 的显式 reply_to 先审批、再建议；被消费的 part
+    // 不进入 cognition。parts[] 本身不改写，terminal 仍能反查整轮所有外界输入。
+    const conversationalParts = [] as UserTurn['parts']
+    let consumedReason: 'approval_answer' | 'suggestion_answer' | null = null
+    for (const part of turn.parts) {
+      const consumed = turn.isOwner && telegram !== undefined
+        ? await telegram.routeOwnerMessage({
+            text: part.text,
+            contextId: part.contextId,
+            replyTo: part.replyToPlatformMessageId ?? null,
+            messageId: part.platformMessageId,
+          })
+        : null
+      if (consumed === null) {
+        conversationalParts.push(part)
+      } else {
+        consumedReason = consumed
+        await ctx.audit.record({
+          type: 'turn/part_consumed',
+          turn_id: turnId,
+          inbound_id: part.inboundId,
+          platform_message_id: part.platformMessageId,
+          reason: consumed,
+        })
+      }
+    }
+    routeComplete = true
+
+    if (conversationalParts.length === 0) {
+      terminal = { status: 'consumed', reason: consumedReason }
+    } else {
+      // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
+      const rendered = conversationalParts.map((part) => part.text).join('\n')
+      const reply = await conversation.send(rendered, { runId, turnId })
+      followupRegistered = conversation.hasFollowupRequest()
+
     const deviceSideWired = telegram !== undefined && telegram.outboundWired()
     const delegatedAsk = deviceSideWired
       ? conversation.takeDelegatedAsk()
@@ -756,7 +794,7 @@ export async function handleTurn(
         type: 'converse/approval_request_pending',
         turn_id: turnId,
         runId,
-        updateId: message.updateId,
+        updateId,
         action_type: delegatedAsk.action_type,
         action_id: delegatedAsk.action_id,
         correlation_id: delegatedAsk.correlation_id,
@@ -767,7 +805,7 @@ export async function handleTurn(
     const askAbout = async (): Promise<void> => {
       if (delegatedAsk === null || !deviceSideWired) return
       const asked = await telegram!.askAbout(
-        delegatedAsk, message.contextId, message.messageId,
+        delegatedAsk, turn.contextId, replyAnchor,
         { run_id: runId, turn_id: turnId },
       )
       askSent = asked.asked && asked.status === 'asked'
@@ -777,11 +815,11 @@ export async function handleTurn(
     replyChars = surfaceReply.length
     if (surfaceReply.trim().length === 0) {
       await ctx.audit.record({
-        type: 'converse/silence', turn_id: turnId, runId, updateId: message.updateId,
+        type: 'converse/silence', turn_id: turnId, runId, updateId,
       })
       if (delegatedAsk !== null && telegram === undefined) {
         await ctx.audit.record({
-          type: 'converse/no_transport', turn_id: turnId, runId, updateId: message.updateId,
+          type: 'converse/no_transport', turn_id: turnId, runId, updateId,
         })
         terminal = resolveTurnOutcome({ kind: 'no_transport' })
       } else {
@@ -795,22 +833,22 @@ export async function handleTurn(
     } else {
       await ctx.audit.record({
         type: 'converse/reply', turn_id: turnId, runId,
-        updateId: message.updateId, chars: surfaceReply.length,
+        updateId, chars: surfaceReply.length,
       })
       if (telegram === undefined) {
         await ctx.audit.record({
-          type: 'converse/no_transport', turn_id: turnId, runId, updateId: message.updateId,
+          type: 'converse/no_transport', turn_id: turnId, runId, updateId,
         })
         terminal = resolveTurnOutcome({ kind: 'no_transport' })
       } else {
         if (deviceSideWired) {
           const delivered = await telegram.sendReply(
-            message.contextId, surfaceReply, message.messageId,
+            turn.contextId, surfaceReply, replyAnchor,
             { run_id: runId, turn_id: turnId },
           )
           terminal = resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
         } else {
-          const delivered = await telegram.send(message.contextId, surfaceReply, message.messageId)
+          const delivered = await telegram.send(turn.contextId, surfaceReply, replyAnchor)
           terminal = resolveTurnOutcome({
             kind: 'delivery',
             outcome: delivered.sent ? 'delivered' : 'undelivered',
@@ -825,11 +863,12 @@ export async function handleTurn(
             type: 'converse/approval_request_failed',
             turn_id: turnId,
             run_id: runId,
-            update_id: message.updateId,
+            update_id: updateId,
             error_name: askError instanceof Error ? askError.name : 'unknown',
           })
         }
       }
+    }
     }
     if (terminal?.status === 'failed' && terminal.reason !== null) {
       await sendFailureNotice(terminal.reason as TurnFailReason)
@@ -838,12 +877,12 @@ export async function handleTurn(
     const reason = failureReason(err)
     if (err instanceof ContextBudgetError) {
       await ctx.audit.record({
-        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId,
         error: 'ContextBudgetError', kind: 'context_budget',
       })
     } else if (err instanceof LlmFinishError) {
       await ctx.audit.record({
-        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId,
         error: err.name,
         kind: 'llm_finish',
         finish_code: err.reason.failure.code,
@@ -854,33 +893,33 @@ export async function handleTurn(
       })
     } else {
       await ctx.audit.record({
-        type: 'converse/turn_failed', turn_id: turnId, runId, updateId: message.updateId,
+        type: 'converse/turn_failed', turn_id: turnId, runId, updateId,
         error: err instanceof Error ? err.name : 'unknown',
       })
     }
     terminal = resolveTurnOutcome({ kind: 'failure', reason })
-    await sendFailureNotice(reason)
-  } finally {
-    const outcome = terminal ?? resolveTurnOutcome({ kind: 'failure', reason: 'unknown' })
-    // WO-CONTINUATION-01 D-2：终局落定后才登记（取走即清，S-60）；登记失败由
-    // runner 自己落账并返回 null，终局照常。
-    let continuationId: string | null = null
-    if (continuations !== undefined && CONTINUATION_ELIGIBLE_STATUSES.has(outcome.status)) {
-      const goal = conversation.takeFollowupRequest()
-      if (goal !== null) {
-        continuationId = continuations.register({ originTurnId: turnId, originRunId: runId, goal })
-      }
+    if (!routeComplete) {
+      await ctx.audit.record({
+        type: 'turn/route_failed',
+        turn_id: turnId,
+        error_name: err instanceof Error ? err.name : 'unknown',
+      })
     }
-    await ctx.audit.record({
-      type: 'turn/terminal',
-      turn_id: turnId,
-      inbound_id: inboundId,
-      run_id: runId,
-      update_id: message.updateId,
-      message_id: message.messageId,
-      context_id: message.contextId,
-      user_id: message.userId,
-      is_owner: message.isOwner,
+    await sendFailureNotice(reason)
+  }
+  const outcome = terminal ?? resolveTurnOutcome({ kind: 'failure', reason: 'unknown' })
+  // WO-CONTINUATION-01 D-2：终局落定后才登记（取走即清，S-60）；登记失败由
+  // runner 自己落账并返回 null，终局照常。唯一 terminal 由 ingress 持久化后落审计。
+  let continuationId: string | null = null
+  if (continuations !== undefined && CONTINUATION_ELIGIBLE_STATUSES.has(outcome.status)) {
+    const goal = conversation.takeFollowupRequest()
+    if (goal !== null) {
+      continuationId = continuations.register({ originTurnId: turnId, originRunId: runId, goal })
+    }
+  }
+  if (continuationId !== null) continuations!.kick()
+  return {
+    terminal: {
       status: outcome.status,
       reason: outcome.reason,
       followup_registered: followupRegistered,
@@ -889,7 +928,6 @@ export async function handleTurn(
       reply_chars: replyChars,
       elapsed_ms: Math.max(0, Math.round(performance.now() - started)),
       continuation_id: continuationId,
-    })
-    if (continuationId !== null) continuations!.kick()
+    },
   }
 }

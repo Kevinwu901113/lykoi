@@ -38,6 +38,7 @@ import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { toDshEnvelopeMessages, type ConverseMessage } from '../src/index.ts'
 import { envelope, seedBinding, makeConversation } from './fixture.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 
 const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
@@ -122,6 +123,7 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)

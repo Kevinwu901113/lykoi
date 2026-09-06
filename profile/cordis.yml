@@ -47,15 +47,6 @@
 # state 副本（dbPath）与 owner 域 persona TOML（personaToml）——两者都是治理侧
 # 供给的部署事实，dev profile 默认 disabled；启用是治理侧动作（golden devstate
 # 永远只读，不得直接接进来）。
-- id: converse
-  name: lykoi-converse
-  disabled: true
-  config:
-    dbPath: var/dev-state.db
-    personaToml: packages/lykoi-decide/test/fixtures/lykoi_base.toml
-    route: mock
-    model: mock-model
-    restartMarker: var/restart-marker.json
 # telegram 生产传输默认 disabled（工单④）：M4-W1 起它接的是真 fetch，所以在 dev
 # 装配面上「启用」这一位比从前更重的一步；启用是治理侧动作
 # （需 lykoiMemory 的 state 副本路径与 tokenEnv 环境引用一并配好——凭据永不落明文）。
@@ -65,6 +56,14 @@
   disabled: true
   config:
     dbPath: ../lykoi-cordis-devstate/memory.db
+- id: ingress
+  name: lykoi-ingress
+  disabled: true
+  config:
+    dbPath: ../lykoi-cordis-devstate/memory.db
+    idleWindowMs: 1500
+    hardWindowMs: 4000
+    autoStart: true
 - id: telegram-transport
   name: lykoi-adapter-telegram/production
   disabled: true
@@ -78,3 +77,12 @@
   config:
     cursorPath: var/telegram-cursor.json
     archivePath: var/telegram-inbound.json
+- id: converse
+  name: lykoi-converse
+  disabled: true
+  config:
+    dbPath: var/dev-state.db
+    personaToml: packages/lykoi-decide/test/fixtures/lykoi_base.toml
+    route: mock
+    model: mock-model
+    restartMarker: var/restart-marker.json

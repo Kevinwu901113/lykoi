@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Context } from '@deepseek-ai/cordis'
-import type { InboundMessage, TelegramAdapterService, TelegramSendOptions } from 'lykoi-adapter-telegram'
+import type { TelegramAdapterService, TelegramSendOptions } from 'lykoi-adapter-telegram'
+import type { UserTurn } from 'lykoi-ingress'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
 import {
   CONTINUATION_FAILURE_NOTICE, CONTINUATION_PROMPT, CONTINUATION_SCAN_LIMIT, CONTINUATION_TTL_S,
@@ -313,10 +314,19 @@ test('(j) 回执出口：无传输 / 无 owner 绑定 / 发送抛错 → continu
 
 // ---- handleTurn 侧的登记（D-2） ----
 
-const MESSAGE: InboundMessage = {
-  userId: 'user_001', contextId: 'chat-1', isOwner: true, text: 'USER_BODY_SENTINEL',
-  messageId: '100', updateId: 1,
+const TURN: UserTurn = {
+  turnId: 'turn:telegram:1', channel: 'telegram',
+  userId: 'user_001', contextId: 'chat-1', isOwner: true,
+  parts: [{
+    inboundId: 'telegram:1', channel: 'telegram', platformMessageId: '100', platformUpdateId: '1',
+    userId: 'user_001', contextId: 'chat-1', isOwner: true, text: 'USER_BODY_SENTINEL',
+    receivedAt: '2026-09-05T00:00:00.000Z',
+  }],
+  firstReceivedAt: '2026-09-05T00:00:00.000Z',
+  lastReceivedAt: '2026-09-05T00:00:00.000Z',
+  committedAt: '2026-09-05T00:00:01.500Z', commitReason: 'idle_timeout',
 }
+const TURN_RUN_ID = 'run:turn:telegram:1:r0'
 
 function turnHarness(conv: { reply: string; error?: unknown; followup: string | null }) {
   const events: ({ type: string } & Record<string, unknown>)[] = []
@@ -333,6 +343,7 @@ function turnHarness(conv: { reply: string; error?: unknown; followup: string | 
     async send() { return { sent: true, messageId: 'm' } },
     async sendReply() { return { outcome: 'delivered' } },
     async askAbout() { return { asked: false, status: 'none' } },
+    async routeOwnerMessage() { return null },
     outboundWired: () => true,
   }
   const ctx = {
@@ -353,9 +364,8 @@ function turnHarness(conv: { reply: string; error?: unknown; followup: string | 
 
 test('handleTurn：replied + followup → 登记（turn/run id 原样）+ 终局带 continuation_id + kick', async () => {
   const h = turnHarness({ reply: 'ok', followup: GOAL })
-  await handleTurn(h.ctx, h.conversation, MESSAGE, h.continuations)
-  assert.deepEqual(h.registered, [{ originTurnId: 'tg:1', originRunId: 'converse-1-100', goal: GOAL }])
-  const t = h.events.find((e) => e.type === 'turn/terminal')!
+  const { terminal: t } = await handleTurn(h.ctx, h.conversation, TURN, TURN_RUN_ID, h.continuations)
+  assert.deepEqual(h.registered, [{ originTurnId: TURN.turnId, originRunId: TURN_RUN_ID, goal: GOAL }])
   assert.equal(t.status, 'replied')
   assert.equal(t.followup_registered, true)
   assert.equal(t.continuation_id, 'cont-x')
@@ -365,18 +375,20 @@ test('handleTurn：replied + followup → 登记（turn/run id 原样）+ 终局
 
 test('handleTurn：failed 回合的 followup 不登记；无 followup 不登记；未接 runner 时零调用', async () => {
   const failed = turnHarness({ reply: '', error: new Error('boom'), followup: GOAL })
-  await handleTurn(failed.ctx, failed.conversation, MESSAGE, failed.continuations)
+  const failedResult = await handleTurn(
+    failed.ctx, failed.conversation, TURN, TURN_RUN_ID, failed.continuations,
+  )
   assert.deepEqual(failed.registered, [])
-  assert.equal(failed.events.find((e) => e.type === 'turn/terminal')!.continuation_id, null)
+  assert.equal(failedResult.terminal.continuation_id, null)
   assert.equal(failed.kicks(), 0)
 
   const none = turnHarness({ reply: 'ok', followup: null })
-  await handleTurn(none.ctx, none.conversation, MESSAGE, none.continuations)
+  await handleTurn(none.ctx, none.conversation, TURN, TURN_RUN_ID, none.continuations)
   assert.deepEqual(none.registered, [])
   assert.equal(none.kicks(), 0)
 
   const unwired = turnHarness({ reply: 'ok', followup: GOAL })
-  await handleTurn(unwired.ctx, unwired.conversation, MESSAGE)
-  assert.equal(unwired.events.find((e) => e.type === 'turn/terminal')!.followup_registered, true)
-  assert.equal(unwired.events.find((e) => e.type === 'turn/terminal')!.continuation_id, null)
+  const unwiredResult = await handleTurn(unwired.ctx, unwired.conversation, TURN, TURN_RUN_ID)
+  assert.equal(unwiredResult.terminal.followup_registered, true)
+  assert.equal(unwiredResult.terminal.continuation_id, null)
 })

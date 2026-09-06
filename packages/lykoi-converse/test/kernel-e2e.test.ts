@@ -34,6 +34,7 @@ import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-tel
 import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
 import { MAX_TOOL_STEPS } from '../src/index.ts'
 import * as converse from '../src/index.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 import { envelope, seedBinding } from './fixture.ts'
 
 const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
@@ -83,6 +84,7 @@ async function assemble(replyText: string) {
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)

@@ -34,8 +34,12 @@ import { resolve } from 'node:path'
  * `governance/wo/WO-CONTINUATION-01/migrations/018_pending_continuations.up.sql`）。
  * 加表同样升版：旧体不认识这张表也不会读它，但新体的续跑路径**依赖**它存在，
  * 版本门把"表缺席"挡在开库处而不是首次写入处。
+ * 19 = 18 + WO-TURN-01 的 durable inbound / user turn 两表（迁移件
+ * `governance/wo/WO-TURN-01/migrations/019_durable_ingress.up.sql`）。这两张表是
+ * Telegram cursor 可以在 cognition 之前推进的物理前提：没有 19 就拒起，避免
+ * 新体误把内存队列当成 durable accept。
  */
-export const EXPECTED_MIND_SCHEMA_VERSION = 18
+export const EXPECTED_MIND_SCHEMA_VERSION = 19
 
 // ============================== C-22 时间戳 ==============================
 
@@ -253,7 +257,7 @@ export class ReadOnlyMemory implements LykoiMemoryService {
   }
 
   /**
-   * 打开即断言 mind_schema MAX(version) == `EXPECTED_MIND_SCHEMA_VERSION`（现 17）；
+   * 打开即断言 mind_schema MAX(version) == `EXPECTED_MIND_SCHEMA_VERSION`（现 19）；
    * 不等则抛明确错误（不读不认识的 schema）。
    */
   #assertSchemaVersion(): void {

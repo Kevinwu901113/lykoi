@@ -25,6 +25,7 @@ import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { envelope, seedBinding } from './fixture.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 
 const PERSONA_TOML = new URL('./fixtures/persona.toml', import.meta.url).pathname
 
@@ -76,6 +77,7 @@ async function assemble(replyText: string): Promise<Assembly> {
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -172,7 +174,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   // budget 有账 + run 归因贯穿。
   assert.equal(budget.usage('mock').routeTokens, 244)
   const charge = audit.events.find((e) => e.type === 'budget/charge')!
-  assert.equal(charge.runId, 'converse-1-100')
+  assert.equal(charge.runId, 'run:turn:telegram:1:r0')
   // 隐私（D-08）：**对话面**的 audit 行零正文。
   // M3-W3 起她的回复是一次真的 `messenger.send` 动作（SK-78：E2 盖章唯一点在
   // 设备层），所以 kernel 的 `action_dispatch` 行按 SK-05 逐字带 redacted params
@@ -200,11 +202,11 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   )!
   assert.equal(replySend.exemption, 'E2')
   assert.equal(replySend.origin, 'interactive')
-  assert.equal(replySend.run_id, 'converse-1-100')
-  assert.equal(replySend.turn_id, 'tg:1')
+  assert.equal(replySend.run_id, 'run:turn:telegram:1:r0')
+  assert.equal(replySend.turn_id, 'turn:telegram:1')
   for (const event of audit.events.filter((e) =>
     String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_') || String(e.type).startsWith('turn/'))) {
-    assert.equal(event.turn_id, 'tg:1', `${event.type} 缺 turn_id`)
+    assert.equal(event.turn_id, 'turn:telegram:1', `${event.type} 缺 turn_id`)
   }
   const terminals = audit.events.filter((e) => e.type === 'turn/terminal')
   assert.equal(terminals.length, 1)

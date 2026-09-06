@@ -4,10 +4,13 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { Context } from '@deepseek-ai/cordis'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
+import { DurableIngress, type InboundPart, type IngressService } from 'lykoi-ingress'
 import type { BindingResolution, LykoiMemoryService } from 'lykoi-memory'
-import type { InboundMessage, TelegramAdapterService } from '../src/index.ts'
+import { createStateFixture } from 'lykoi-memory/testing'
+import type { TelegramAdapterService } from '../src/index.ts'
 import * as adapterPlugin from '../src/index.ts'
 import { OutboundOrgan } from '../src/device.ts'
 import { ProductionTelegramTransport } from '../src/production.ts'
@@ -45,12 +48,32 @@ function fakeMemory(bindings: Record<string, BindingResolution>): LykoiMemorySer
   }
 }
 
+function fakeIngress(inbound: InboundPart[]): IngressService {
+  return {
+    async accept(part) {
+      inbound.push(part)
+      return {
+        inboundId: part.inboundId,
+        turnId: `turn:${part.inboundId}`,
+        duplicate: false,
+        partCount: 1,
+      }
+    },
+    registerExecutor() {},
+    async kick() {},
+    async tick() {},
+    async drain() {},
+    async start() {},
+    async close() {},
+  }
+}
+
 interface Setup {
   ctx: Context
   svc: TelegramAdapterService
   transport: MemoryTelegramTransport
   audit: ReturnType<typeof fakeAudit>
-  inbound: InboundMessage[]
+  inbound: InboundPart[]
   cursorPath: string
   archivePath: string
 }
@@ -60,6 +83,7 @@ async function setup(options: {
   cursorPath?: string
   archivePath?: string
   transportOverride?: import('../src/index.ts').TelegramTransport
+  ingressOverride?: IngressService
 } = {}): Promise<Setup> {
   const dir = tmp()
   const cursorPath = options.cursorPath ?? join(dir, 'cursor.json')
@@ -74,10 +98,8 @@ async function setup(options: {
   ctx.provide('audit', audit)
   ctx.provide('lykoiMemory', fakeMemory(bindings))
   ctx.provide('telegramTransport', options.transportOverride ?? transport)
-  const inbound: InboundMessage[] = []
-  ctx.on('lykoi/telegram/inbound', (message) => {
-    inbound.push(message)
-  })
+  const inbound: InboundPart[] = []
+  ctx.provide('ingress', options.ingressOverride ?? fakeIngress(inbound))
   await ctx.plugin(adapterPlugin, { cursorPath, archivePath, autoStart: false, pollTimeoutS: 25 })
   const svc = ctx.get('telegram') as TelegramAdapterService
   return { ctx, svc, transport, audit, inbound, cursorPath, archivePath }
@@ -131,21 +153,120 @@ test('S-02 第二道：平台无视 offset 重发 <= cursor 的 update 时，进
   assert.equal(svc.cursor(), 2)
 })
 
-test('S-03 时序：消费者处理中抛错 → 该条不推进游标（重放方向），前一条已推进', async () => {
-  const { ctx, svc, transport, cursorPath } = await setup()
-  ctx.on('lykoi/telegram/inbound', (message) => {
-    if (message.text === '会失败') throw new Error('consumer boom')
-  })
+test('S-03/A2 时序：durable accept 失败才挡 cursor；认知已不在 polling 调用栈', async () => {
+  const accepted: InboundPart[] = []
+  const ingress = fakeIngress(accepted)
+  ingress.accept = async (message) => {
+    if (message.text === '会失败') throw new Error('durable accept boom')
+    accepted.push(message)
+    return { inboundId: message.inboundId, turnId: `turn:${message.inboundId}`, duplicate: false, partCount: 1 }
+  }
+  const { svc, transport, cursorPath } = await setup({ ingressOverride: ingress })
   transport.queueUpdate(ownerUpdate(1, '正常'))
   transport.queueUpdate(ownerUpdate(2, '会失败'))
-  // cordis parallel 把 listener 错误聚合为 AggregateError 上抛
-  await assert.rejects(() => svc.pollOnce(), (err: AggregateError) => {
-    assert.ok(err.errors.some((e) => /consumer boom/.test(String(e))))
-    return true
-  })
-  // 第 1 条处理完已推进；第 2 条失败未推进 → 下轮重放（丢话之害 > 偶发重复之害）。
+  await assert.rejects(() => svc.pollOnce(), /durable accept boom/)
+  // 第 1 条已 durable commit 后推进；第 2 条 commit 失败不推进，留给下轮重放。
   assert.equal(svc.cursor(), 1)
   assert.deepEqual(JSON.parse(readFileSync(cursorPath, 'utf8')), { last_update_id: 1 })
+})
+
+test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', async () => {
+  const dir = tmp()
+  const dbPath = join(dir, 'state.db')
+  createStateFixture(dbPath)
+  const audit = fakeAudit()
+  const firstIngress = new DurableIngress({ dbPath, audit, autoStart: false })
+  const blocker = join(dir, 'cursor-parent-is-file')
+  writeFileSync(blocker, 'occupied')
+  const firstCtx = new Context()
+  const firstTransport = new MemoryTelegramTransport()
+  firstCtx.provide('audit', audit)
+  firstCtx.provide('ingress', firstIngress)
+  firstCtx.provide('lykoiMemory', fakeMemory({
+    'telegram:1001': { userId: 'user_001', role: 'owner_primary', userStatus: 'active' },
+  }))
+  firstCtx.provide('telegramTransport', firstTransport)
+  await firstCtx.plugin(adapterPlugin, {
+    cursorPath: join(blocker, 'cursor.json'), archivePath: join(dir, 'archive-1.json'),
+    autoStart: false, pollTimeoutS: 25,
+  })
+  firstTransport.queueUpdate(ownerUpdate(1, '只收一次'))
+  await assert.rejects(() => firstCtx.telegram.pollOnce())
+  firstIngress.close()
+
+  const secondIngress = new DurableIngress({ dbPath, audit, autoStart: false })
+  const secondCtx = new Context()
+  const secondTransport = new MemoryTelegramTransport()
+  secondCtx.provide('audit', audit)
+  secondCtx.provide('ingress', secondIngress)
+  secondCtx.provide('lykoiMemory', fakeMemory({
+    'telegram:1001': { userId: 'user_001', role: 'owner_primary', userStatus: 'active' },
+  }))
+  secondCtx.provide('telegramTransport', secondTransport)
+  await secondCtx.plugin(adapterPlugin, {
+    cursorPath: join(dir, 'cursor-2.json'), archivePath: join(dir, 'archive-2.json'),
+    autoStart: false, pollTimeoutS: 25,
+  })
+  secondTransport.queueUpdate(ownerUpdate(1, '只收一次'))
+  assert.equal(await secondCtx.telegram.pollOnce(), 1)
+  assert.equal(secondCtx.telegram.cursor(), 1)
+  const db = new DatabaseSync(dbPath)
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM inbound_parts').get() as { n: number }).n, 1)
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM user_turns').get() as { n: number }).n, 1)
+  db.close()
+  secondIngress.close()
+})
+
+test('T8：A cognition 阻塞时，真实 adapter 仍接纳 B/C 并推进 cursor；executor FIFO', async () => {
+  const dir = tmp()
+  const dbPath = join(dir, 'state.db')
+  createStateFixture(dbPath)
+  const audit = fakeAudit()
+  const ingress = new DurableIngress({ dbPath, audit, autoStart: false })
+  const ctx = new Context()
+  const transport = new MemoryTelegramTransport()
+  ctx.provide('audit', audit)
+  ctx.provide('ingress', ingress)
+  ctx.provide('lykoiMemory', fakeMemory({
+    'telegram:1001': { userId: 'user_001', role: 'owner_primary', userStatus: 'active' },
+  }))
+  ctx.provide('telegramTransport', transport)
+  await ctx.plugin(adapterPlugin, {
+    cursorPath: join(dir, 'cursor.json'), archivePath: join(dir, 'archive.json'),
+    autoStart: false, pollTimeoutS: 25,
+  })
+  const order: string[][] = []
+  let releaseA!: () => void
+  const blocked = new Promise<void>((resolve) => { releaseA = resolve })
+  ingress.registerExecutor(async (turn) => {
+    order.push(turn.parts.map((item) => item.text))
+    if (turn.parts[0]!.text === 'A') await blocked
+    return { terminal: {
+      status: 'intentional_silence', reason: null, followup_registered: false,
+      ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 1,
+    } }
+  })
+
+  transport.queueUpdate(ownerUpdate(1, 'A'))
+  assert.equal(await ctx.telegram.pollOnce(), 1)
+  await ingress.tick(new Date(Date.now() + 5_000))
+  await Promise.resolve()
+  assert.deepEqual(order, [['A']])
+
+  transport.queueUpdate(ownerUpdate(2, 'B'))
+  transport.queueUpdate(ownerUpdate(3, 'C'))
+  assert.equal(await ctx.telegram.pollOnce(), 2, 'poll 不等待 A cognition')
+  assert.equal(ctx.telegram.cursor(), 3)
+  await ingress.tick(new Date(Date.now() + 5_000))
+  const db = new DatabaseSync(dbPath)
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM inbound_parts WHERE platform_update_id IN ('2','3')").get() as { n: number }).n, 2)
+  assert.equal((db.prepare("SELECT COUNT(*) AS n FROM user_turns WHERE state='queued'").get() as { n: number }).n, 1)
+  db.close()
+
+  releaseA()
+  await ingress.drain()
+  assert.deepEqual(order, [['A'], ['B', 'C']])
+  await ingress.close()
 })
 
 test('S-04：游标文件损坏/缺失 → 当 0（重放），不崩溃', async () => {
@@ -237,7 +358,7 @@ test('S-09：owner 判定严格窄于绑定；盖章消息带 user_id/context_id
   assert.equal(owner!.userId, 'user_001')
   assert.equal(owner!.contextId, 'chat-1')
   assert.equal(owner!.isOwner, true)
-  assert.equal(owner!.messageId, '100')
+  assert.equal(owner!.platformMessageId, '100')
   // S-09：绑定了但不是 owner_primary → false（永不默认 yes）
   assert.equal(member!.userId, 'user_002')
   assert.equal(member!.isOwner, false)
@@ -256,7 +377,7 @@ test('S-11/D-06（修正版）：edited_message 忽略 + 落审计行，不是�
   assert.equal(svc.cursor(), 5)
 })
 
-test('WO-OUTCOME-01 D-5：消费 owner 应答落一条 consumed terminal，不触发认知 inbound', async () => {
+test('WO-TURN-01：owner 应答先 durable accept；S-08 路由由 FIFO executor 调用', async () => {
   const { svc, transport, audit, inbound } = await setup()
   svc.wireOutbound(new OutboundOrgan({
     dispatch: (async () => ({ success: true, data: {}, error: null })) as never,
@@ -273,32 +394,18 @@ test('WO-OUTCOME-01 D-5：消费 owner 应答落一条 consumed terminal，不�
 
   await svc.pollOnce()
 
-  assert.deepEqual(inbound, [])
-  const terminal = audit.events.filter((event) => event.type === 'turn/terminal')
-  assert.equal(terminal.length, 1)
-  assert.deepEqual(terminal[0], {
-    type: 'turn/terminal',
-    turn_id: 'tg:12',
-    inbound_id: 'tg:12',
-    run_id: null,
-    update_id: 12,
-    message_id: '1200',
-    context_id: 'chat-1',
-    user_id: 'user_001',
-    is_owner: true,
-    status: 'consumed',
-    reason: 'approval_answer',
-    followup_registered: false,
-    ask_sent: false,
-    notice_sent: false,
-    reply_chars: 0,
-    elapsed_ms: terminal[0]!.elapsed_ms,
-  })
-  assert.equal(typeof terminal[0]!.elapsed_ms, 'number')
-  assert.equal('text' in terminal[0]!, false)
+  assert.equal(inbound.length, 1)
+  assert.equal(inbound[0]!.text, '批准')
+  assert.equal(audit.events.filter((event) => event.type === 'turn/terminal').length, 0)
+  assert.equal(await svc.routeOwnerMessage({
+    text: inbound[0]!.text,
+    contextId: inbound[0]!.contextId,
+    replyTo: inbound[0]!.replyToPlatformMessageId ?? null,
+    messageId: inbound[0]!.platformMessageId,
+  }), 'approval_answer')
 })
 
-test('WO-OUTCOME-01 D-1：owner 消费路由抛错仍落唯一 failed terminal 并推进游标', async () => {
+test('WO-TURN-01：路由错误发生在 accept/cursor 之后，不倒写 durable 接收', async () => {
   const { svc, transport, audit, inbound } = await setup()
   svc.wireOutbound(new OutboundOrgan({
     dispatch: (async () => ({ success: true, data: {}, error: null })) as never,
@@ -316,16 +423,14 @@ test('WO-OUTCOME-01 D-1：owner 消费路由抛错仍落唯一 failed terminal �
 
   assert.equal(await svc.pollOnce(), 1)
   assert.equal(svc.cursor(), 13)
-  assert.deepEqual(inbound, [])
-  const terminals = audit.events.filter((event) => event.type === 'turn/terminal')
-  assert.equal(terminals.length, 1)
-  assert.equal(terminals[0]!.status, 'failed')
-  assert.equal(terminals[0]!.reason, 'unknown')
-  assert.equal(terminals[0]!.turn_id, 'tg:13')
-  assert.equal(terminals[0]!.run_id, null)
-  const routeFailed = audit.events.filter((event) => event.type === 'turn/route_failed')
-  assert.equal(routeFailed.length, 1)
-  assert.equal(routeFailed[0]!.error_name, 'ApprovalRouteExploded')
+  assert.equal(inbound.length, 1)
+  await assert.rejects(() => svc.routeOwnerMessage({
+    text: inbound[0]!.text,
+    contextId: inbound[0]!.contextId,
+    replyTo: null,
+    messageId: inbound[0]!.platformMessageId,
+  }), (err: Error) => err.name === 'ApprovalRouteExploded')
+  assert.equal(audit.events.filter((event) => event.type === 'turn/terminal').length, 0)
   const serialized = JSON.stringify(audit.events)
   assert.equal(serialized.includes('VENDOR_BODY'), false)
   assert.equal(serialized.includes('https://private.example'), false)
