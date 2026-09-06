@@ -14,7 +14,7 @@
 
 本地 bundle：`/private/tmp/lykoi-subtraction-01.bundle`，已通过 git bundle verify。
 同目录 deploy.sh、rollback.sh 已通过本地 bash -n。
-目标暂存目录为 `lykoi-gov:/tmp/lykoi-subtraction-01/`；上传被自动审批拒绝，要求所有者明确授权向该主机传输包含私有源码的包。当前尚未上传，也未执行生产切换。
+所有者明确授权后，已上传到 `lykoi-gov:/tmp/lykoi-subtraction-01/`。远端三份文件的 SHA256 均与下表一致；两份脚本通过远端 bash -n。尚未执行生产切换，等待所有者 root 会话执行。
 
 | 远端文件名 | SHA256 |
 |---|---|
@@ -22,7 +22,7 @@
 | deploy.sh | f9eb2c25039d4849465b05439fcfa63db1b27bf39796bfbdbf8885a21fb3d3f0 |
 | rollback.sh | 265fa55b8918b85feda37fe64285931295ca240f8f8caee98cded402e6bb4cba |
 
-上传获准后，先校对远端三份文件的 SHA256 并运行 bash -n，再由所有者在 root 会话运行：
+上传及校验已完成，由所有者在生产主机 root 会话运行：
 
 ```bash
 bash /tmp/lykoi-subtraction-01/deploy.sh
