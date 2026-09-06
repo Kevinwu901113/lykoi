@@ -1,71 +1,114 @@
-# WO-TURN-01 · A2 接手与交付报告
+# WO-TURN-01 · A2 接续交付
 
-状态：接手审查中，尚未合并或部署。最终验证与独立复核完成后更新本行。
+状态：实现及本地验收完成，未合并 main、未部署；治理复核与生产验收仍待交付阶段执行。
 
-## 1. 范围与依据
+## 基线与提交
 
-- 正本是本目录 `order.md`：Kevin 在任务「实现持久化接收与Turn组装」提供的原文，本次从原附件逐字归档。
-- 前次任务因额度耗尽中断，留下 `wo/turn-01` 未提交实现。本次先保存原始 tracked diff 和 untracked 文件副本，再接续施工。
-- 原施工基线 `c557af20ed90f9e7fa0b37c0d035e8d1b15c6fc2`；本次已快进到 `97431abae6c1271d981e3a2535d6ba860318e8f5`。两者之间只有治理材料和 budget/wake 测试变化，A2 的运行时前提仍成立。
-- 本单只实现外部输入的可靠接收、合并与 FIFO 执行。不实现 A3 打断、A4 分段、Task Runtime、人格新层或能力解析器。
-- `WO-INGRESS-01` 的 JSON spool 方案与本单作用域重叠，不应再并行实施。后继 `WO-INTERRUPT-01` 必须基于本单最终的 UserTurn/run 分层重评，不能直接套用旧 `seqs/merged/superseded` 假设。
-- 本次子 agent 均为 `gpt-5.6-luna` / `max`：分别审查持久化与审计、集成回归、独立验收证据。
+- 原施工基线 `c557af2`；接手 HEAD `97431ab`，继承未提交代码。
+- 遗留检查点 `d2b6048`；整合当前远端 main `c17e148` 的工单分支提交 `4d20a91`。
+- 实现修正提交 `80818d4`；分支 `wo/turn-01`，其后仅补本报告。
+- 原始 tracked/untracked 备份保存在本机 `batch-20260906/`。报告中此前关于子 agent 的表述属于前次施工历史；本轮未派子 agent，不把本地自检冒充独立治理复核。
 
-## 2. 数据模型与 ID
+## 数据与 ID 生命周期
 
 ```text
-channel + platform identity
-  → inbound_parts.inbound_id
-  → user_turns.id（一个 turn 含多个 part，part_order 保序）
-  → run_id（一次认知尝试）
-  → Kernel 原有 action_id / correlation_id（原语义保留）
+platform message/update identity
+  → inbound_parts.inbound_id（原文、时间戳、边界、来源、reply_to）
+  → user_turns.id（同 channel/context/user/owner scope）
+  → run:<turnId>:r0（本单一次 cognition；revision 留 A3）
+  → 原有 Kernel action_id / correlation_id
 ```
 
-`inbound_parts` 保存每条原文、原始消息边界、来源时间与接收时间、channel/context/user/owner 盖章及显式回复归属。平台消息与 update 唯一索引阻止重投新增 part；重投保留首次接收的原文。
+SQLite 正本为独立 `inbound-spool.db`，仅两表：`inbound_parts`、`user_turns`。平台消息/update 唯一索引防重投；parts 按 part_order 保序。turn 状态 collecting → queued → running → terminal；终局 payload 先存 SQLite，JSONL 是幂等投影。
 
-`user_turns` 状态为 `collecting → queued → running → terminal`，保存窗口时间、提交原因、FIFO 序号、run ID、终局 JSON 和审计投影状态。`parts[]` 是持久正本；Converse 只在最终装配边界用换行投影成既有单字符串输入。
+`user_version=1` 是新基础设施库版本；`memory.db` 的 mind_schema 仍为 18，本单对当前 main 的 memory 包最终差异为零。构造器拒绝认知库、其它库及未知版本，不静默往已有库加表。新库首启建表，无生产认知迁移；删除了遗留实现未部署的 019 候选。
 
-同 channel/context/user 的连续输入按 idle 1500 ms、hard 4000 ms 组装；两值在签名装配配置中可校准，不经环境变量改道。普通回复锚定最后一个 part 的平台消息 ID。
-
-## 3. 接收、执行与恢复
+## 接收、组装与恢复
 
 ```text
-Telegram poll
-  → 既有身份/绑定检查
-  → 中性 InboundPart
-  → SQLite durable accept
-  → cursor 持久化
-  → ingress.kick
-
-Assembler 到期提交 → FIFO worker → Converse → SQLite terminal → JSONL 投影
+normalize → SQLite accept commit → markActive（同步）
+  → accepted audit → cursor fsync/rename → ingress.kick
+  → idle/hard commit → FIFO executor → Converse → SQLite terminal
+  → recordOnce + fsync → terminal_audited
 ```
 
-timer 与正在执行的 cognition 解耦。A 正在执行时 B/C 仍能持久接收，待 A 完成后按 committed FIFO 进入同一 worker。ContinuationRunner 保持原有内部入口，不经过外部输入的 settle window。
+- 实时输入 idle 1500 ms、hard 4000 ms，值由签名 profile 装配；不同 scope 不合并，owner 身份变化也隔开。
+- 启动补收使用零等待 poll；来源时间早于启动的消息标 replay。跨 poll 的 replay 不受普通 hard window 拆分，空批确定收齐后按 scope 提交 restart_replay。replay 标记持久化，补收中重启仍不会一条条执行。
+- parts[] 是正本。单条实时投影原样；多 part/replay 在最后认知边界使用 `[来源时间或接收时间]\n原文` 按序投影。原文的空白、CRLF、换行和边界保留，时间戳为元数据，不写回原文。
+- 普通回复锚定最后 part 的平台 message ID；审批/建议逐 part 先路由，被消费部分不送 cognition，其余部分合并。只有 ingress 负责该 turn 的唯一 terminal。
+- collecting 普通窗口按持久时间恢复；queued FIFO 恢复；running 在崩溃后 failed/interrupted 收束，不冒险重跑未知外部动作；terminal 只补审计、不重新认知。
+- markActive 在 durable commit 后、审计 I/O 前执行；审计暂时失败也不会让已收输入对 wake 隐形。
+- recordOnce 保留稳定 event_id、跨重启去重。撕裂 JSONL 尾行通过追加换行隔离，不截断历史。终局投影 fsync 后才允许 SQLite 标记已审计。
 
-恢复类别：
+## 实证与验证
 
-| 崩溃时状态 | 恢复方向 |
-|---|---|
-| accept 已提交、cursor 未落盘 | 平台重投由唯一索引吸收，不再增加 part |
-| collecting | 依据持久时间重建剩余窗口；已过期则提交 |
-| queued | 保持 FIFO 待执行 |
-| running | 以 failed/interrupted 收束，不自动重跑未知副作用 |
-| terminal，审计尚未完成 | 补终局审计投影，不重跑 cognition |
-| terminal，审计已完成 | 不重跑、不重复 terminal |
+最终 `npm test`：**1187 tests / 1176 pass / 0 fail / 11 skipped**；`npm run typecheck`、`git diff --check` 通过。
 
-`running` 恢复为失败是崩溃记账，不是 A3 的主动中止或 revision。外部动作与 SQLite 之间没有分布式事务；不得宣称外部动作恰好执行一次。
+第一次沙箱全量的本地 HTTP/Unix socket 测试报 listen EPERM，属于环境限制。获准本地监听后最终完整重跑退出 0。没有跳过新失败或削弱断言。
 
-## 4. 验证与修复
+- ingress：14 用例，包含两次恢复、跨 hard window 跨 poll 合并、不同 peer、库隔离、审计故障通知、FIFO/去重/终局恢复。
+- adapter：97 用例，真实 adapter + durable ingress 验证跨 poll 补收与 markActive；A 被阻塞时 B/C 已落盘、游标前进，释放后仍按 A→B/C 串行。
+- converse：180 / 179 pass / 1 skipped，审批/建议归属、continuation、Kernel、实例装配及时间戳投影回归通过。
+- audit：5 用例，包含跨重启幂等与撕裂尾行恢复。
+- `evidence.mjs` 重新运行 PASS；`evidence.json` 是本树新证据。六场景：multipart_idle、hard_max、duplicate_idempotence、blocked_a_fifo、restart_collecting_queued_terminal、manifest_preflight。
+- manifest 本地计算/序列化/解析覆盖 **125** 项，含新 ingress 源文件与 package.json；使用临时合成人格文件，未写生产 manifest。
 
-接手时（旧基线）的全量测试：1118 项，1107 通过、0 失败、11 跳过；typecheck 通过。最新基线和审查修复后的读数待回填。
+三条消息固定时钟 trace：t=0/500/1000 ms 接纳三条，t=2500 ms 提交同一 turn；parts 原文按序，terminal 恰一条，inbound_ids 和 platform_message_ids 可反查三条 constituent。完整逐步库快照见 evidence.json。
 
-逐项验收证据、修复说明、最终测试与提交清单将在独立复核完成后补齐。
+独立 evidence 脚本仅驱动真实 ingress/store，不宣称它包含 Telegram 网络；cursor 解耦证据在 adapter.test.ts 的真实 adapter 回归。生产 Telegram 实收和落地后的运行账尚未验证。
 
-## 5. 部署边界
+## 改动文件
 
-- schema 18 → 19：本目录 `migrations/019_durable_ingress.up.sql` 与 `down.sql`。
-- 没有新增环境变量、外部队列、网络服务或并行认知 worker。
-- 新包 `lykoi-ingress` 与受影响包的 package.json、src、profile 均属于 manifest 覆盖面；gate 增加 `inbound/` 对话面词汇登记。
-- manifest 是生产部署产物，不入库。本地只验证覆盖面、哈希生成与校验；生产必须由 Kevin 在停机、备份、迁移之后重签。
-- down 仅撤 schema 19 台账，保留已接收消息和 turn 表。旧代码不消费这些表；回滚不等于这些待处理消息已交付。再次前滚须核表与索引后补回版本台账，不能盲目重跑建表 SQL。
-- 本次没有连接生产、迁移真实 memory.db、签署生产 manifest、重启服务或发送真实用户消息。
+- `governance/wo/WO-TURN-01/evidence.json`
+- `governance/wo/WO-TURN-01/evidence.mjs`
+- `governance/wo/WO-TURN-01/order.md`
+- `governance/wo/WO-TURN-01/report.md`
+- `package-lock.json`
+- `packages/lykoi-adapter-telegram/package.json`
+- `packages/lykoi-adapter-telegram/src/index.ts`
+- `packages/lykoi-adapter-telegram/test/adapter.test.ts`
+- `packages/lykoi-adapter-telegram/test/bridge.test.ts`
+- `packages/lykoi-adapter-telegram/test/split.test.ts`
+- `packages/lykoi-audit/src/index.ts`
+- `packages/lykoi-audit/test/audit.test.ts`
+- `packages/lykoi-converse/package.json`
+- `packages/lykoi-converse/src/index.ts`
+- `packages/lykoi-converse/test/approval-e2e.test.ts`
+- `packages/lykoi-converse/test/continuation.test.ts`
+- `packages/lykoi-converse/test/e2e.test.ts`
+- `packages/lykoi-converse/test/kernel-e2e.test.ts`
+- `packages/lykoi-converse/test/llm-finish.test.ts`
+- `packages/lykoi-converse/test/outcome.test.ts`
+- `packages/lykoi-converse/test/turn-fixture.ts`
+- `packages/lykoi-converse/test/w3-organs.test.ts`
+- `packages/lykoi-converse/test/wire.test.ts`
+- `packages/lykoi-gate/src/vocabulary.ts`
+- `packages/lykoi-ingress/package.json`
+- `packages/lykoi-ingress/src/index.ts`
+- `packages/lykoi-ingress/src/schema.ts`
+- `packages/lykoi-ingress/src/store.ts`
+- `packages/lykoi-ingress/src/types.ts`
+- `packages/lykoi-ingress/test/infrastructure.test.ts`
+- `packages/lykoi-ingress/test/ingress.test.ts`
+- `profile/cordis.prod.yml`
+- `profile/cordis.yml`
+- `profile/package.json`
+
+## 依赖与观测面
+
+新增 workspace 包 `lykoi-ingress`（Cordis、Schema、audit）；adapter/converse/profile 依赖它。无新外部依赖、无环境变量。配置 dbPath/idleWindowMs/hardWindowMs/autoStart；prod dbPath 为 `/home/lykoi/state/inbound-spool.db`，dev 为 `var/inbound-spool.db`。
+
+新事件 inbound/accepted、turn/collecting、turn/committed、turn/queued、turn/part_consumed；沿用 turn/terminal。新增对话域 vocabulary 前缀 inbound/，既有 turn/ 继续覆盖其余事件。只记 ID/数量/哈希/类别，不记消息正文。
+
+## A3 接续与实际边界
+
+- WO-INGRESS-01 的 JSON spool 草案被本 SQLite A2 实现替代，不得另起重复接收队列。
+- WO-INTERRUPT-01 草案的 superseded turn/重建新 turn 会与本次要求“每 turn 一个终局、run_aborted reason=revision”冲突。后继按同一 turn 的 run revision 做最小修订，首次 dispatch 后只排队；不照抄六状态草案。
+- A2 没有主动 abort/revision、Task Runtime、人格新层或信封 utterances[]，不把它们报告为已完成。
+- 已落地的 canonical 事件名 turn/terminal 和 consumed 状态沿用后续正式 A1 order；原始分组文字的 converse/turn_terminal 四态没有在本单反向覆盖生产契约。
+
+## 部署与回滚提示
+
+生产必须停稳单写者后部署；备份既有 cursor 与审计，以及已有的 inbound-spool.db。无需 mind_schema 迁移；先确认 ingress 路径独立、父目录可写、运行账号可读取并追加 audit 文件（recordOnce 恢复需读历史）。新源码、依赖和 profile 需生产 manifest 重签与 gate；重启后核库表、turn/terminal 链及真实多条入站。
+
+回滚代码必须保留 spool 文件：旧体不消费它，不表示积压已交付。禁止删除 spool 来消除排队。整批落地稿会统一给出停机、备份、签名、启动与核验命令；本次没有连接生产、迁移真实库、发送用户消息、签署生产 manifest 或重启服务。
