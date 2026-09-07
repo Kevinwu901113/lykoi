@@ -44,6 +44,8 @@ import {
 import type { PersonaConfig } from './persona.ts'
 import { buildPersonaKernel, renderOwnerTemplate } from './persona.ts'
 
+import { AUTONOMY_ACTIONS, type AutonomyKindName } from './action-registry.ts'
+export * from './action-registry.ts'
 export * from './persona.ts'
 export * from './overlay.ts'
 export * from './persona-toml.ts'
@@ -59,19 +61,16 @@ export * from './capability-gap.ts'
  * buildCandidates 末行以 KINDS 为遍历序而不以 allowed 集合序（集合无序会让
  * 候选表顺序非确定）。有序数组是渲染锚，不得改用集合。
  */
-export const KINDS = [
-  'explore', 'record_note', 'queue_notification', 'initiate_chat',
-  'tend_inner', 'rest', 'contemplate',
-] as const
-export type KindName = (typeof KINDS)[number]
+export const KINDS: readonly AutonomyKindName[] = Object.freeze(Object.keys(AUTONOMY_ACTIONS) as AutonomyKindName[])
+export type KindName = AutonomyKindName
 
 /**
  * SA-02：decision 行离开 content 就没意义的 kinds。contemplate（§5.5 §2.1）
  * **刻意不在其中**：它纯内向，产出在 inner 块。
  */
-export const CONTENT_REQUIRED_KINDS = [
-  'record_note', 'queue_notification', 'initiate_chat', 'tend_inner',
-] as const
+export const CONTENT_REQUIRED_KINDS: readonly KindName[] = Object.freeze(
+  KINDS.filter(kind => AUTONOMY_ACTIONS[kind].contentRequired),
+)
 
 /**
  * SA-03：护栏失败的落点。自主情境 = rest（安静永远是合法的）；对话情境 =
@@ -344,7 +343,7 @@ export function buildCandidates(
   // 且它不在里面，三个分支（含上面的 SA-09 饥饿棘轮）一律不许候选 explore ——
   // 泄压出口不存在时不许摆一个假的。不给 `wired`（省略该 opts）→ 本函数行为
   // 逐字节不变，既有调用点与测试零改动。
-  if (opts?.wired && !opts.wired.has('research_browser.read_text')) {
+  if (opts?.wired && !opts.wired.has(AUTONOMY_ACTIONS.explore.action)) {
     allowed.delete('explore')
   }
 

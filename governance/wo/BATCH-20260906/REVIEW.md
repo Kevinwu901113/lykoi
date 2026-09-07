@@ -1,6 +1,6 @@
 # 整批审阅交付 · 2026-09-06
 
-状态：代码与实验工具分支交付，**未合并、未部署，整批实测验收未完成**。代码尖9e24bd7；对照origin/main c17e148，无主线新增分叉。所有依赖已按顺序叠在本审阅分支，一次审阅可见完整差异，各工单分支仍保留。
+状态：代码与实验工具分支交付，**未合并、未部署，整批实测验收未完成**。代码基线e350900，E1共享事实实现见WO-KINDS-CONVERGE-02；对照origin/main c17e148，无主线新增分叉。所有依赖已按顺序叠在本审阅分支，一次审阅可见完整差异，各工单分支仍保留。
 
 ## 本次完成
 
@@ -18,7 +18,7 @@
 | C1末项修复 | 8f3ec5a | 无换行plan末项漏跑根因、仅P4B-3-off两次补跑 |
 | A1/B3结果归属补修 | 9e24bd7 | CycleResult锁内快照，防摘要等待期间下一轮覆盖终局/承诺/待批 |
 
-最终生产代码全量：**1215 tests /1204 pass /0 fail /11 skipped**，typecheck通过。实验离线测试：C2两项、Recall两项、C1 planner一项通过，dry-run无API。各工单report保留当时基线/计数，不能累加成最终测试数。
+最终生产代码全量：**1217 tests /1206 pass /0 fail /11 skipped**，typecheck通过。实验离线测试：C2两项、Recall两项、C1 planner一项通过，dry-run无API。各工单report保留当时基线/计数，不能累加成最终测试数。
 
 A1/B2/B3/B1、A4原4096与E4-1/2是已有合入成果。本次沿用并复核，不重新执行历史迁移/部署稿。Kevin在续接中重申A1的converse/turn_terminal四态要求，优先于旧工单。WO-OUTCOME-CONTRACT-02已将正本事件名对齐，并将silence改为终局派生；随后经Kevin授权代定为completed/intentional_silence/deferred/failed，消费应答以completed加reason表示，四态已对齐。A3截止点保守设在首次认知结果应用前，早于首次dispatch，避免内部写入后回滚。
 
@@ -33,7 +33,7 @@ continuation.scan经Conversation.send调用同一认知锁/#runCycle，非wake�
 - R-A/R-B/R-C/R-D依本任务授权执行；R-D评估稿仍为non-normative，不提升为白皮书规范。
 - D4审计、E4-SPEC、v1.3候选和措辞稿已在仓库，本次不挪真实实例数据，不擅自改规范正本。
 - D2报告仍为3/4，WAL前置未达，37.5/E2不解锁；旧生产journal_mode记录是历史读数，本次未连接生产刷新。
-- E1已完成评估稿，**甲/乙案和record_note归并尚无明确实施裁定**。建议甲案先抽共用动作表、保持两处提示词SHA、保留现有枚举行为；record_note是否并入tend_inner另裁，不以零使用量自动删除能力。
+- E1经Kevin授权代定选择甲案，共享动作事实实现及验证完成，提示词SHA不变；保留七kind，不合并写入语义不同的record_note/tend_inner，queue_notification保留。
 - E4分离先于E6人格层的顺序保持；Recall准备不是Topic/Thread立项通过。
 - C1旧报告推导的路由/验证器官建议仍是建议，不能把小样本发现率当成架构强制规则。
 

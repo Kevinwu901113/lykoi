@@ -28,7 +28,7 @@
  * 的 clock 薄件（生产=systemClock、测试=VirtualClock）。
  */
 import {
-  emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
+  AUTONOMY_ACTIONS, emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { parseStateTimestamp, type EpistemicStance, type HistoryRow } from 'lykoi-memory'
 import type { ConversationDirection, ExperienceSource } from 'lykoi-memory/rw'
@@ -335,7 +335,7 @@ export async function executeAndReflow(
         result = 'explore 扑空:想去看看,但没有起点 url,什么都没读到'
       } else {
         const observation = await dispatchFn(
-          'research_browser.read_text', { url: decision.url }, runId,
+          AUTONOMY_ACTIONS.explore.action, { url: decision.url }, runId,
         )
         // SA-57：counts["action"] 在 dispatch 之后**无条件** +1（被拦下也算）。
         counts.action += 1
@@ -367,7 +367,7 @@ export async function executeAndReflow(
       // WO-NIGHT-01/B3 主动开口:对话消息,不是手机通知。同 queue_notification
       // 一样走 kernel dispatch(origin=autonomous),预算被拦下时她体验为结果。
       const observation = await dispatchFn(
-        'autonomy.initiate_chat',
+        AUTONOMY_ACTIONS.initiate_chat.action,
         { content: (decision.content ?? '').trim(), run_id: runId },
         runId,
       )
@@ -390,7 +390,7 @@ export async function executeAndReflow(
       // 分支的 kind 都会默默变成一条发给 Kevin 的通知（contemplate 踩过的坑）。
       // 新体改**显式分支**；语义与活体逐字等价（今日七 kind 全覆盖）。
       const observation = await dispatchFn(
-        'autonomy.queue_notification',
+        AUTONOMY_ACTIONS.queue_notification.action,
         { summary: (decision.content ?? '').trim(), run_id: runId },
         runId,
       )
