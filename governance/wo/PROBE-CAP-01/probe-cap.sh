@@ -18,9 +18,9 @@ BASE="${DEEPSEEK_BASE_URL:-https://api.deepseek.com}"
 MODEL="${PROBE_MODEL:-deepseek-v4-flash}"
 PERSONA=/home/lykoi/runtime/persona/lykoi_base.toml
 WORK=$(mktemp -d /tmp/probe-cap.XXXXXX); trap 'rm -rf "$WORK"' EXIT
-python3 - "$WORK" "$PERSONA" <<'PY'
+python3 - "$WORK" "$PERSONA" "${1:-}" <<'PY'
 import json, sys, os
-work, persona_path = sys.argv[1], sys.argv[2]
+work, persona_path, only = sys.argv[1:4]
 persona = open(persona_path, encoding='utf-8').read()
 
 # 工具表：产线 TOOL_TABLE 里 wiredActions 会给她看的 8 行（名 / 形参 / 用途逐字，
@@ -148,6 +148,9 @@ for i, (t, d) in enumerate(P4_DELIVERIES, 1):
     for l in ("low", "off"):
         plan.append((f"P4-{i}-{l}", p4(t, d), l))
         plan.append((f"P4B-{i}-{l}", p4(t, d, with_persona=False), l))
+if only:
+    plan = [item for item in plan if item[0] == only]
+    if not plan: raise SystemExit("unknown probe key")
 model = os.environ.get("PROBE_MODEL", "deepseek-v4-flash")
 for key, msgs, l in plan:
     body = {"model": model, "stream": False, "response_format": {"type": "json_object"}, "messages": msgs, **levels[l]}
@@ -155,6 +158,8 @@ for key, msgs, l in plan:
 open(os.path.join(work, "plan"), "w").write("\n".join(k for k, _, _ in plan))
 print("persona_chars", len(persona), "contract_chars", len(C_BASE), "delegate_contract_chars", len(C_DELEG), "requests", len(plan))
 PY
+planner_status=$?
+if (( planner_status != 0 )); then exit "$planner_status"; fi
 parse() { python3 -c '
 import sys, json
 t, key = sys.argv[1], sys.argv[2]; raw = sys.stdin.read()
@@ -179,5 +184,5 @@ print("  content:", content if full else repr(content[:160]))
 run() { f="$WORK/$1.json"; echo "=== $1"; for i in 1 2; do
   out=$(curl -sS -m 240 -o "$WORK/resp" -w '%{time_total}' "$BASE/chat/completions" -H "Authorization: Bearer $DEEPSEEK_API_KEY" -H "Content-Type: application/json" --data-binary "@$f")
   parse "$out" "$1" < "$WORK/resp"; done; }
-while read -r k; do run "$k"; done < "$WORK/plan"
+while IFS= read -r k || [[ -n "$k" ]]; do run "$k"; done < "$WORK/plan"
 echo "=== 完（临时目录已清）"
