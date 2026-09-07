@@ -289,7 +289,7 @@ async function setup(post: HttpPost) {
     cursorPath: join(dir, 'cursor.json'), archivePath: join(dir, 'inbound.json'),
     autoStart: false, pollTimeoutS: 25,
   })
-  return { svc: ctx.get('telegram') as TelegramAdapterService, audit }
+  return { svc: ctx.get('messenger') as TelegramAdapterService, audit }
 }
 
 test('D-4 telegram/sent 审计：chars 记全文，parts 记段数；单段 parts=1', async () => {

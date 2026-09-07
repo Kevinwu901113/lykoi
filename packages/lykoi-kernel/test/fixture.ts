@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   _resetAuditHealthForTest, _setPolicyCoreForTest, setIdentityBindingLookup,
-  setKernelLogEvent,
+  setKernelLogEvent, setOwnerBindingLookup,
 } from '../src/index.ts'
 
 export const T0 = new Date('2026-08-25T10:00:00Z')
@@ -24,6 +24,7 @@ export function isolateKernelState(): string {
   _setPolicyCoreForTest(undefined) // 恢复内建 core
   _resetAuditHealthForTest()
   setIdentityBindingLookup(null)
+  setOwnerBindingLookup(() => ({ channel: 'telegram', channel_key: '1001' }))
   setKernelLogEvent(null)
   return dir
 }

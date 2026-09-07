@@ -16,7 +16,7 @@
  * 时钟经 deps.now 注入（CLAUDE.md 测试时钟纪律）。审计行零正文（D-08）：只有
  * 字数、代号、id。goal 原文只住在 pending_continuations（state 库 = 她的记忆）。
  */
-import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
+import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
 import type { Conversation } from './conversation.ts'
 import { failureReason } from './failure.ts'
@@ -51,7 +51,7 @@ export interface ContinuationStore {
   finishContinuation(
     id: string, state: ContinuationTerminalState, reason: string | null, now: Date,
   ): boolean
-  ownerChannelKey(channel: string): string | null
+  ownerBinding(): { channel: string; channel_key: string } | null
 }
 
 export type ContinuationConversation = Pick<
@@ -67,7 +67,7 @@ export interface ContinuationRunnerDeps {
   conversation: ContinuationConversation
   audit: ContinuationAudit
   /** 晚绑定：telegram 插件可能 disabled，每次要用时再取。 */
-  telegram: () => Pick<TelegramAdapterService, 'transportSend'> | undefined
+  messenger: () => Pick<MessengerAdapterService, 'transportSend'> | undefined
   /** 她的续跑产出走 chat_outbox followup 通道（与 postProgress 同一条路）。 */
   postProgress: (content: string) => void
   now: () => Date
@@ -263,18 +263,18 @@ export class ContinuationRunner implements ContinuationsService {
    * `send` 是 reply-only 门面。
    */
   async #notice(reason: string): Promise<void> {
-    const telegram = this.#deps.telegram()
-    const chatId = this.#deps.store.ownerChannelKey('telegram')
-    if (telegram === undefined || chatId === null) {
+    const messenger = this.#deps.messenger()
+    const chatId = this.#deps.store.ownerBinding()?.channel_key ?? null
+    if (messenger === undefined || chatId === null) {
       await this.#deps.audit.record({
         type: 'continuation/notice_failed',
         reason,
-        error_name: telegram === undefined ? 'no_transport' : 'no_owner_binding',
+        error_name: messenger === undefined ? 'no_transport' : 'no_owner_binding',
       })
       return
     }
     try {
-      await telegram.transportSend(chatId, CONTINUATION_FAILURE_NOTICE(reason), null, {
+      await messenger.transportSend(chatId, CONTINUATION_FAILURE_NOTICE(reason), null, {
         recordUndeliveredExperience: false,
       })
     } catch (err) {

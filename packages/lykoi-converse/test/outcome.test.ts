@@ -97,6 +97,7 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
   const replyContexts: { run_id?: string | null; turn_id?: string | null }[] = []
   const replyAnchors: (string | null)[] = []
   return {
+    channel: 'telegram',
     bareSends,
     bareSendOptions,
     replyContexts,
@@ -156,7 +157,7 @@ async function runHandleScenario(scenario: HandleScenario): Promise<{
   const telegram = scenario.noTransport ? undefined : fakeTelegram(scenario)
   const ctx = {
     audit,
-    get(name: string) { return name === 'telegram' ? telegram : undefined },
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
   } as unknown as Context
   const conversation = fakeConversation(scenario)
   const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
@@ -369,7 +370,7 @@ async function runConsumed(reason: 'approval_answer' | 'suggestion_answer'): Pro
   telegram.routeOwnerMessage = async () => reason
   const ctx = {
     audit,
-    get(name: string) { return name === 'telegram' ? telegram : undefined },
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
   } as unknown as Context
   const conversation = fakeConversation({ reply: '不应执行' })
   const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
@@ -392,7 +393,7 @@ test('T10：多 part 只在末端确定性 render，普通回复锚定最后 pla
   const telegram = fakeTelegram()
   const ctx = {
     audit,
-    get(name: string) { return name === 'telegram' ? telegram : undefined },
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
   } as unknown as Context
   const conversation = fakeConversation({ reply: '收到', cycleKind: 'reply' })
   const merged: UserTurn = {

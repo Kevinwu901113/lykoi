@@ -117,7 +117,7 @@ async function assemble(replyText: string): Promise<Assembly> {
     visionRoute: "disabled",
     visionModel: "disabled",
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   const budget = ctx.get('budget') as BudgetService
   return { ctx, audit, transport, telegram, budget, dbPath }
 }

@@ -121,7 +121,7 @@ async function assemble(replyText: string) {
   })
   return {
     audit, transport, dbPath,
-    telegram: ctx.get('telegram') as TelegramAdapterService,
+    telegram: ctx.get('messenger') as TelegramAdapterService,
     service: ctx.get('converse') as converse.ConverseService,
   }
 }

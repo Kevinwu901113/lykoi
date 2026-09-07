@@ -62,7 +62,7 @@ import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
   createDispatch, isActive as chatIsActive,
   notificationsRemainingToday, pendingCount, proactiveRemainingToday,
-  setIdentityBindingLookup, setKernelLogEvent, wiredActionCatalog,
+  setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent, wiredActionCatalog,
 } from 'lykoi-kernel'
 import {
   outboundOrganResources, setMessengerLogEvent, setTransportLogEvent,
@@ -521,6 +521,7 @@ export function apply(ctx: Context, config: Config) {
   setMessengerLogEvent(logEvent)
   setTransportLogEvent(logEvent)
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
+  setOwnerBindingLookup(() => store.ownerBinding())
 
   // D-FIX-1：先天内核从 owner 域 TOML 装载（converse 镜像；SA-156 fail-fast ——
   // 文件缺失/坏 TOML 抛 PersonaConfigError，不包不吞，病内核在启动时炸）。

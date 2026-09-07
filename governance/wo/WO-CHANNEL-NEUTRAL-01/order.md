@@ -1,5 +1,7 @@
 # WO-CHANNEL-NEUTRAL-01 · 通道中性化第一批（B1）
 
+> 2026-09-07 整批接续修订（优先于下文旧基线）：继承 A3 `9c4fa24`，不再继承旧 INTERRUPT。D-1/D-3 的旧入站事件与同一 inbound/turn ID 已由 A2 durable ingress 和分层 ID 替代，保留当前身份链，不倒退成 `${channel}:${seq}` 共用 ID。本单落实 D-2/D-4/D-5/D-6；无新入站事件。当前单传输装配需声明 channel；canonical owner 绑定与传输不匹配时启动即拒绝，避免把别的平台 ID 发到 Telegram。D-6 扫描区分执行耦合、平台自身代码与历史注释，后两者不伪装清零。
+
 - 状态：**待派**。执行方：执行子 Agent。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：Kevin 裁定 R-B；memo 评估稿 §四 B1（耦合面 = 事件名 `lykoi/telegram/inbound` + runId 里的 updateId 构造；`autonomy.initiate_chat` 面向"canonical person"）；E4-SPEC §1（身体 = 通道账号是实例事实，框架对通道中立）。

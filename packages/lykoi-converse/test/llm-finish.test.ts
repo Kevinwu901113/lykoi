@@ -122,7 +122,7 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
     visionRoute: 'disabled',
     visionModel: 'disabled',
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 900, chatId: '1001', senderId: '1001', text: '在吗' },

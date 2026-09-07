@@ -66,7 +66,7 @@ class FakeStore implements ContinuationStore {
     r.state = state; r.terminal_reason = reason; r.updated_at = pyIso(now)
     return true
   }
-  ownerChannelKey(): string | null { return this.owner }
+  ownerBinding(): { channel: string; channel_key: string } | null { return this.owner === null ? null : { channel: 'telegram', channel_key: this.owner } }
 }
 
 interface ConvOptions {
@@ -120,7 +120,7 @@ function harness(conv: ConvOptions, opts: { telegram?: 'ok' | 'throws' | 'absent
     store,
     conversation: c.conversation as never,
     audit: { async record(e) { events.push(e) } },
-    telegram: () => (opts.telegram === 'absent' ? undefined : tg.telegram),
+    messenger: () => (opts.telegram === 'absent' ? undefined : tg.telegram),
     postProgress: (content) => { progress.push(content) },
     now: opts.clock ?? (() => T0),
     onError: (where) => { errors.push(where) },
@@ -348,7 +348,7 @@ function turnHarness(conv: { reply: string; error?: unknown; followup: string | 
   }
   const ctx = {
     audit: { async record(e: { type: string }) { events.push(e as never) } },
-    get: (name: string) => (name === 'telegram' ? telegram : undefined),
+    get: (name: string) => (name === 'messenger' ? telegram : undefined),
   } as unknown as Context
   const registered: { originTurnId: string; originRunId: string | null; goal: string }[] = []
   let kicks = 0

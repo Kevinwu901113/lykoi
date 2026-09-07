@@ -78,7 +78,7 @@ async function setup(transport: ProductionTelegramTransport | MemoryTelegramTran
     cursorPath: join(dir, 'cursor.json'), archivePath: join(dir, 'inbound.json'),
     autoStart: false, pollTimeoutS: 25,
   })
-  return { svc: ctx.get('telegram') as TelegramAdapterService, audit, experiences }
+  return { svc: ctx.get('messenger') as TelegramAdapterService, audit, experiences }
 }
 
 function production(status: number, body: () => unknown = () => ({})): ProductionTelegramTransport {

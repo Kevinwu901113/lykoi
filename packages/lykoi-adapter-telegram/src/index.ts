@@ -114,7 +114,9 @@ export interface TelegramAdapterCounters {
   sendFailed: number
 }
 
-export interface TelegramAdapterService {
+export interface MessengerAdapterService {
+  /** 当前单传输实例负责的通道。 */
+  readonly channel: string
   /**
    * 裸出站（M1 的应答路径，reply_to 必带）—— **M3-W3 起它不再是回复的正路**：
    * 她的回复走 `sendReply`（经 dispatch，E2 盖章，SK-78 三分支结局）。本方法保留
@@ -175,9 +177,12 @@ export interface TelegramAdapterService {
   ): Promise<TelegramSendResult>
 }
 
+/** @deprecated 使用 MessengerAdapterService；保留一版类型兼容。 */
+export type TelegramAdapterService = MessengerAdapterService
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    telegram: TelegramAdapterService
+    messenger: MessengerAdapterService
     telegramTransport: TelegramTransport
   }
 }
@@ -230,7 +235,8 @@ async function writeJsonAtomic(path: string, value: unknown, seq: number): Promi
 
 // ============================== 适配器实现 ==============================
 
-export class TelegramAdapter implements TelegramAdapterService {
+export class TelegramAdapter implements MessengerAdapterService {
+  readonly channel = 'telegram'
   #transport: TelegramTransport
   #audit: AuditService
   #ingress: IngressService
@@ -715,7 +721,7 @@ export function apply(ctx: Context, config: Config) {
     archivePath: config.archivePath,
     pollTimeoutS: config.pollTimeoutS,
   })
-  ctx.provide('telegram', adapter)
+  ctx.provide('messenger', adapter)
   // M3-W3：**这个进程的 `messenger.send` 从此真的说得出话**（活体
   // `messenger._TRANSPORT = transport` 那一行的对应物，telegram_device.py:529）。
   // 于是她的每一条出站 —— 回复 / 审批问句 / 建议问句 / 投递线 —— 都继承同一套

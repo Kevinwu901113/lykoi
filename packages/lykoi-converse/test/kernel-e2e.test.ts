@@ -124,7 +124,7 @@ async function assemble(replyText: string) {
     visionRoute: "disabled",
     visionModel: "disabled",
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   const service = ctx.get('converse') as converse.ConverseService
   return { audit, transport, telegram, converse: service, dir }
 }

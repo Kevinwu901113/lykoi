@@ -115,7 +115,7 @@ function memoryStore(rows: Row[] = [], opts: {
     resolved,
     claims,
     currentFocusCycleId: () => opts.cycle ?? 100,
-    ownerChannelKey: () => (opts.ownerKey === undefined ? '1001' : opts.ownerKey),
+    ownerBinding: () => opts.ownerKey === null ? null : ({ channel: 'matrix', channel_key: opts.ownerKey ?? '1001' }),
     outstandingAskedRuleSuggestions: () => rows.filter((r) => r.status === 'asked'),
     nextPendingRuleSuggestion: () => rows.find((r) => r.status === 'pending') ?? null,
     overdueAskedRuleSuggestions: (cycleId, ttl) => rows.filter(

@@ -53,7 +53,7 @@ export const DECLINE_COOLDOWN_CYCLES = 30
 /** 他没理这条问询，冷却短一些：沉默不是拒绝，但也不该被当成"再问一次"的许可。 */
 export const EXPIRE_COOLDOWN_CYCLES = 10
 
-export const MESSENGER_CHANNEL = 'telegram'
+// 通道由 ownerBinding 提供。
 
 export const AUDIT_SUGGESTION = 'rule_suggestion_interaction'
 
@@ -130,7 +130,7 @@ export const ANSWER_TEMPERATURE = 0.0
 /** rule_suggestions 队列面（`lykoi-memory` ReadWriteMemory 的结构子集）。 */
 export interface SuggestionStore {
   currentFocusCycleId(): number
-  ownerChannelKey(channel: string): string | null
+  ownerBinding(): { channel: string; channel_key: string } | null
   outstandingAskedRuleSuggestions(): Record<string, unknown>[]
   nextPendingRuleSuggestion(): Record<string, unknown> | null
   overdueAskedRuleSuggestions(cycleId: number, ttlCycles: number): Record<string, unknown>[]
@@ -333,7 +333,7 @@ export function createSuggestionConversation(
    * 队列里。宁可她憋着，也不能让"往哪儿问"成为一个可以被配置绕开的判断。
    */
   function _ownerContext(): string | null {
-    return store.ownerChannelKey(MESSENGER_CHANNEL)
+    return store.ownerBinding()?.channel_key ?? null
   }
 
   /**

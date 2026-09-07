@@ -101,7 +101,7 @@ async function setup(options: {
   const inbound: InboundPart[] = []
   ctx.provide('ingress', options.ingressOverride ?? fakeIngress(inbound))
   await ctx.plugin(adapterPlugin, { cursorPath, archivePath, autoStart: false, pollTimeoutS: 25 })
-  const svc = ctx.get('telegram') as TelegramAdapterService
+  const svc = ctx.get('messenger') as TelegramAdapterService
   return { ctx, svc, transport, audit, inbound, cursorPath, archivePath }
 }
 
@@ -221,7 +221,7 @@ test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', asyn
     autoStart: false, pollTimeoutS: 25,
   })
   firstTransport.queueUpdate(ownerUpdate(1, '只收一次'))
-  await assert.rejects(() => firstCtx.telegram.pollOnce())
+  await assert.rejects(() => firstCtx.messenger.pollOnce())
   firstIngress.close()
 
   const secondIngress = new DurableIngress({ dbPath, audit, autoStart: false })
@@ -238,8 +238,8 @@ test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', asyn
     autoStart: false, pollTimeoutS: 25,
   })
   secondTransport.queueUpdate(ownerUpdate(1, '只收一次'))
-  assert.equal(await secondCtx.telegram.pollOnce(), 1)
-  assert.equal(secondCtx.telegram.cursor(), 1)
+  assert.equal(await secondCtx.messenger.pollOnce(), 1)
+  assert.equal(secondCtx.messenger.cursor(), 1)
   const db = new DatabaseSync(dbPath)
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM inbound_parts').get() as { n: number }).n, 1)
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM user_turns').get() as { n: number }).n, 1)
@@ -277,15 +277,15 @@ test('T8：A cognition 阻塞时，真实 adapter 仍接纳 B/C 并推进 cursor
   })
 
   transport.queueUpdate(ownerUpdate(1, 'A'))
-  assert.equal(await ctx.telegram.pollOnce(), 1)
+  assert.equal(await ctx.messenger.pollOnce(), 1)
   await ingress.tick(new Date(Date.now() + 5_000))
   await Promise.resolve()
   assert.deepEqual(order, [['A']])
 
   transport.queueUpdate(ownerUpdate(2, 'B'))
   transport.queueUpdate(ownerUpdate(3, 'C'))
-  assert.equal(await ctx.telegram.pollOnce(), 2, 'poll 不等待 A cognition')
-  assert.equal(ctx.telegram.cursor(), 3)
+  assert.equal(await ctx.messenger.pollOnce(), 2, 'poll 不等待 A cognition')
+  assert.equal(ctx.messenger.cursor(), 3)
   await ingress.tick(new Date(Date.now() + 5_000))
   const db = new DatabaseSync(dbPath)
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM inbound_parts WHERE platform_update_id IN ('2','3')").get() as { n: number }).n, 2)

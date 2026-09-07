@@ -34,7 +34,7 @@ function harness(deps: Partial<ConverseDeps> = {}) {
     async routeOwnerMessage() { return null }, outboundWired() { return false },
     async send(_peer: string, text: string, anchor: string) { sent.push({ text, anchor }); return { sent: true } },
   }
-  const ctx = { audit, get(name: string) { return name === 'telegram' ? telegram : undefined } } as unknown as Context
+  const ctx = { audit, get(name: string) { return name === 'messenger' ? telegram : undefined } } as unknown as Context
   const ingress = new DurableIngress({ dbPath: join(mkdtempSync(join(tmpdir(), 'sched-')), 'spool.db'),
     audit, autoStart: false, now: () => new Date(BASE + 5_000) })
   ingress.registerInterruptor({ canInterrupt: id => h.conversation.canInterrupt(id), interrupt: id => h.conversation.interrupt(id) })
