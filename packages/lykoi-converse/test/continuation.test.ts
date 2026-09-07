@@ -84,7 +84,9 @@ function fakeConversation(o: ConvOptions) {
   let taken = 0
   const conversation = {
     async send(text: string, opts: Record<string, unknown>) {
-      sends.push({ text, opts })
+      const { onUtterances, ...identity } = opts
+      assert.equal(typeof onUtterances, 'function')
+      sends.push({ text, opts: identity })
       if (o.gate) await o.gate.wait
       if (o.error !== undefined) throw o.error
       followup = o.chained ? 'CHAINED_GOAL_SENTINEL' : null

@@ -86,6 +86,8 @@ test('G-10 修正版信封契约：反向恢复两处修正后 sha == 活体 raw
   assert.ok(ENVELOPE_SYSTEM_PROMPT.includes(AMENDED_GROUNDING_BULLET), 'D-03 修正在位')
   assert.ok(ENVELOPE_SYSTEM_PROMPT.includes(AMENDED_TOOL_CALL_BULLET), 'D-02① 修正在位')
   const reverted = ENVELOPE_SYSTEM_PROMPT
+    .replace('- reply: utterances 是你要逐条说的话的非空字符串数组,按数组顺序逐字发送;不需要分段时也可只给 content。', '- reply: content 是你要说的话,会经 messenger.send 发给来话的对端。')
+    .replace('- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里;可另给 utterances 作为本轮要说的话。', '- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里。')
     .replace(AMENDED_GROUNDING_BULLET, LIVE_GROUNDING_BULLET)
     .replace(AMENDED_TOOL_CALL_BULLET, LIVE_TOOL_CALL_BULLET)
   assert.equal(cps(reverted), 1677)
@@ -96,18 +98,18 @@ test('新 raw sha 记录（旧 9d4f169e… → 新；随 G-2 sha 变更表同一
   // 实算钉死：任何后续改动都会让这两行变红 —— 修正版文本从此就是契约。
   // 旧（活体 raw）：chars=1677 sha=9d4f169eb3ea368be6cf46e44445fc0ea943a4d7052a3c03744ea63bdf869eb7
   // 新（G-10 D-02①/D-03）：chars=1748 sha=88587c8e…（{causes}/{tools} 未展开口径）
-  assert.equal(cps(ENVELOPE_SYSTEM_PROMPT), 1748)
+  assert.equal(cps(ENVELOPE_SYSTEM_PROMPT), 1788)
   assert.equal(
     sha(ENVELOPE_SYSTEM_PROMPT),
-    '88587c8e3d923969d16a92e4cb996b6d45d5e2e077ac7af00ff016a39c0be14a',
+    'dee3cff2ba2e4ff7cbc3e6765b6b62980e13039bef8f84e0535aad131245010c',
   )
   // 渲染后（causes+tools 已代入）：旧 1960/739494ec… → G-10 2245/f063714f… →
   // WO-FIX-TOOLSPEC-01 D-2（{tools} 从裸名 join 变成带签名与用途的表）
   // 2984/29f13777…。契约文本变了 = 稳定前缀缓存失效一次，属预期。
-  assert.equal(cps(envelopeSystemPrompt()), 2984)
+  assert.equal(cps(envelopeSystemPrompt()), 3024)
   assert.equal(
     sha(envelopeSystemPrompt()),
-    '29f1377755b5890c14ab151f269ecb55a97e749e0fbe401546da30538786988f',
+    'd3a4d3a8f72520c009f50a65d748329bcfb4e53992e7b219981cb07656e3786c',
   )
 })
 

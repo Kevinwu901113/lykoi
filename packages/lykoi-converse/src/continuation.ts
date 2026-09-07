@@ -204,10 +204,12 @@ export class ContinuationRunner implements ContinuationsService {
     let replyChars = 0
     let chained = false
     try {
+      let utterances: readonly string[] | undefined
       const reply = await this.#deps.conversation.send(CONTINUATION_PROMPT(row.goal), {
         background: true,
         runId,
         turnId: row.id,
+        onUtterances: parts => { utterances = parts },
       })
       // D-6：续跑里又答应"稍后做" —— 取走丢弃，只记旗子，不登记新行。
       chained = this.#deps.conversation.hasFollowupRequest()
@@ -215,7 +217,7 @@ export class ContinuationRunner implements ContinuationsService {
       const kind = this.#deps.conversation.lastCycleOutcome()?.kind ?? null
       if (reply.trim().length > 0) {
         replyChars = reply.length
-        this.#deps.postProgress(reply)
+        for (const part of utterances ?? [reply]) this.#deps.postProgress(part)
       }
       if (kind === 'envelope_failed') { state = 'failed'; reason = 'envelope_failed' }
       else if (kind === 'missing_tool') { state = 'failed'; reason = 'missing_tool' }

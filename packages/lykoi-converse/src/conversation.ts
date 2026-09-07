@@ -455,6 +455,7 @@ export class Conversation {
   #cycleInner: string | null = null
   /** WO-PULSE-01 D-2：本轮最终被接受信封的情绪脉冲（一轮一份；S-13 清、S-14 丢）。 */
   #cyclePulse: string[] = []
+  #cycleUtterances: string[] = []
   #lastRunId = ''
   #lastTurnId: string | null = null
   #lastCycleOutcome: CycleOutcome | null = null
@@ -1179,15 +1180,17 @@ export class Conversation {
         return ''
       }
       if (kind === REPLY) {
-        this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
         this.#lastCycleOutcome = { kind: 'reply', step }
         return decision.content ?? ''
       }
       if (kind === PROMISE_FOLLOWUP) {
         this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
-        this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
         this.#lastCycleOutcome = { kind: 'followup', step }
-        return decision.content ?? ''
+        return this.#cycleUtterances.join('')
       }
       // --- tool_call ---
       const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
@@ -1542,6 +1545,7 @@ export class Conversation {
     message: string,
     opts: {
       background?: boolean
+      onUtterances?: (parts: readonly string[]) => void
       replyToNotification?: ReplyToNotification | null
       runId?: string
       turnId?: string | null
@@ -1556,6 +1560,7 @@ export class Conversation {
       this.#delegatedAsk = null
       this.#cycleInner = null
       this.#cyclePulse = [] // WO-PULSE-01 D-2：一轮一份
+      this.#cycleUtterances = []
       this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
       this.#lastTurnId = opts.turnId ?? null
@@ -1598,12 +1603,13 @@ export class Conversation {
         // S-15：召回是针对这句话的，展示期就是这一轮。
         this.#relevantMemories = null
       }
+      if (this.#cycleUtterances.length === 0 && reply) this.#cycleUtterances = [reply]
       const appliedInner = this.#cycleInner
       const now = this.#now()
       // S-16：每个成功回合恰一条 history(conversation) 行（含 silence，reply=""）。
       const historyId = this.#deps.store.appendHistory(
         'conversation',
-        JSON.stringify({ user: message, reply }),
+        JSON.stringify({ user: message, reply, ...(this.#cycleUtterances.length > 1 ? { utterances: this.#cycleUtterances } : {}) }),
         { now },
       )
       // D-08（G-10 修正版）：inner_outer_pair 只记长度/哈希 —— 正文归 history 表
@@ -1638,6 +1644,7 @@ export class Conversation {
           error: exc instanceof Error ? exc.message : String(exc),
         })
       }
+      opts.onUtterances?.([...this.#cycleUtterances])
       return reply
     })
     // S-12：摘要在**锁外**跑 —— 摘要时延不挡并发回合。

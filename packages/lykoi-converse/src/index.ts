@@ -19,6 +19,7 @@
  * owner-side step, not an import side effect）。record_deploy_event（git sha
  * 盖章）随 M3 生产部署接线。
  */
+import { sequenceUtterances } from './sequencer.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { resolve } from 'node:path'
@@ -53,7 +54,7 @@ import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { recordExperience } from 'lykoi-reflow'
 import { collectRestartClues, latestRestartEvent, recordDeployEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
-  ContextBudgetError, Conversation, composeSurfaceReply, selfStateBlock,
+  ContextBudgetError, Conversation, selfStateBlock,
   type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import {
@@ -806,7 +807,8 @@ export async function handleTurn(
     } else {
       // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
       const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')
-      const reply = await conversation.send(rendered, { runId, turnId })
+      let utterances: readonly string[] | undefined
+      const reply = await conversation.send(rendered, { runId, turnId, onUtterances: parts => { utterances = parts } })
       followupRegistered = conversation.hasFollowupRequest()
 
     const deviceSideWired = messenger !== undefined && messenger.outboundWired()
@@ -835,9 +837,9 @@ export async function handleTurn(
       askSent = asked.asked && asked.status === 'asked'
     }
 
-    const surfaceReply = composeSurfaceReply(reply, pendingCount(), false)
-    replyChars = surfaceReply.length
-    if (surfaceReply.trim().length === 0) {
+    const parts = utterances ?? (reply.trim() ? [reply] : [])
+    replyChars = parts.reduce((sum, part) => sum + part.length, 0)
+    if (parts.length === 0) {
       await ctx.audit.record({
         type: 'converse/silence', turn_id: turnId, runId, updateId,
       })
@@ -857,7 +859,7 @@ export async function handleTurn(
     } else {
       await ctx.audit.record({
         type: 'converse/reply', turn_id: turnId, runId,
-        updateId, chars: surfaceReply.length,
+        updateId, chars: replyChars, utterances: parts.length,
       })
       if (messenger === undefined) {
         await ctx.audit.record({
@@ -865,19 +867,23 @@ export async function handleTurn(
         })
         terminal = resolveTurnOutcome({ kind: 'no_transport' })
       } else {
-        if (deviceSideWired) {
-          const delivered = await messenger.sendReply(
-            turn.contextId, surfaceReply, replyAnchor,
-            { run_id: runId, turn_id: turnId },
-          )
-          terminal = resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
-        } else {
-          const delivered = await messenger.send(turn.contextId, surfaceReply, replyAnchor)
-          terminal = resolveTurnOutcome({
-            kind: 'delivery',
-            outcome: delivered.sent ? 'delivered' : 'undelivered',
-          })
+        const pending = pendingCount()
+        if (pending > 0) {
+          // 确定性系统提示独立成条，不加工模型的逐字分段。
+          try { await messenger.send(turn.contextId, `[系统] 有 ${pending} 条待批准操作。`, replyAnchor, { recordUndeliveredExperience: false }) }
+          catch { /* 系统提示失败不遮蔽她已经生成的答复。 */ }
         }
+        const delivered = await sequenceUtterances(parts, async text => {
+          if (deviceSideWired) return (await messenger.sendReply(
+            turn.contextId, text, replyAnchor, { run_id: runId, turn_id: turnId },
+          )).outcome
+          return (await messenger.send(turn.contextId, text, replyAnchor)).sent ? 'delivered' : 'undelivered'
+        })
+        terminal = resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
+        await ctx.audit.record({
+          type: 'converse/utterances_delivery', turn_id: turnId, run_id: runId,
+          total: delivered.total, delivered: delivered.delivered, outcome: delivered.outcome,
+        })
         try {
           await askAbout()
         } catch (askError) {

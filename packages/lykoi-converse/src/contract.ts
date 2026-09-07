@@ -47,7 +47,7 @@ export const CONVERSATION_CONTENT_REQUIRED = [REPLY, PROMISE_FOLLOWUP] as const
 export const CONVERSATION_SAFE_KIND = SILENCE
 
 /** 情境专属字段：由 evaluateMessage 原样抬进 Decision.envelope，在这里消毒。 */
-export const ENVELOPE_FIELDS = ['tool', '情绪脉冲'] as const
+export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
 
 export const TOOL_NAME_MAX = 64
 export const TOOL_ARGS_CHARS_MAX = 2000
@@ -329,14 +329,14 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
 - decision.reason 必须逐字引用(原样复制)meaning_assessment 里至少一条的 item
   或 meaning 文本 —— 不引用任何评估条目的非 silence 决定会被确定性地降级为
   silence。被降级的 tool_call 不会执行那个工具。
-- reply: content 是你要说的话,会经 messenger.send 发给来话的对端。
+- reply: utterances 是你要逐条说的话的非空字符串数组,按数组顺序逐字发送;不需要分段时也可只给 content。
 - silence: 选择这一轮不说话。**这是一个正当的动作,不是失败**;它会落账,
   你不需要为它辩护。
 - tool_call: 需要 tool.name 与 tool.arguments。tool.name 只能取下面这张表里的
   名字(表外的名字不会执行):
   {tools}
   工具照旧分级 —— 需要他点头的工具不会因为你同时说了话就免了。
-- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里。
+- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里;可另给 utterances 作为本轮要说的话。
 - inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
   简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。
 - 情绪脉冲可选,是一个字符串数组,只能取下面这张表里的名字(它们是调节场唯一
@@ -473,6 +473,20 @@ export function parseEnvelope(
     runId?: string | null
   } = {},
 ): Decision {
+  // 用同一 extractJson 做情境字段预检；原文只投影到旧 content 接口，不改任何条目。
+  const raw = extractJson(message.content ?? '')
+  if (isPlainObject(raw) && isPlainObject(raw.decision)) {
+    const row = raw.decision
+    const supplied = Object.hasOwn(row, 'utterances') ? row.utterances : raw.utterances
+    if (supplied !== undefined && (row.kind === REPLY || row.kind === PROMISE_FOLLOWUP)) {
+      if (!Array.isArray(supplied) || supplied.length === 0
+        || supplied.some(part => typeof part !== 'string' || part.trim().length === 0)) {
+        throw new UtterancesError()
+      }
+      if (row.kind === REPLY) row.content = supplied.join('')
+      message = { content: JSON.stringify(raw) }
+    }
+  }
   const decision = evaluateMessage(message, opts.candidates ?? CONVERSATION_CATALOGUE, {
     injectedThoughtIds: opts.injectedThoughtIds,
     injectedConcernIds: opts.injectedConcernIds,
@@ -492,6 +506,8 @@ export function parseEnvelope(
   decision.envelope = {
     tool: sanitizeTool(decision.envelope.tool),
     pulse: sanitizePulse(decision.envelope['情绪脉冲']),
+    ...(decision.kind === REPLY || decision.kind === PROMISE_FOLLOWUP
+      ? { utterances: decision.envelope.utterances ?? [decision.content ?? ''] } : {}),
   }
   return decision
 }
@@ -507,6 +523,10 @@ export const FAIL_UNKNOWN_KIND = 'unknown_kind'
 export const FAIL_MISSING_CONTENT = 'missing_content'
 export const FAIL_PULSE_INVALID = 'pulse_invalid'
 export const FAIL_OTHER = 'other'
+
+export class UtterancesError extends Error {
+  constructor() { super('invalid utterances'); this.name = 'UtterancesError' }
+}
 
 export const FAILURE_REASONS = [
   FAIL_NOT_JSON, FAIL_NO_DECISION_OBJECT, FAIL_UNKNOWN_KIND,
@@ -623,6 +643,7 @@ export function classifyFailure(
   content: string | null | undefined,
 ): [string, string] {
   try {
+    if (exc instanceof UtterancesError) return [FAIL_OTHER, 'utterances_invalid']
     if (!(exc instanceof Error)) {
       return [FAIL_OTHER, 'classifier_error']
     }

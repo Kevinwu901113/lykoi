@@ -18,7 +18,7 @@ test('S-35：kinds 恰 4 项 / content 必填恰 2 项 / SAFE=silence / ENVELOPE
   assert.deepEqual([...CONVERSATION_KINDS], ['reply', 'silence', 'tool_call', 'promise_followup'])
   assert.deepEqual([...CONVERSATION_CONTENT_REQUIRED], ['reply', 'promise_followup'])
   assert.equal(CONVERSATION_SAFE_KIND, 'silence')
-  assert.deepEqual([...ENVELOPE_FIELDS], ['tool', '情绪脉冲'])
+  assert.deepEqual([...ENVELOPE_FIELDS], ['tool', '情绪脉冲', 'utterances'])
   assert.equal(Object.keys(TOOL_TO_ACTION).length, 10) // S-55
 })
 

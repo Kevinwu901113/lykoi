@@ -64,7 +64,7 @@ function fakeConversation(options: FakeConversationOptions): {
   const conversation = {
     async send(text: string, opts: { runId: string; turnId?: string }) {
       messages.push(text)
-      sendOptions.push(opts)
+      sendOptions.push({ runId: opts.runId, turnId: opts.turnId })
       if (options.error !== undefined) throw options.error
       return options.reply ?? ''
     },
