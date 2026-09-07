@@ -365,5 +365,5 @@ test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"�
   // 直接对着权威源验横幅装配（沉默路不加横幅是 D-04 的另一半，上面已钉）。
   assert.equal(composeSurfaceReply('在的', pendingCount(), false), '⚠️ 有 1 条待批准操作。\n\n在的')
   assert.equal(composeSurfaceReply('', pendingCount(), false), '', '沉默一路走到底')
-  assert.ok(audit.events.some((e) => e.type === 'converse/silence'))
+  assert.equal(audit.events.some((e) => e.type === 'converse/silence'), false)
 })

@@ -61,5 +61,5 @@ test('durable 附加后 abort 前崩溃：重启同 turn r1，run_aborted 有账
   }
   assert.equal(calls, 1)
   assert.equal(events.filter(e => e.type === 'converse/run_aborted').length, 1)
-  assert.equal(events.filter(e => e.type === 'turn/terminal').length, 1)
+  assert.equal(events.filter(e => e.type === 'converse/turn_terminal').length, 1)
 })

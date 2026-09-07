@@ -132,7 +132,7 @@ test('审计临时失败后自动恢复 queued turn：无需新入站，认知�
   await h.advance(2_500)
   await h.ingress.drain()
   assert.equal(calls, 1)
-  assert.equal(sink.events.filter((event) => event.type === 'turn/terminal').length, 1)
+  assert.equal(sink.events.filter((event) => event.type === 'converse/turn_terminal').length, 1)
   await h.ingress.close()
 })
 
@@ -141,7 +141,7 @@ test('终局审计临时失败自动补账；不会重跑已完成 cognition', a
   const record = sink.record.bind(sink)
   let fail = true
   sink.record = async (event) => {
-    if (fail && event.type === 'turn/terminal') {
+    if (fail && event.type === 'converse/turn_terminal') {
       fail = false
       throw new Error('temporary terminal projection outage')
     }
@@ -158,11 +158,11 @@ test('终局审计临时失败自动补账；不会重跑已完成 cognition', a
   await h.ingress.kick()
   await h.advance(1_500)
   assert.equal(calls, 1)
-  assert.equal(sink.events.filter((event) => event.type === 'turn/terminal').length, 0)
+  assert.equal(sink.events.filter((event) => event.type === 'converse/turn_terminal').length, 0)
   await h.advance(2_500)
   await h.ingress.drain()
   assert.equal(calls, 1)
-  assert.equal(sink.events.filter((event) => event.type === 'turn/terminal').length, 1)
+  assert.equal(sink.events.filter((event) => event.type === 'converse/turn_terminal').length, 1)
   await h.ingress.close()
 })
 
@@ -189,7 +189,7 @@ test('终局 DB 临时拒写只重试持久化结果，不重跑外部动作', a
   await h.ingress.drain()
   assert.equal(calls, 1)
   assert.equal((db.prepare('SELECT terminal_status FROM user_turns').get() as { terminal_status: string }).terminal_status, 'replied')
-  assert.equal(sink.events.filter((event) => event.type === 'turn/terminal').length, 1)
+  assert.equal(sink.events.filter((event) => event.type === 'converse/turn_terminal').length, 1)
   db.close()
   await h.ingress.close()
 })
@@ -295,7 +295,7 @@ test('平台 identity 幂等：cursor 前崩溃重放不增 part/turn/terminal',
   await h.ingress.tick(new Date(BASE + 1_500))
   await h.ingress.drain()
   assert.equal(calls, 1)
-  assert.equal(h.sink.events.filter((event) => event.type === 'turn/terminal').length, 1)
+  assert.equal(h.sink.events.filter((event) => event.type === 'converse/turn_terminal').length, 1)
   await h.ingress.close()
 })
 
@@ -346,7 +346,7 @@ test('重启恢复 collecting/queued；已 terminal 与中断 running 都不重�
   await fourth.ingress.start()
   await fourth.ingress.drain()
   assert.equal(executed.length, 2, 'running 以 interrupted 终态收账，不冒险重放副作用')
-  const recovered = fourth.sink.events.find((event) => event.type === 'turn/terminal')!
+  const recovered = fourth.sink.events.find((event) => event.type === 'converse/turn_terminal')!
   assert.equal(recovered.reason, 'interrupted')
   await fourth.ingress.close()
 })
@@ -391,7 +391,7 @@ test('一个合并 turn 恰有一个可反查全 constituent identity 的 termin
   await h.ingress.accept(part(3, 1_000))
   await h.ingress.tick(new Date(BASE + 2_500))
   await h.ingress.drain()
-  const rows = h.sink.events.filter((event) => event.type === 'turn/terminal')
+  const rows = h.sink.events.filter((event) => event.type === 'converse/turn_terminal')
   assert.equal(rows.length, 1)
   assert.deepEqual(rows[0]!.inbound_ids, ['in:telegram:1', 'in:telegram:2', 'in:telegram:3'])
   assert.deepEqual(rows[0]!.platform_message_ids, ['101', '102', '103'])
@@ -401,4 +401,30 @@ test('一个合并 turn 恰有一个可反查全 constituent identity 的 termin
   assert.equal(rows[0]!.event_id, `turn-terminal:${rows[0]!.turn_id}`)
   assert.equal(rows[0]!.part_count, 3)
   await h.ingress.close()
+})
+
+test('A1：正本先落；只有主动沉默终局派生旧silence，技术失败不冒充沉默', async () => {
+  for (const status of ['intentional_silence', 'failed', 'deferred']) {
+    const sink = audit()
+    const h = clockedRuntime(sink)
+    h.ingress.registerExecutor(async () => ({ terminal: { ...terminal(status),
+      reason: status === 'failed' ? 'envelope_failed' : null } }))
+    try {
+      await h.ingress.start()
+      await h.ingress.accept(part(1, 0))
+      await h.ingress.kick()
+      await h.advance(1_500)
+      await h.ingress.drain()
+      const canonical = sink.events.filter(event => event.type === 'converse/turn_terminal')
+      assert.equal(canonical.length, 1)
+      assert.equal(sink.events.some(event => event.type === 'turn/terminal'), false)
+      const derived = sink.events.filter(event => event.type === 'converse/silence')
+      assert.equal(derived.length, status === 'intentional_silence' ? 1 : 0)
+      if (derived.length) {
+        assert.equal(derived[0]!.terminal_event_id, canonical[0]!.event_id)
+        assert.equal(derived[0]!.derived, true)
+        assert.ok(sink.events.indexOf(derived[0]!) > sink.events.indexOf(canonical[0]!))
+      }
+    } finally { await h.ingress.close() }
+  }
 })

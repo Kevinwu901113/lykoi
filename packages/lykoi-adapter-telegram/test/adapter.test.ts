@@ -425,7 +425,7 @@ test('WO-TURN-01：owner 应答先 durable accept；S-08 路由由 FIFO executor
 
   assert.equal(inbound.length, 1)
   assert.equal(inbound[0]!.text, '批准')
-  assert.equal(audit.events.filter((event) => event.type === 'turn/terminal').length, 0)
+  assert.equal(audit.events.filter((event) => event.type === 'converse/turn_terminal').length, 0)
   assert.equal(await svc.routeOwnerMessage({
     text: inbound[0]!.text,
     contextId: inbound[0]!.contextId,
@@ -459,7 +459,7 @@ test('WO-TURN-01：路由错误发生在 accept/cursor 之后，不倒写 durabl
     replyTo: null,
     messageId: inbound[0]!.platformMessageId,
   }), (err: Error) => err.name === 'ApprovalRouteExploded')
-  assert.equal(audit.events.filter((event) => event.type === 'turn/terminal').length, 0)
+  assert.equal(audit.events.filter((event) => event.type === 'converse/turn_terminal').length, 0)
   const serialized = JSON.stringify(audit.events)
   assert.equal(serialized.includes('VENDOR_BODY'), false)
   assert.equal(serialized.includes('https://private.example'), false)

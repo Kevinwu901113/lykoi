@@ -48,7 +48,7 @@ export class ImmediateTestIngress implements IngressService {
     const runId = `run:${turn.turnId}:r0`
     const { terminal } = await executor(turn, { runId })
     await this.#audit.record({
-      type: 'turn/terminal',
+      type: 'converse/turn_terminal',
       turn_id: turn.turnId,
       inbound_id: part.inboundId,
       inbound_ids: [part.inboundId],

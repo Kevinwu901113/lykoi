@@ -312,7 +312,7 @@ export class DurableIngress implements IngressService {
     for (const row of this.#store.unauditedTerminals()) {
       const last = row.turn.parts.at(-1)!
       const terminalEvent = {
-        type: 'turn/terminal',
+        type: 'converse/turn_terminal',
         turn_id: row.turn.turnId,
         inbound_id: row.turn.parts[0]!.inboundId,
         inbound_ids: row.turn.parts.map((part) => part.inboundId),
@@ -334,6 +334,13 @@ export class DurableIngress implements IngressService {
         await this.#audit.record({ ...terminalEvent, event_id: eventId })
       } else {
         await this.#audit.recordOnce(eventId, terminalEvent)
+      }
+      if (row.terminal.status === 'intentional_silence') {
+        const derived = { type: 'converse/silence', turn_id: row.turn.turnId, run_id: row.runId,
+          terminal_event_id: eventId, derived: true }
+        const derivedId = `turn-silence:${row.turn.turnId}`
+        if (this.#audit.recordOnce) await this.#audit.recordOnce(derivedId, derived)
+        else await this.#audit.record({ ...derived, event_id: derivedId })
       }
       this.#store.markTerminalAudited(row.turn.turnId)
     }

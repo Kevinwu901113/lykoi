@@ -852,9 +852,6 @@ export async function handleTurn(
     const parts = utterances ?? (reply.trim() ? [reply] : [])
     replyChars = parts.reduce((sum, part) => sum + part.length, 0)
     if (parts.length === 0) {
-      await ctx.audit.record({
-        type: 'converse/silence', turn_id: turnId, runId, updateId,
-      })
       if (delegatedAsk !== null && messenger === undefined) {
         await ctx.audit.record({
           type: 'converse/no_transport', turn_id: turnId, runId, updateId,

@@ -190,7 +190,7 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
 
   // ② 认知侧四项载荷 → **设备侧取走并问出去**（SK-77 承重；device_side_wired 翻 true）
   assert.ok(audit.events.some((e) => e.type === 'approval_ask_delegated'))
-  assert.ok(audit.events.some((e) => e.type === 'converse/silence')) // 回合本身沉默
+  assert.equal(audit.events.some((e) => e.type === 'converse/silence'), false) // 回合本身沉默
   const pending = audit.events.find((e) => e.type === 'converse/approval_request_pending')!
   assert.equal(pending.device_side_wired, true, 'W3 出口判据：问句由设备层发')
   assert.equal(pending.action_type, 'terminal.exec')

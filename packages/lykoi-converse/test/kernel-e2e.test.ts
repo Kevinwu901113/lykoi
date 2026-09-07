@@ -171,7 +171,7 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   const types = audit.events.map((e) => String(e.type))
   assert.ok(!types.includes('cycle_approval_gate_unwired')) // W2 已换真身
   assert.ok(types.includes('approval_ask_delegated'))
-  assert.ok(types.includes('converse/silence'))
+  assert.equal(types.includes('converse/silence'), false)
 
   // SK-77 认知侧协议：**恰四项**载荷，且入站 message_id 一个字节都不在里面。
   const pendingRow = audit.events.find((e) => e.type === 'converse/approval_request_pending')!

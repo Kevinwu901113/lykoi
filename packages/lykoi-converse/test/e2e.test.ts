@@ -208,7 +208,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
     String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_') || String(e.type).startsWith('turn/'))) {
     assert.equal(event.turn_id, 'turn:telegram:1', `${event.type} 缺 turn_id`)
   }
-  const terminals = audit.events.filter((e) => e.type === 'turn/terminal')
+  const terminals = audit.events.filter((e) => e.type === 'converse/turn_terminal')
   assert.equal(terminals.length, 1)
   assert.equal(terminals[0]!.status, 'replied')
   assert.equal(terminals[0]!.reason, null)
@@ -252,7 +252,6 @@ test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传�
     'budget/charge', //     第三次调用（带引导）
     'u3_cycle_failed', //   仍失败 → 归因 + 元数据
     'inner_outer_pair', //  回合成立（reply=""）
-    'converse/silence', //  设备侧不发
   ])
   const retriedEvents = audit.events.filter((e) => e.type === 'u3_cycle_retried')
   assert.equal(retriedEvents.length, 2, 'mock LLM 每次都回同一份非 JSON 文本 → 两次重试都打满')
@@ -279,7 +278,7 @@ test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传�
     assert.equal(JSON.stringify(event).includes('直接开口说话'), false)
   }
   assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
-  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  const terminal = audit.events.find((e) => e.type === 'converse/turn_terminal')!
   assert.equal(terminal.status, 'failed')
   assert.equal(terminal.reason, 'envelope_failed')
   assert.equal(terminal.notice_sent, true)
@@ -349,7 +348,7 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
     '固定回复的 fake LLM 会一直选同一个未接线工具——真正的收场闸是工具步数预算',
   )
   assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
-  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  const terminal = audit.events.find((e) => e.type === 'converse/turn_terminal')!
   assert.equal(terminal.status, 'failed')
   assert.equal(terminal.reason, 'tool_budget_exhausted')
   assert.equal(terminal.notice_sent, true)

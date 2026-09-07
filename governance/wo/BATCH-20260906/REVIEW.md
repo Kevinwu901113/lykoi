@@ -20,7 +20,7 @@
 
 最终生产代码全量：**1215 tests /1204 pass /0 fail /11 skipped**，typecheck通过。实验离线测试：C2两项、Recall两项、C1 planner一项通过，dry-run无API。各工单report保留当时基线/计数，不能累加成最终测试数。
 
-A1/B2/B3/B1、A4原4096与E4-1/2是已有合入成果。本次沿用并复核，不重新执行历史迁移/部署稿。A1当前正式工单使用turn/terminal及含consumed的五态；历史讨论的converse/turn_terminal四态不是当前交付名称。A3截止点保守设在首次认知结果应用前，早于首次dispatch，避免内部写入后回滚。
+A1/B2/B3/B1、A4原4096与E4-1/2是已有合入成果。本次沿用并复核，不重新执行历史迁移/部署稿。Kevin在续接中重申A1的converse/turn_terminal四态要求，优先于旧工单。WO-OUTCOME-CONTRACT-02已将正本事件名对齐，并将silence改为终局派生；四值具体枚举与consumed归属待答，当前不能标A1契约完全对齐。A3截止点保守设在首次认知结果应用前，早于首次dispatch，避免内部写入后回滚。
 
 ## B3 接线与证据边界
 

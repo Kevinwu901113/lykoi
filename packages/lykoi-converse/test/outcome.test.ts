@@ -162,7 +162,7 @@ async function runHandleScenario(scenario: HandleScenario): Promise<{
   const conversation = fakeConversation(scenario)
   const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
 
-  const terminals = audit.events.filter((event) => event.type === 'turn/terminal')
+  const terminals = audit.events.filter((event) => event.type === 'converse/turn_terminal')
   assert.equal(terminals.length, 0, 'Converse 不得与 ingress 双写 terminal')
   const terminal = result.terminal
   assert.equal(terminal.status, scenario.expectedStatus)
