@@ -1,0 +1,146 @@
+[
+  {
+    "file": "packages/lykoi-converse/src/prompts.ts",
+    "name": "SYSTEM_PROMPT",
+    "before": {
+      "chars": 891,
+      "sha256": "075d4282f604f93dc74f9caf6d4a5963d65e449cdd49daf8206975606dc1bc17"
+    },
+    "template": {
+      "chars": 914,
+      "sha256": "c5f58a303e11b2de15a83250b7afad2f87ce0c114ded4201aabac881fd7eb097"
+    },
+    "fixture": {
+      "chars": 898,
+      "sha256": "8bf1e9c9826be882f625f8fbec14123501218355e4c8ce06fc25711bfb4ea664"
+    }
+  },
+  {
+    "file": "packages/lykoi-converse/src/prompts.ts",
+    "name": "SUMMARIZE_SYSTEM_PROMPT",
+    "before": {
+      "chars": 142,
+      "sha256": "3eb2679bd75cfd812bbbf0ffaf1156d284c771f0e1e59dac2daa40173ee32759"
+    },
+    "template": {
+      "chars": 148,
+      "sha256": "6e35f41f96c7a86dac5e83ab3b1562dcb08188e4f2bd4627aa639604b324c81d"
+    },
+    "fixture": {
+      "chars": 146,
+      "sha256": "ab022ba969dae24ff6435eb6f0cfa18c57c1b085296e29e825c079b571e81ea0"
+    }
+  },
+  {
+    "file": "packages/lykoi-converse/src/prompts.ts",
+    "name": "UNDELIVERED_HEADER",
+    "before": {
+      "chars": 68,
+      "sha256": "658c95ff5e9b49d65e43a54b4ae37e60bbdccfe0ad60b1b215d1233edd55c360"
+    },
+    "template": {
+      "chars": 65,
+      "sha256": "abc5cf213f27e8d5e7ca49c12347cd5fa40a7b05e90f5a69637207a664fd40a4"
+    },
+    "fixture": {
+      "chars": 63,
+      "sha256": "6c78b143ddf19c7294502001e6eb18ce47fe1e030c5dd0329399e1b45e0c7242"
+    }
+  },
+  {
+    "file": "packages/lykoi-converse/src/contract.ts",
+    "name": "ENVELOPE_SYSTEM_PROMPT",
+    "before": {
+      "chars": 1788,
+      "sha256": "dee3cff2ba2e4ff7cbc3e6765b6b62980e13039bef8f84e0535aad131245010c"
+    },
+    "template": {
+      "chars": 1788,
+      "sha256": "dee3cff2ba2e4ff7cbc3e6765b6b62980e13039bef8f84e0535aad131245010c"
+    },
+    "fixture": {
+      "chars": 1788,
+      "sha256": "dee3cff2ba2e4ff7cbc3e6765b6b62980e13039bef8f84e0535aad131245010c"
+    }
+  },
+  {
+    "file": "packages/lykoi-converse/src/contract.ts",
+    "name": "envelopeSystemPrompt",
+    "before": {
+      "chars": 3024,
+      "sha256": "d3a4d3a8f72520c009f50a65d748329bcfb4e53992e7b219981cb07656e3786c"
+    },
+    "template": {
+      "chars": 3038,
+      "sha256": "efe7926c0cc5ffd4530a555aa191c3cb9bd743729a6e01da28aadfdcdd198a71"
+    },
+    "fixture": {
+      "chars": 3028,
+      "sha256": "2bc8f52f3a4cf78c4350035961ff8c26ea338c9e39b3c04ec9f528a05dc14810"
+    }
+  },
+  {
+    "file": "packages/lykoi-decide/src/index.ts",
+    "name": "DECIDE_SYSTEM_PROMPT",
+    "before": {
+      "chars": 1601,
+      "sha256": "d54726e3ee182f600f5fc0222db76de940d3a66cddfb63cb8e29ff71b633e74c"
+    },
+    "template": {
+      "chars": 1605,
+      "sha256": "09e6e9490230b1091b11122eae53a66afe97519758d4847cfa20eab603c7af50"
+    },
+    "fixture": {
+      "chars": 1601,
+      "sha256": "f109286af4453744065ec593a7b962387a974ae4f0947714dcb100c8bbf48446"
+    }
+  },
+  {
+    "file": "packages/lykoi-kernel/src/approval-interpreter.ts",
+    "name": "INTERPRET_SYSTEM_PROMPT",
+    "before": {
+      "chars": 851,
+      "sha256": "ed9c86d112e4fd68c6a6f4b848741fcbb8dc64e6f6d4a05da2e02945e85def31"
+    },
+    "template": {
+      "chars": 847,
+      "sha256": "9cd2d67d043c27eead15d08f065b611e256d28762fe2ca1e150662728f3bf443"
+    },
+    "fixture": {
+      "chars": 847,
+      "sha256": "9cd2d67d043c27eead15d08f065b611e256d28762fe2ca1e150662728f3bf443"
+    }
+  },
+  {
+    "file": "packages/lykoi-kernel/src/suggestion-conversation.ts",
+    "name": "ANSWER_SYSTEM_PROMPT",
+    "before": {
+      "chars": 656,
+      "sha256": "74f4efdbc7ba02f21e4010d9f516a8731c5b616a060796778b9604e87b317f4b"
+    },
+    "template": {
+      "chars": 652,
+      "sha256": "3e2635e2ff2f78827274c08494e8264a96ab422247599a818f6a987fcf2d1f9b"
+    },
+    "fixture": {
+      "chars": 652,
+      "sha256": "3e2635e2ff2f78827274c08494e8264a96ab422247599a818f6a987fcf2d1f9b"
+    }
+  },
+  {
+    "file": "packages/lykoi-learn/src/l2.ts",
+    "name": "INTEGRATION_SYSTEM_PROMPT",
+    "before": {
+      "chars": 1862,
+      "sha256": "b130d6473ff9c2e8983f06cced5ca97ae837644886f5db2f6f38ddf31132193c"
+    },
+    "template": {
+      "chars": 1860,
+      "sha256": "74994d9d569ece33e2836c336ff0c619fee7c1361aa2427b56e92e9b49531c74"
+    },
+    "fixture": {
+      "chars": 1860,
+      "sha256": "74994d9d569ece33e2836c336ff0c619fee7c1361aa2427b56e92e9b49531c74"
+    }
+  }
+]

@@ -260,7 +260,7 @@ test('SA-57/62：queue_notification 显式分支——入队 notification +1；�
   assert.deepEqual(counts, { action: 1, external_read: 0, notification: 1 })
   assert.equal(
     store.recentExperiences(1)[0]!.content,
-    'queue_notification 完成:留了话给 Kevin,等他回应',
+    'queue_notification 完成:留了话给 所有者,等待回应',
   )
 
   const counts2 = freshCounts()

@@ -97,6 +97,7 @@ export interface RestartClues {
 export function recordRestartEvent(
   store: RestartStore,
   opts: {
+    ownerName?: string
     markerPath: string
     now: Date
     clues?: RestartClues
@@ -118,7 +119,7 @@ export function recordRestartEvent(
     } else {
       notes.push('你重启了一次——之前是睡着的，现在醒了。')
       if (codeChanged) {
-        notes.push(`期间 Kevin 改了你的代码（${prevHead!.slice(0, 8)} → ${head!.slice(0, 8)}）。`)
+        notes.push(`期间 ${opts.ownerName ?? '所有者'} 改了你的代码（${prevHead!.slice(0, 8)} → ${head!.slice(0, 8)}）。`)
       }
     }
     const downtime = opts.clues?.downtime ?? null

@@ -29,10 +29,10 @@ function cps(text: string): number {
 test('§3.2 A 表：系统提示词逐字（chars + sha256 全等）', () => {
   // WO-FIX-TOOLSPEC-01 D-3：逐工具散文行 + notify_owner 两句 + query 句删除后
   // 的新钉（旧 1418 / 72a3c1c1… → 新 891 / 075d4282…）。
-  assert.equal(cps(SYSTEM_PROMPT), 891)
-  assert.equal(sha(SYSTEM_PROMPT), '075d4282f604f93dc74f9caf6d4a5963d65e449cdd49daf8206975606dc1bc17')
-  assert.equal(cps(SUMMARIZE_SYSTEM_PROMPT), 142)
-  assert.equal(sha(SUMMARIZE_SYSTEM_PROMPT), '3eb2679bd75cfd812bbbf0ffaf1156d284c771f0e1e59dac2daa40173ee32759')
+  assert.equal(cps(SYSTEM_PROMPT), 914)
+  assert.equal(sha(SYSTEM_PROMPT), 'c5f58a303e11b2de15a83250b7afad2f87ce0c114ded4201aabac881fd7eb097')
+  assert.equal(cps(SUMMARIZE_SYSTEM_PROMPT), 148)
+  assert.equal(sha(SUMMARIZE_SYSTEM_PROMPT), '6e35f41f96c7a86dac5e83ab3b1562dcb08188e4f2bd4627aa639604b324c81d')
   assert.equal(cps(CYCLE_CLOSING_NOTE), 92)
   assert.equal(sha(CYCLE_CLOSING_NOTE), '575ffe30c167b2e111789deee1a4702ffe93bc0384e381ff9d78b35eaf06a36a')
 })
@@ -49,7 +49,7 @@ test('§3.2 B 表：装配块头部/骨架字面量逐字（15 条 sha 全等）
     [TIME_SKELETON, 20, 'f2ed3e8081dacf51419c20138314fd1652bf5e30e2fdd8fdd1db51d7eb45673f'],
     [MEMORIES_HEADER, 86, '35f74e70ba5449e0039a748da6b492e5c92404cbed5de2ab1154af0c4e03bcfa'],
     [MEMORIES_LINE_SKELETON, 13, '9a37c2b5ae1d546276356cd76a7cfd2d58bd89eb0afba870ec4c082f48caef9f'],
-    [UNDELIVERED_HEADER, 68, '658c95ff5e9b49d65e43a54b4ae37e60bbdccfe0ad60b1b215d1233edd55c360'],
+    [UNDELIVERED_HEADER, 65, 'abc5cf213f27e8d5e7ca49c12347cd5fa40a7b05e90f5a69637207a664fd40a4'],
     [UNDELIVERED_LINE_SKELETON, 11, '80e0c2ec4f0cbc683f3cf139290de769010b731fb6d4aca193cb56750a1dbf5a'],
     [CONTEXT_BUDGET_SKELETON, 33, '584ca3b4ec76336911cd041626bf185889dcc27c820fb4a2b8941e7f2b2f2ead'],
     // WO-PERS-OVERLAY-01（D-5）：本单唯一新增的提示词面。
@@ -106,10 +106,10 @@ test('新 raw sha 记录（旧 9d4f169e… → 新；随 G-2 sha 变更表同一
   // 渲染后（causes+tools 已代入）：旧 1960/739494ec… → G-10 2245/f063714f… →
   // WO-FIX-TOOLSPEC-01 D-2（{tools} 从裸名 join 变成带签名与用途的表）
   // 2984/29f13777…。契约文本变了 = 稳定前缀缓存失效一次，属预期。
-  assert.equal(cps(envelopeSystemPrompt()), 3024)
+  assert.equal(cps(envelopeSystemPrompt()), 3038)
   assert.equal(
     sha(envelopeSystemPrompt()),
-    'd3a4d3a8f72520c009f50a65d748329bcfb4e53992e7b219981cb07656e3786c',
+    'efe7926c0cc5ffd4530a555aa191c3cb9bd743729a6e01da28aadfdcdd198a71',
   )
 })
 
@@ -211,7 +211,7 @@ test('TOOLSPEC D-3：逐工具散文与 query 句都不在了，保留的两句�
   }
   // 保留项：审批语义那句仍点名 browser_type / terminal_exec（它讲的是审批分级，
   // 不是工具描述）；虚拟电脑一句与结构化来源一句原样留着。
-  assert.ok(SYSTEM_PROMPT.includes('会找他确认的只剩输入（browser_type）和终端（terminal_exec）'))
+  assert.ok(SYSTEM_PROMPT.includes('会请求确认的只剩输入（browser_type）和终端（terminal_exec）'))
   assert.ok(SYSTEM_PROMPT.includes('你有一台自己的虚拟电脑'))
   assert.ok(SYSTEM_PROMPT.includes('优先找结构化来源'))
   assert.ok(SYSTEM_PROMPT.includes('自己换检索词重搜'))
@@ -254,4 +254,20 @@ test('D-2：给了 wiredActions → 未接线工具整行不出现；三个 in-c
   assert.deepEqual(none.map((l) => l.slice(0, l.indexOf('('))), [
     'vision_describe', 'promise_followup', 'post_progress',
   ])
+})
+
+test('E4-3：合成实例渲染 SHA；信封装配保留用户原文中的模板字符', async () => {
+  const { renderOwnerTemplate } = await import('lykoi-decide')
+  const { FIXTURE_PERSONA } = await import('./fixture.ts')
+  for (const [template, expected] of [
+    [SYSTEM_PROMPT, '8bf1e9c9826be882f625f8fbec14123501218355e4c8ce06fc25711bfb4ea664'],
+    [SUMMARIZE_SYSTEM_PROMPT, 'ab022ba969dae24ff6435eb6f0cfa18c57c1b085296e29e825c079b571e81ea0'],
+    [UNDELIVERED_HEADER, '6c78b143ddf19c7294502001e6eb18ce47fe1e030c5dd0329399e1b45e0c7242'],
+    [envelopeSystemPrompt(), '2bc8f52f3a4cf78c4350035961ff8c26ea338c9e39b3c04ec9f528a05dc14810'],
+  ]) assert.equal(sha(renderOwnerTemplate(template!, FIXTURE_PERSONA)), expected)
+  const raw = '请逐字保留 {owner}、{owner_name}、{self} 和 Kevin'
+  const messages = buildEnvelopeMessages([{ role: 'user', content: raw }], undefined, undefined, FIXTURE_PERSONA)
+  assert.equal(messages.find(m => m.role === 'user')!.content, raw)
+  assert.ok(messages.some(m => m.role === 'system' && m.content?.includes('Owner')))
+  assert.ok(messages.filter(m => m.role === 'system').every(m => !/\{owner\}|Kevin|Lykoi/.test(m.content ?? '')))
 })

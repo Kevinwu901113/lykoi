@@ -32,7 +32,7 @@ test('一轮 → 一条 conversation 经验（模板逐字含 80 字裁剪）+ n
     assert.equal(exp[0]!.source, 'conversation')
     assert.equal(
       exp[0]!.content,
-      `和 Kevin 聊了一轮(history #7):他说「${'长'.repeat(80)}…」,我答「我在」`,
+      `和 所有者 聊了一轮(history #7):对方说「${'长'.repeat(80)}…」,我答「我在」`,
     )
     const causes = store.recentRegulationEvents(null, 10).map((r) => r.cause).sort()
     assert.deepEqual(causes, ['experience_recorded', 'normal_interaction'])

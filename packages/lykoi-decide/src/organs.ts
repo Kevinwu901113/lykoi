@@ -44,6 +44,8 @@
  * 本单只做前者（D-5 边界）。
  */
 
+import { renderOwnerTemplate, type PersonaConfig } from './persona.ts'
+
 export const BLOCK_HEADER = '[器官清单(只读)]'
 
 /**
@@ -57,7 +59,7 @@ export const PREFIX_LABELS: Readonly<Record<string, string>> = {
   research_browser: '一次性调研浏览器(无登录态, 用完即毁)',
   terminal: '终端',
   messenger: 'IM 收发(她的社交躯体)',
-  notify: '给 Kevin 的通知',
+  notify: '给 {owner} 的通知',
   autonomy: '自主路径的出口',
 }
 
@@ -82,6 +84,7 @@ export interface OrganBindingRow {
  * "哪些永远绕不过 Kevin" 判定。
  */
 export interface OrganInventoryInput {
+  persona?: PersonaConfig
   bindings: readonly OrganBindingRow[]
   knownActions: readonly string[]
   isHardGated(actionType: string): boolean
@@ -129,8 +132,8 @@ function actionsSection(input: OrganInventoryInput): string[] {
   for (const prefix of [...groups.keys()].sort()) {
     const actions = groups.get(prefix)!
     const gated = actions.filter((a) => input.isHardGated(a))
-    const note = gated.length > 0 ? ', 其中每次都要 Kevin 点头的: ' + gated.join('/') : ''
-    lines.push(`- ${groupLabel(prefix)}: ` + actions.join('、') + note)
+    const note = gated.length > 0 ? renderOwnerTemplate(', 其中每次都要 {owner} 点头的: ', input.persona) + gated.join('/') : ''
+    lines.push(`- ${renderOwnerTemplate(groupLabel(prefix), input.persona)}: ` + actions.join('、') + note)
   }
   return lines
 }
@@ -194,6 +197,7 @@ export const testDoubleActionCatalog: OrganActionCatalog = {
  * 整合边界刷新（S-27）走 invalidate()：释放缓存本身不做任何读。
  */
 export class OrganInventoryCache {
+  #persona: PersonaConfig | undefined
   #bindings: () => readonly OrganBindingRow[]
   #catalog: OrganActionCatalog
   #logEvent: ((name: string, fields: Record<string, unknown>) => void) | undefined
@@ -201,11 +205,13 @@ export class OrganInventoryCache {
   #built = false
 
   constructor(opts: {
+    persona?: PersonaConfig
     /** 身份绑定读面（lykoi-memory/rw identityBindingInventory 等价形状）。 */
     bindings: () => readonly OrganBindingRow[]
     catalog: OrganActionCatalog
     logEvent?: (name: string, fields: Record<string, unknown>) => void
   }) {
+    this.#persona = opts.persona
     this.#bindings = opts.bindings
     this.#catalog = opts.catalog
     this.#logEvent = opts.logEvent
@@ -224,6 +230,7 @@ export class OrganInventoryCache {
         })
       }
       const text = renderOrganInventory({
+        persona: this.#persona,
         bindings,
         knownActions: this.#catalog.knownActions,
         isHardGated: (a) => this.#catalog.isHardGated(a),

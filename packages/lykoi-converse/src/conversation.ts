@@ -32,7 +32,7 @@ import { RunAbortedError } from './deadline.ts'
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
-  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
+  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay, renderOwnerTemplate,
   emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION, repairTrailingClosers,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
@@ -523,8 +523,8 @@ export class Conversation {
     const parts = [buildPersonaKernel(this.#deps.persona)]
     const notice = renderRestartNotice(this.#deps.restartEvent?.() ?? null)
     if (notice) parts.push(notice)
-    parts.push(renderSystemPrompt(this.#deps.wiredActions))
-    const acquired = buildPersonaPrompt(this.#deps.store).trim()
+    parts.push(renderOwnerTemplate(renderSystemPrompt(this.#deps.wiredActions), this.#deps.persona))
+    const acquired = buildPersonaPrompt(this.#deps.store, this.#deps.persona).trim()
     if (acquired) parts.push(acquired)
     const promoted = this.#promotedInsightsSection()
     if (promoted) parts.push(promoted)
@@ -611,7 +611,7 @@ export class Conversation {
         skipped += 1 // an unreadable row is dropped, never invented
         continue
       }
-      entries.push(`[${row.ts}] Kevin: ${user}\n我: ${reply}`)
+      entries.push(`[${row.ts}] ${this.#deps.persona.voice.address_owner}: ${user}\n我: ${reply}`)
     }
     if (skipped > 0) {
       // 静默丢弃会让历史损坏变成安静的失忆 —— 大声。
@@ -814,7 +814,7 @@ export class Conversation {
     const lines = items.map(
       (item) => `- [${beijingStamp(String(item.ts ?? ''))}] 「${item.text_summary ?? ''}」`,
     )
-    return { role: 'system', content: UNDELIVERED_HEADER + lines.join('\n') }
+    return { role: 'system', content: renderOwnerTemplate(UNDELIVERED_HEADER, this.#deps.persona) + lines.join('\n') }
   }
 
   /**
@@ -940,16 +940,16 @@ export class Conversation {
         lines.push(`[工具结果] ${content}`)
       } else if (role === 'assistant' && message.tool_calls) {
         const calls = message.tool_calls.map((c) => c.function.name).join(', ')
-        lines.push(`Lykoi（调用工具：${calls}）${content}`)
+        lines.push(`${this.#deps.persona.identity.name}（调用工具：${calls}）${content}`)
       } else if (role === 'assistant') {
-        lines.push(`Lykoi: ${content}`)
+        lines.push(`${this.#deps.persona.identity.name}: ${content}`)
       } else {
-        lines.push(`Kevin: ${content}`)
+        lines.push(`${this.#deps.persona.voice.address_owner}: ${content}`)
       }
     }
     const result = await this.#deps.llm(
       [
-        { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
+        { role: 'system', content: renderOwnerTemplate(SUMMARIZE_SYSTEM_PROMPT, this.#deps.persona) },
         { role: 'user', content: lines.join('\n') },
       ],
       {
@@ -1008,7 +1008,7 @@ export class Conversation {
    */
   async #completion(signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
+    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge, this.#deps.persona)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: nudge ? null : (envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null),
@@ -1441,7 +1441,7 @@ export class Conversation {
     this.#followupRequest = task // 一轮多次调用取最后一次
     if (this.#background) {
       this.#log('continuation_requested', { chars: [...task].length })
-      return { success: true, data: { queued: true, note: '回合结束后任务挂起,等 Kevin 批准再继续' } }
+      return { success: true, data: { queued: true, note: renderOwnerTemplate('回合结束后任务挂起,等 {owner} 批准再继续', this.#deps.persona) } }
     }
     this.#log('followup_requested', { chars: [...task].length })
     return { success: true, data: { queued: true, note: '回复结束后开始后台跟进' } }
@@ -1453,7 +1453,7 @@ export class Conversation {
     if (error !== null) return error
     const content = String(args.content ?? '').trim()
     if (!content) {
-      return { success: false, error: "post_progress 需要 'content':要发给 Kevin 的进展" }
+      return { success: false, error: renderOwnerTemplate("post_progress 需要 'content':要发给 {owner} 的进展", this.#deps.persona) }
     }
     if (!this.#background) {
       return { success: false, error: '现场对话直接在回复里说,post_progress 只在后台回合可用' }
@@ -1627,6 +1627,7 @@ export class Conversation {
         conversationTurnReflow({
           store: this.#deps.store,
           notifications: this.#deps.notifications ?? emptyNotifications,
+          ownerName: this.#deps.persona.owner?.name ?? this.#deps.persona.voice.address_owner,
           userText: message,
           replyText: reply,
           historyId,

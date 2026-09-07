@@ -270,7 +270,7 @@ test('SK-81/U1 经验回灌走**单写者入口**；失败被吞但不静默（�
   assert.equal(written.length, 1)
   assert.equal(written[0]![0], 'conversation')
   assert.equal(written[0]![2], 0.6)
-  assert.ok(written[0]![1].startsWith('我想对 Kevin 说的话没能送出去(ReadTimeout'))
+  assert.ok(written[0]![1].startsWith('我想对 所有者 说的话没能送出去(ReadTimeout'))
   assert.equal(events.find((e) => e.name === 'telegram_undelivered_experience')!.fields.experience_id, 77)
 
   // 写不进去：账已经记上了，投递失败不因此升级成异常

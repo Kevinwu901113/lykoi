@@ -65,7 +65,7 @@ test('persona 头分层：内核(合成实例包的那份)→重启叙事→纪�
   assert.ok(content.startsWith(`我是 ${FIXTURE_PERSONA.identity.name}，`), '内核第一')
   assert.ok(content.includes('[你重启了一次——之前是睡着的，现在醒了。]'), 'SA-162 重启叙事')
   assert.ok(content.includes('以下是你的操作环境与纪律'), 'SYSTEM_PROMPT 在内核后')
-  assert.ok(content.includes('Kevin 的偏好：\n- Kevin 用中文交流，技术术语用英文'), 'acquired 投影')
+  assert.ok(content.includes('Owner 的偏好：\n- Kevin 用中文交流，技术术语用英文'), 'acquired 投影')
   assert.ok(content.includes('你自己想明白的事(专注思考里得出、已经站住的结论):\n- 我在深夜想事情更清楚'))
   assert.equal(content.includes('还没站住的结论'), false, 'S-34：shadow 一条都不进上下文')
   assert.equal(lastEvent(h.events, 'promoted_insights_injected')?.count, 1)
@@ -347,7 +347,7 @@ test('BACKFILL_HEADER 与块头常量确在装配产物中使用（防"常量对
   await h.conversation.send('在吗', { runId: 'r1' })
   const backfill = h.llm.calls[0]!.messages.find((m) => m.content?.startsWith(BACKFILL_HEADER))
   assert.ok(backfill)
-  assert.ok(backfill!.content!.includes('] Kevin: 早\n我: 早呀'))
+  assert.ok(backfill!.content!.includes('] Owner: 早\n我: 早呀'))
 })
 
 test('演化叙事：flag 文件门控（touch 即生效）+ 裁 2000 + narrative_only 不作自我呈现', async () => {

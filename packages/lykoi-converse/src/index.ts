@@ -341,6 +341,7 @@ export function apply(ctx: Context, config: Config) {
     logEvent,
   })
   recordRestartEvent(store, {
+    ownerName: persona.owner?.name ?? persona.voice.address_owner,
     markerPath: resolve(config.restartMarker),
     now: restartNow,
     clues,
@@ -360,6 +361,7 @@ export function apply(ctx: Context, config: Config) {
   const resources = outboundOrganResources()
   const wiredCatalog = wiredActionCatalog(resources)
   const organs = new OrganInventoryCache({
+    persona,
     bindings: () => store.identityBindingInventory(),
     // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
     // 是 `kernelActionCatalog` 的 18 项全表。
@@ -381,7 +383,7 @@ export function apply(ctx: Context, config: Config) {
   setUndeliveredExperienceSink((source, content, opts) => recordExperience(
     store, source as 'conversation', content,
     { salience: opts.salience, conversationDirection: 'outbound', now: new Date() },
-  ))
+  ), { ownerName: persona.voice.address_owner })
   // GK-8 的落笔面（开关**默认关** —— 未开启时这个 sink 一次都不会被调到）。
   setNotificationOutboxSink(outboxNotificationSink(logEvent))
   // GK-8 开关本身走装配面（cordis.yml），不走 env —— env 钉面要求旋钮一律未设，

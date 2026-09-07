@@ -22,7 +22,7 @@
  * D-03 降级后果写进契约 + u3_cycle_tool_demoted；D-08 全部事件只记长度/哈希。
  */
 import {
-  evaluateMessage, extractJson, JSON_RETRY_NUDGE,
+  evaluateMessage, extractJson, JSON_RETRY_NUDGE, renderOwnerTemplate, type PersonaConfig,
   type AssessmentEntry, type Candidate, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { CAUSES } from 'lykoi-regulation'
@@ -157,7 +157,7 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
   terminal_exec: {
     action: 'terminal.exec',
     signature: 'command',
-    purpose: '在你自己的虚拟电脑上跑一条 shell 命令；这是真动手的事，执行前会先问 Kevin',
+    purpose: '在你自己的虚拟电脑上跑一条 shell 命令；这是真动手的事，执行前会先问 {owner}',
   },
   browser_navigate: {
     action: 'browser.navigate',
@@ -182,7 +182,7 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
   browser_type: {
     action: 'browser.type',
     signature: '...',
-    purpose: '未接线（真身未到）：常驻浏览器里输入文字；输入是密码、付款的必经之路，接线后会问 Kevin',
+    purpose: '未接线（真身未到）：常驻浏览器里输入文字；输入是密码、付款的必经之路，接线后会问 {owner}',
   },
   research_open: {
     action: 'research_browser.open',
@@ -203,7 +203,7 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
   notify_owner: {
     action: 'notify.owner',
     signature: 'content',
-    purpose: '对话之外主动找 Kevin：问验证码、联系方式这类只有他能给的信息，'
+    purpose: '对话之外主动找 {owner}：问验证码、联系方式这类只有{owner}能给的信息，'
       + '或把后台跟进的结果送到他那里。正在对话里就直接 reply，不要用它送答案',
   },
   // 三个 in-cognition 工具（S-54）：不过 dispatch，所以 action 为 null，也就不
@@ -222,7 +222,7 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
   post_progress: {
     action: null,
     signature: 'content',
-    purpose: '后台跟进途中给 Kevin 发一条进展；只在后台回合可用，现场对话直接在回复里说',
+    purpose: '后台跟进途中给 {owner} 发一条进展；只在后台回合可用，现场对话直接在回复里说',
   },
 }
 
@@ -402,9 +402,10 @@ export function buildEnvelopeMessages(
   assembled: readonly ConverseMessage[],
   wiredActions?: ReadonlySet<string>,
   nudge?: boolean,
+  persona?: PersonaConfig,
 ): ConverseMessage[] {
   const withContract: ConverseMessage[] =
-    [...assembled, { role: 'system', content: envelopeSystemPrompt(wiredActions) }]
+    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions), persona) }]
   return nudge === true
     ? [...withContract, { role: 'user', content: JSON_RETRY_NUDGE }]
     : withContract

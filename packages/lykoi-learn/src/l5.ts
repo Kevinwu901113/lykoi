@@ -208,7 +208,7 @@ export function suggestPermissionRule(store: SuggestStore, logEvent: LogEvent, o
   const concernId = opts.concernId ?? null
   const rationale = `insight #${opts.insightId}`
     + (concernId !== null ? ` · concern #${concernId}` : '')
-    + ' · 触及权限边界, 按 §3.8 只能问 Kevin'
+    + ' · 触及权限边界, 按 §3.8 只能问所有者'
   const extra: (readonly [string, string | number])[]
     = concernId !== null ? [[LINEAGE_SOURCE_CONCERN, concernId]] : []
   const result = enqueue(store, logEvent, {

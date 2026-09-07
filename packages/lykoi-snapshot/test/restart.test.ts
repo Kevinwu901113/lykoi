@@ -64,7 +64,7 @@ test('首次开机：单句 note + marker 落盘；第二次开机：重启句�
   })!
   assert.deepEqual(third.notes, [
     '你重启了一次——之前是睡着的，现在醒了。',
-    '期间 Kevin 改了你的代码（aaaa1111 → cccc2222）。',
+    '期间 所有者 改了你的代码（aaaa1111 → cccc2222）。',
     '大约停了 3 天。',
   ])
   assert.equal(third.code_changed, true)
@@ -72,7 +72,7 @@ test('首次开机：单句 note + marker 落盘；第二次开机：重启句�
   // SA-162：渲染 = notes 无分隔符拼接 + 外层方括号。
   assert.equal(
     renderRestartNotice(third),
-    '[你重启了一次——之前是睡着的，现在醒了。期间 Kevin 改了你的代码（aaaa1111 → cccc2222）。大约停了 3 天。]',
+    '[你重启了一次——之前是睡着的，现在醒了。期间 所有者 改了你的代码（aaaa1111 → cccc2222）。大约停了 3 天。]',
   )
 })
 

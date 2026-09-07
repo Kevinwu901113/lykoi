@@ -49,19 +49,19 @@ test('正常分支满预算：7 候选按 KINDS 序；权重逐字（SA-01/05）
 test('cost/note 文案逐字；explore/rest note 从 CAUSES 插值（SA-13/14）', () => {
   const byKind = new Map(buildCandidates(snap()).map((c) => [c.kind, c]))
   const explore = byKind.get('explore')!
-  assert.equal(explore.cost, '消耗 1 行动预算;读 1 个公开网页(只读,与 Kevin 的浏览器隔离)')
+  assert.equal(explore.cost, '消耗 1 行动预算;读 1 个公开网页(只读,与 所有者 的浏览器隔离)')
   assert.equal(explore.note, '完成后 exploration_hunger -0.40;没有 url 的探索会扑空(记 failed)')
   assert.equal(byKind.get('record_note')!.cost, '内部动作,不消耗行动预算')
   assert.equal(byKind.get('record_note')!.note, '写入我的自主笔记(append-only)')
   assert.equal(byKind.get('queue_notification')!.cost, '消耗 1 行动预算 + 今日通知配额(剩 2)')
-  assert.equal(byKind.get('queue_notification')!.note, 'Kevin 稍后会看到;受脑干上限约束(每日 ≤2)')
+  assert.equal(byKind.get('queue_notification')!.note, '所有者 稍后会看到;受脑干上限约束(每日 ≤2)')
   assert.equal(
     byKind.get('initiate_chat')!.cost,
     '消耗 1 行动预算 + 今日主动开口份额(剩 1;日 1 条、冷却 6 小时,比通知更紧)',
   )
   assert.equal(
     byKind.get('initiate_chat')!.note,
-    '在对话框里主动开口(kind=proactive):消息出现在与 Kevin 的对话里,不是手机通知;他打开对话就会看到',
+    '在对话框里主动开口(kind=proactive):消息出现在与 所有者 的对话里,不是手机通知;打开对话就会看到',
   )
   assert.equal(byKind.get('tend_inner')!.cost, '内部动作,无外部副作用,不经 kernel')
   assert.equal(
@@ -159,7 +159,7 @@ test('tension>0.6：queue/initiate 平权 +0.2；contact_note 与 initiate note 
   assert.equal(byKind.get('initiate_chat')!.weight, 0.5)
   assert.equal(
     byKind.get('queue_notification')!.note,
-    'Kevin 稍后会看到;受脑干上限约束(每日 ≤2);关系张力高,主动联系已解锁加成',
+    '所有者 稍后会看到;受脑干上限约束(每日 ≤2);关系张力高,主动联系已解锁加成',
   )
   assert.ok(byKind.get('initiate_chat')!.note.endsWith(';关系张力高,主动联系已解锁加成'))
 })

@@ -54,7 +54,7 @@ test('reply 路：assistant 入史、返回 content、u3_cycle_envelope 只记�
   // 回流接线（S-16）：一条 conversation 经验 + normal_interaction。
   const exp = h.store.recentExperiences(3)
   assert.equal(exp[0]!.source, 'conversation')
-  assert.ok(exp[0]!.content.includes('他说「在吗」,我答「在的，怎么了？」'))
+  assert.ok(exp[0]!.content.includes('对方说「在吗」,我答「在的，怎么了？」'))
 })
 
 test('silence 路：有账没话 —— 空回复、history reply=""、无 assistant 消息、横幅不破坏沉默（D-04）', async () => {

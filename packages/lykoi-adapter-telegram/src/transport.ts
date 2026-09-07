@@ -118,8 +118,10 @@ export type RecordExperienceFn = (
 ) => number | string | null
 
 let _recordExperience: RecordExperienceFn | null = null
-export function setUndeliveredExperienceSink(fn: RecordExperienceFn | null): void {
+let _experienceOwner = '所有者'
+export function setUndeliveredExperienceSink(fn: RecordExperienceFn | null, options: { ownerName?: string } = {}): void {
   _recordExperience = fn
+  _experienceOwner = options.ownerName ?? '所有者'
 }
 
 /**
@@ -187,7 +189,7 @@ export function recordUndelivered(opts: {
  */
 function _recordUndeliveredExperience(record: UndeliveredRecord): void {
   const content
-    = `我想对 Kevin 说的话没能送出去(${record.error}，未送达记录 #${record.id}）：`
+    = `我想对 ${_experienceOwner} 说的话没能送出去(${record.error}，未送达记录 #${record.id}）：`
     + `「${record.text_summary}」`
   try {
     const sink = _recordExperience

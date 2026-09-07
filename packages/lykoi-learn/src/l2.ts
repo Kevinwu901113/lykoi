@@ -194,7 +194,7 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
 其他:
 - concern_releases: 只有 status='dormant' 的关切可以 release(物理闸强制, active/dimming 会被拒), 给一句 reason。
 - new_concerns: 真正稳定的新关切才提出, weight 默认 0.5。来源(origin)由系统标注, 你只需给下面两个字段:
-  · owner_directed: 这条关切**是否来自 Kevin 明确表达的关注**。他在对话里说
+  · owner_directed: 这条关切**是否来自所有者明确表达的关注**。所有者在对话里说
     "我希望你留意 X" / "帮我盯着 Y" / "我最近在做 Z, 你注意一下" 这类**要你放在心上**的
     话, 就是 true —— 那是他给你的指定, 权重最高。
     只是聊到某个话题、你自己觉得该关心的, 是 false(那是你自己长出来的关切)。

@@ -55,7 +55,7 @@ export function readMindSchemaVersion(db: DatabaseSync): unknown {
     version = row?.version
   } catch (err) {
     throw new Error(
-      'lykoi-memory: cannot read mind_schema from this database — not a Lykoi state copy? '
+      'lykoi-memory: cannot read mind_schema from this database — not a compatible state copy? '
       + `(${(err as Error).message})`,
     )
   }
