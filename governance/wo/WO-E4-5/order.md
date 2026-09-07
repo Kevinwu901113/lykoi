@@ -48,3 +48,9 @@
 ## 5 · 报告要求
 
 按 brief §4。
+
+## 6 · 接续范围校正（2026-09-07）
+
+本分支继承已验证的 E4-3/E4-4 分支链，主分支合并不是准备源码的前提。实现保持 Node 内置依赖；扫描 TS 字符串和模板片段（含插值内字符串），profile/deploy 的非注释配置文本，包括未加引号的值。运行时 deny-list 声明自身必须有精确豁免，仅豁免 instance-facts.ts 的 INSTANCE_TOKENS 声明行，不豁免整个扫描器文件。
+
+真实树扫描额外发现 profile/package.json 描述、三条 service Description 和 browser JSON 示例说明含第一实例称呼，同单改为中性说明；包名、路径、unit 名不变。CLI 已统一输出 verify 问题，不需要为新增核重复造输出分支。

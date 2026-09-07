@@ -18,6 +18,7 @@
  * import 纪律：`node:*` + 本包三个 root 属主域模块 + `lykoi-kernel` 的治理核
  * （活体 startup_verify import 兄弟 policy_core 的同一拓扑）。**零业务包 import。**
  */
+import { scanInstanceFacts } from './instance-facts.ts'
 import { execFileSync } from 'node:child_process'
 import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -663,6 +664,14 @@ export function checkStateCanon(env: GateEnv, problems: string[]): void {
 
 // ============================== 汇总 ==============================
 
+export function checkInstanceFacts(env: GateEnv, problems: string[]): void {
+  try {
+    for (const hit of scanInstanceFacts(env.repoRoot)) problems.push(`instance facts: ${hit.file}:${hit.line}:${hit.token}`)
+  } catch (error) {
+    problems.push(`instance facts: scan failed (${error instanceof Error ? error.name : 'unknown'})`)
+  }
+}
+
 /** 检查项的稳定名（报告与红测按名索引）。 */
 export const CHECKS = Object.freeze([
   ['gate_ownership', checkGateOwnership],
@@ -674,6 +683,7 @@ export const CHECKS = Object.freeze([
   ['event_vocabulary', checkEventVocabulary],
   ['audit_sink', checkAuditSink],
   ['state_canon', checkStateCanon],
+  ['instance_facts', checkInstanceFacts],
 ] as const satisfies readonly (readonly [string, (env: GateEnv, problems: string[]) => void])[])
 
 /** 跑全部检查，返回问题清单（空 = 全绿）。活体 `verify()` 对应物。 */

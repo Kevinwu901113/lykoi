@@ -17,7 +17,7 @@
   "_comment_shots": "每个动作落一张 PNG 到 dataDir/shots/YYYYMMDD/；启动时与每小时滚动删除超期目录。",
   "screenshotRetentionDays": 7,
 
-  "_comment_screencast": "实时画面：MJPEG over HTTP，**只绑 127.0.0.1**，Kevin 经 ssh -L 隧道看（docs/browser_organ.md §5）。只对持久上下文开画面；一次性调研上下文永不出画面。",
+  "_comment_screencast": "实时画面：MJPEG over HTTP，**只绑 127.0.0.1**，所有者经 ssh -L 隧道看（docs/browser_organ.md §5）。只对持久上下文开画面；一次性调研上下文永不出画面。",
   "screencast": { "enabled": true, "listen": "127.0.0.1:9223" },
 
   "_comment_timeouts": "毫秒。超时返回 error:'timeout' 且宿主自愈（关页/关上下文，不留僵尸）。",

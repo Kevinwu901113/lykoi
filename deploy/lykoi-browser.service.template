@@ -39,7 +39,7 @@
 #   丢掉 InactiveEnterTimestamp，LANDING-G 实证）。运行中的 profile 不是一致快照。
 
 [Unit]
-Description=Lykoi browser organ host
+Description=browser organ host
 After=network-online.target
 Wants=network-online.target
 

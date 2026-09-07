@@ -27,7 +27,7 @@
 # ExecStart    = 生产专用入口，零 env 读取（profile/index.prod.ts 文件头）。
 
 [Unit]
-Description=Lykoi Cordis
+Description=Cordis
 After=network-online.target
 Wants=network-online.target
 

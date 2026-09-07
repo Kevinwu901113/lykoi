@@ -2,7 +2,7 @@
   "name": "lykoi-profile",
   "version": "0.1.0",
   "private": true,
-  "description": "Lykoi Cordis 启动 profile：loader+include+timer 拉起 cordis.yml 插件树",
+  "description": "Cordis 启动 profile：loader+include+timer 拉起 cordis.yml 插件树",
   "type": "module",
   "scripts": {
     "start": "node index.ts"
