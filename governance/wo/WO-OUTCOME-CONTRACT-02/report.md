@@ -8,6 +8,8 @@
 
 验证：完整npm test退出0，1216 tests /1205 pass /0 fail /11 skipped；typecheck与diff check通过。ingress专项17/17，新增正本先落、派生链接、技术失败与deferred不派生的断言；原消费/恢复/去重与审批路径回归通过。日志outcome-contract-full.log、outcome-contract-typecheck.log。
 
-未完成：status四值尚缺具体定义。现代码仍为replied/intentional_silence/deferred/consumed/failed五态，已向Kevin明确询问四值枚举与审批/建议消费的归属。不自行把已消费应答解释成认知主动沉默、等待审批或已发送回复。该单保持partial，整批PR仍为draft。
+Kevin随后授权“都你来决定”，现已完成四态定义：completed / intentional_silence / deferred / failed。答复送达与已消费应答均completed，消费原因仍单列；completed不是“必然发过消息”，送达统计须结合reason与reply_chars。共享TurnTerminalStatus由ingress定义、converse引用。旧spool replied/consumed归一为completed，未知状态failed/unknown，历史审计不变。
+
+最终完整验证1217 tests /1206 pass /0 fail /11 skipped，typecheck通过；新增旧spool三种状态投影回归，现有审批/建议消费测试覆盖completed与reason。有效日志outcome-four-full.log/outcome-four-typecheck.log。A1四态部分不再待定。
 
 触及manifest域：ingress/index.ts和converse/index.ts；无schema/prompt变更，未合并主线、未部署。

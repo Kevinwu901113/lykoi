@@ -155,7 +155,7 @@ test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局�
     assert.equal(h.conversation.hasFollowupRequest(), false)
     release()
     const result = await first
-    assert.equal(result.terminal.status, 'replied')
+    assert.equal(result.terminal.status, 'completed')
     assert.equal(result.terminal.followup_registered, true)
     assert.equal(result.terminal.continuation_id, 'first-cont')
     assert.deepEqual(registered, ['TASK_GOAL'])

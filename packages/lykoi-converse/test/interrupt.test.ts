@@ -62,7 +62,7 @@ test('同 turn r0 abort→r1 reply：终局只有一次；迟到工具回包零�
   assert.equal(aborts[0]!.run_id, `run:${first.turnId}:r0`)
   assert.equal(terminals.length, 1)
   assert.equal(terminals[0]!.run_id, `run:${first.turnId}:r1`)
-  assert.equal(terminals[0]!.status, 'replied')
+  assert.equal(terminals[0]!.status, 'completed')
   assert.deepEqual(terminals[0]!.inbound_ids, ['in-1', 'in-2'])
   assert.equal(h.sent.length, 1)
   assert.equal(h.sent[0]!.anchor, '2')

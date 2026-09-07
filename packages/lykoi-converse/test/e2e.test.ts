@@ -210,7 +210,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   }
   const terminals = audit.events.filter((e) => e.type === 'converse/turn_terminal')
   assert.equal(terminals.length, 1)
-  assert.equal(terminals[0]!.status, 'replied')
+  assert.equal(terminals[0]!.status, 'completed')
   assert.equal(terminals[0]!.reason, null)
   // 库面写集：history 一行（全文归她的记忆）+ conversation 经验 + normal_interaction。
   const store = new ReadWriteMemory(dbPath)

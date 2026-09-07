@@ -18,7 +18,7 @@ test('recordOnce：撕裂尾行只追加换行隔离，重启后完整终局可�
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctx = new Context()
     const fiber = await ctx.plugin(audit, { path })
-    assert.equal(await ctx.audit.recordOnce!('turn-1', { type: 'converse/turn_terminal', status: 'replied' }), attempt === 0)
+    assert.equal(await ctx.audit.recordOnce!('turn-1', { type: 'converse/turn_terminal', status: 'completed' }), attempt === 0)
     await fiber.dispose()
   }
   const raw = readFileSync(path, 'utf8')
@@ -96,7 +96,7 @@ test('recordOnce：并发与进程重启后同一稳定 event_id 都只追加一
   const secondFiber = await secondCtx.plugin(audit, { path })
   const second = secondCtx.get('audit') as AuditService
   assert.equal(await second.recordOnce!('turn-terminal:turn-1', {
-    type: 'converse/turn_terminal', turn_id: 'turn-1', status: 'replied',
+    type: 'converse/turn_terminal', turn_id: 'turn-1', status: 'completed',
   }), false)
   await secondFiber.dispose()
 

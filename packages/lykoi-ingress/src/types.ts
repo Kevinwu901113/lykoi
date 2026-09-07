@@ -33,8 +33,10 @@ export interface UserTurn {
   commitReason: TurnCommitReason
 }
 
+export type TurnTerminalStatus = 'completed' | 'intentional_silence' | 'deferred' | 'failed'
+
 export interface TurnTerminalPayload {
-  status: string
+  status: TurnTerminalStatus
   reason: string | null
   followup_registered: boolean
   ask_sent: boolean

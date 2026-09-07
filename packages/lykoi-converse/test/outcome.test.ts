@@ -140,7 +140,7 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
 }
 
 interface HandleScenario extends FakeConversationOptions, FakeTelegramOptions {
-  expectedStatus: 'replied' | 'intentional_silence' | 'deferred' | 'failed'
+  expectedStatus: 'completed' | 'intentional_silence' | 'deferred' | 'failed'
   expectedReason: string | null
   expectedNotice: boolean
   noTransport?: boolean
@@ -207,7 +207,7 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
     name: 'reply delivered → replied，sendReply 收到 run_id/turn_id',
     scenario: {
       reply: '可靠回复', cycleKind: 'reply', delivery: 'delivered',
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
@@ -300,14 +300,14 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
     name: '回复已交付后 askAbout 抛错 → 保留 replied 且不补系统回执',
     scenario: {
       reply: '先交付的回复', cycleKind: 'reply', delegatedAsk: true, askThrows: true,
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
     name: 'promise_followup reply → replied 且 followup_registered',
     scenario: {
       reply: '我会继续', cycleKind: 'followup', followup: true, delivery: 'delivered',
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
@@ -374,17 +374,17 @@ async function runConsumed(reason: 'approval_answer' | 'suggestion_answer'): Pro
   } as unknown as Context
   const conversation = fakeConversation({ reply: '不应执行' })
   const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
-  assert.equal(result.terminal.status, 'consumed')
+  assert.equal(result.terminal.status, 'completed')
   assert.equal(result.terminal.reason, reason)
   assert.deepEqual(conversation.messages, [], '消费 part 不进入 cognition')
   assert.equal(audit.events.filter((event) => event.type === 'turn/part_consumed').length, 1)
 }
 
-test('FIFO executor 中 approval answer 被消费 → consumed/approval_answer', async () => {
+test('FIFO executor 中 approval answer 被消费 → completed/approval_answer', async () => {
   await runConsumed('approval_answer')
 })
 
-test('FIFO executor 中 suggestion answer 被消费 → consumed/suggestion_answer', async () => {
+test('FIFO executor 中 suggestion answer 被消费 → completed/suggestion_answer', async () => {
   await runConsumed('suggestion_answer')
 })
 

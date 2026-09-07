@@ -311,6 +311,15 @@ export class DurableIngress implements IngressService {
     }
     for (const row of this.#store.unauditedTerminals()) {
       const last = row.turn.parts.at(-1)!
+      // Existing spool rows may predate the four-state contract. Normalize only
+      // their pending audit projection; immutable historical audit rows stay intact.
+      const priorStatus = String(row.terminal.status)
+      const payload: TurnTerminalPayload = { ...row.terminal }
+      if (priorStatus === 'replied' || priorStatus === 'consumed') payload.status = 'completed'
+      else if (!['completed', 'intentional_silence', 'deferred', 'failed'].includes(priorStatus)) {
+        payload.status = 'failed'
+        payload.reason = 'unknown'
+      }
       const terminalEvent = {
         type: 'converse/turn_terminal',
         turn_id: row.turn.turnId,
@@ -327,7 +336,7 @@ export class DurableIngress implements IngressService {
         is_owner: row.turn.isOwner,
         part_count: row.turn.parts.length,
         commit_reason: row.turn.commitReason,
-        ...row.terminal,
+        ...payload,
       }
       const eventId = `turn-terminal:${row.turn.turnId}`
       if (this.#audit.recordOnce === undefined) {
@@ -335,7 +344,7 @@ export class DurableIngress implements IngressService {
       } else {
         await this.#audit.recordOnce(eventId, terminalEvent)
       }
-      if (row.terminal.status === 'intentional_silence') {
+      if (payload.status === 'intentional_silence') {
         const derived = { type: 'converse/silence', turn_id: row.turn.turnId, run_id: row.runId,
           terminal_event_id: eventId, derived: true }
         const derivedId = `turn-silence:${row.turn.turnId}`

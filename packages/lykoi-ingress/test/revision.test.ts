@@ -54,7 +54,7 @@ test('durable 附加后 abort 前崩溃：重启同 turn r1，run_aborted 有账
       assert.equal(turn.turnId, accepted.turnId)
       assert.equal(context.runId, `run:${accepted.turnId}:r1`)
       assert.deepEqual(turn.parts.map(p => p.text), ['原文1', '原文2'])
-      return { terminal: { status: 'replied', reason: null, followup_registered: false, ask_sent: false,
+      return { terminal: { status: 'completed', reason: null, followup_registered: false, ask_sent: false,
         notice_sent: false, reply_chars: 1, elapsed_ms: 0 } }
     })
     await ingress.start(); await ingress.drain(); await ingress.close()

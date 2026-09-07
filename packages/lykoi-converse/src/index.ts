@@ -681,7 +681,7 @@ function resolveTurnOutcome(input: TurnResolution): Pick<TurnOutcome, 'status' |
   if (input.kind === 'failure') return { status: 'failed', reason: input.reason }
   if (input.kind === 'no_transport') return { status: 'failed', reason: 'no_transport' }
   if (input.kind === 'delivery') {
-    if (input.outcome === 'delivered') return { status: 'replied', reason: null }
+    if (input.outcome === 'delivered') return { status: 'completed', reason: null }
     if (input.outcome === 'needs_approval') {
       return { status: 'deferred', reason: 'approval_pending' }
     }
@@ -709,7 +709,7 @@ const NOTICE_REASONS = new Set<TurnFailReason>([
 
 /** WO-CONTINUATION-01 D-2：只有这三种终局的 followup 才登记（失败回合的承诺不算数）。 */
 const CONTINUATION_ELIGIBLE_STATUSES: ReadonlySet<TurnStatus>
-  = new Set<TurnStatus>(['replied', 'intentional_silence', 'deferred'])
+  = new Set<TurnStatus>(['completed', 'intentional_silence', 'deferred'])
 
 /** 保留每条原文，时间戳是投影元数据；不回写 parts 正本。 */
 export function renderTurnParts(parts: UserTurn['parts'], replay = false): string {
@@ -806,7 +806,7 @@ export async function handleTurn(
     routeComplete = true
 
     if (conversationalParts.length === 0) {
-      terminal = { status: 'consumed', reason: consumedReason }
+      terminal = { status: 'completed', reason: consumedReason }
     } else {
       // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
       const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')

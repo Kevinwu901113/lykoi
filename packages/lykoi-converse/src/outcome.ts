@@ -3,12 +3,9 @@
  * 周期结局，避免把传输与认知周期混成同一个状态。
  */
 
-export type TurnStatus =
-  | 'replied'
-  | 'intentional_silence'
-  | 'deferred'
-  | 'consumed'
-  | 'failed'
+import type { TurnTerminalStatus } from 'lykoi-ingress'
+
+export type TurnStatus = TurnTerminalStatus
 
 export type TurnFailReason =
   | 'envelope_failed'

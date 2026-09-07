@@ -368,7 +368,7 @@ test('handleTurn：replied + followup → 登记（turn/run id 原样）+ 终局
   const h = turnHarness({ reply: 'ok', followup: GOAL })
   const { terminal: t } = await handleTurn(h.ctx, h.conversation, TURN, TURN_RUN_ID, h.continuations)
   assert.deepEqual(h.registered, [{ originTurnId: TURN.turnId, originRunId: TURN_RUN_ID, goal: GOAL }])
-  assert.equal(t.status, 'replied')
+  assert.equal(t.status, 'completed')
   assert.equal(t.followup_registered, true)
   assert.equal(t.continuation_id, 'cont-x')
   assert.equal(h.kicks(), 1)

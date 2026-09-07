@@ -20,7 +20,7 @@
 
 最终生产代码全量：**1215 tests /1204 pass /0 fail /11 skipped**，typecheck通过。实验离线测试：C2两项、Recall两项、C1 planner一项通过，dry-run无API。各工单report保留当时基线/计数，不能累加成最终测试数。
 
-A1/B2/B3/B1、A4原4096与E4-1/2是已有合入成果。本次沿用并复核，不重新执行历史迁移/部署稿。Kevin在续接中重申A1的converse/turn_terminal四态要求，优先于旧工单。WO-OUTCOME-CONTRACT-02已将正本事件名对齐，并将silence改为终局派生；四值具体枚举与consumed归属待答，当前不能标A1契约完全对齐。A3截止点保守设在首次认知结果应用前，早于首次dispatch，避免内部写入后回滚。
+A1/B2/B3/B1、A4原4096与E4-1/2是已有合入成果。本次沿用并复核，不重新执行历史迁移/部署稿。Kevin在续接中重申A1的converse/turn_terminal四态要求，优先于旧工单。WO-OUTCOME-CONTRACT-02已将正本事件名对齐，并将silence改为终局派生；随后经Kevin授权代定为completed/intentional_silence/deferred/failed，消费应答以completed加reason表示，四态已对齐。A3截止点保守设在首次认知结果应用前，早于首次dispatch，避免内部写入后回滚。
 
 ## B3 接线与证据边界
 
@@ -46,3 +46,7 @@ continuation.scan经Conversation.send调用同一认知锁/#runCycle，非wake�
 5. 落地后验收真实入站合并、审批应答消费、打断/排队、分段实收、续跑终局及outbox送达。任何缺失证据维持pending。
 
 检查点在本机batch-20260906/PROGRESS.md；自动续接保持开启，等待期间只在新结果或可执行进展时通知。整批未达到实测完成，不能暂停为“已完成”。
+
+## 后续决策更新
+
+Kevin授权所有待定选择由执行方决定。E1选甲案，先收编共享动作事实并保持提示词SHA；保留七kind，record_note与tend_inner写入语义不同，不凭零次数合并。queue_notification保留；审批与接线真源仍在kernel，不能复制一张静态权限表。E2/37.5实际前置未满足，继续锁定。
