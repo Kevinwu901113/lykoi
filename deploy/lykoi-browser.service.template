@@ -109,7 +109,7 @@ IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.
 IPAddressDeny=::ffff:0.0.0.0/104 ::ffff:10.0.0.0/104 ::ffff:100.64.0.0/106 ::ffff:127.0.0.0/104 ::ffff:169.254.0.0/112 ::ffff:172.16.0.0/108 ::ffff:192.168.0.0/112 ::ffff:224.0.0.0/100 ::ffff:240.0.0.0/100
 IPAddressAllow=127.0.0.53/32 127.0.0.1/32
 # host.json 里开了 proxy 就再加一行（Allow 优先于 Deny，所以它压得过 192.168/16）：
-# IPAddressAllow=192.168.0.202/32
+# IPAddressAllow=<BROWSER_PROXY_HOST>/32
 #
 # ⚠ 这张表**装不上时 systemd 只记一条警告、单元照常启动**（fail open）。
 #   落地必须眼见为实：docs/browser_organ.md §2「前验」第二条探针 + 起服务后

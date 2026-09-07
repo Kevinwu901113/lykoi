@@ -213,8 +213,8 @@ test('R-4：unit 带 cgroup BPF 出网闸，且没写成 Allow 全网那种自�
       `IPAddressAllow 不许含 ${trap} —— Allow 优先于 Deny，那等于没装防火墙`)
   }
   // 代理那行必须还是注释（缺省 host.json 不开代理）。
-  assert.ok(unit.includes('# IPAddressAllow=192.168.0.202/32'), '代理放行应保持注释形态')
-  assert.equal(allowed.includes('192.168.0.202/32'), false)
+  assert.ok(unit.includes('# IPAddressAllow=<BROWSER_PROXY_HOST>/32'), '代理放行应保持注释形态')
+  assert.equal(allowed.includes('<BROWSER_PROXY_HOST>/32'), false)
 })
 
 test('D-8：两份备份文档都写了 /home/lykoi-browser/profile 与"先停服务"', () => {

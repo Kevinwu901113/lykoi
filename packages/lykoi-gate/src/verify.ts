@@ -23,7 +23,7 @@ import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync
 import { dirname, join, resolve } from 'node:path'
 import { HARD_ASK_TYPES, HARD_DENY_TYPES, isProtectedPath } from 'lykoi-kernel/policy-core'
 import {
-  manifestPath, parseManifest, protectedEntries, resolveManifestName, sha256File,
+  instancePackageFiles, manifestPath, parseManifest, protectedEntries, resolveManifestName, sha256File,
   type ProtectedEntry,
 } from './manifest.ts'
 import { rulesSchemaProblems } from './rules-schema.ts'
@@ -209,7 +209,7 @@ export function checkProtectedTree(env: GateEnv, problems: string[]): void {
   if (!existsSync(env.personaToml)) {
     problems.push(`persona TOML missing: ${env.personaToml}`)
   } else {
-    checkOwnedAndUnwritable(env, env.personaToml, problems)
+    for (const path of instancePackageFiles(env.personaToml)) checkOwnedAndUnwritable(env, path, problems)
     checkOwnedAndUnwritable(env, dirname(env.personaToml), problems)
   }
 }

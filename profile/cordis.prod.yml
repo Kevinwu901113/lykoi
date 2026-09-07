@@ -143,15 +143,10 @@
   # 启用
   config:
     tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
-    # M4 前置 #8：出站代理这一位**只能从这里来**（传输层零 env 读取；
-    # LYKOI_TELEGRAM_PROXY 是 GK-6 的 unset 类，生产必须未设）。
-    # 生产网络事实（2026-08-31 取证）：主机直连 api.telegram.org 超时不通，
-    # 经内网代理箱 1.2s 通 —— 所以这一位在生产**必须非空**。真身是 undici
-    # ProxyAgent（http.ts 文件头④）：proxy 非空则每请求带 dispatcher，不存在
-    # 静默直连；https 目标走 CONNECT 隧道，含 token 的 URL 始终在 TLS 里，
-    # 代理箱只见 api.telegram.org:443。本值无凭据；本文件是 root 属主域钉面
-    # 成员，这个值随 manifest 由 root 签署，改它 = 重签。
-    proxy: 'http://192.168.0.202:7890'
+    # 代理属于实例部署事实，缺失即拒起；不从环境读取、不静默直连。
+    # deploy.toml 的 [telegram].proxy 与实例文件一并受完整性门钉住。
+    proxy: instance
+    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
 - id: telegram
   name: lykoi-adapter-telegram
   # 启用

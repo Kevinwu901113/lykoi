@@ -82,12 +82,12 @@ systemd 只记一条警告、单元照常启动** —— 也就是说，"模板�
 # ① 带 Deny：期望连不上（rc 非 0）。目标要挑一个**确实有人在听**的私网地址，
 #    否则连不上也可能只是没人应答，证明不了任何事。这里用大脑的代理（已知在听）。
 systemd-run --wait -p IPAddressDeny=any -p IPAddressAllow=127.0.0.53/32 --quiet \
-  curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "带 Deny rc=$?"
+  curl -sS -m 3 -o /dev/null http://192.0.2.10:7890/ ; echo "带 Deny rc=$?"
 
 # ② 对照，不带 Deny：期望连得上（rc 为 0，或至少是"代理拒绝了这个请求"这类
 #    应用层错误，而不是网络不可达）。
 systemd-run --wait --quiet \
-  curl -sS -m 3 -o /dev/null http://192.168.0.202:7890/ ; echo "无 Deny rc=$?"
+  curl -sS -m 3 -o /dev/null http://192.0.2.10:7890/ ; echo "无 Deny rc=$?"
 ```
 
 **两条都要跑。** 只跑①证明不了过滤在生效（可能它本来就连不上）；只有"①失败、②成功"
@@ -250,7 +250,7 @@ Service Worker、Chrome 自己的后台连接、任何子进程，全部一视�
 Chrome 没有收到任何错误，只是等不到）。§2 前验二里 curl 的 rc=28（超时）是同一个签名。
 
 > **LANDING-H 实证（2026-09-03，服务器 Chrome 148）**：§2 前验二 带 Deny rc=28 / 无 Deny rc=0；
-> 起服务后 `research_browser.read_text` 打 `https://httpbin.org/redirect-to?url=http://192.168.0.202:7890/`
+> 起服务后 `research_browser.read_text` 打 `https://httpbin.org/redirect-to?url=http://192.0.2.10:7890/`
 > 得 `{"ok":false,"error":"timeout"}`；对照直连 `https://httpbin.org/get` 秒回 `ok:true`（unit 内 DNS 与出网可用）；
 > journal 无 ip firewall 安装失败行。原稿把预期写成 `navigation_failed`，是没算到丢包语义，已按实测改。
 > Mac 上没有 systemd / cgroup，smoke 跑不到内核这一层，倒挂断言钉的仍是"用户态拦不住"。

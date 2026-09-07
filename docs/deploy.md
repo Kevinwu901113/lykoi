@@ -447,13 +447,16 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 | `telegram-transport` | unit env 里 `LYKOI_TELEGRAM_BOT_TOKEN` 非空；`proxy` 值按你的网络填 |
 | `telegram` | transport 位在位（它从 `telegramTransport` 服务取传输） |
 
-**代理值**：装配面里现有的 `proxy: 'http://192.168.0.202:7890'` 是**参考部署的内网
-代理箱地址**（2026-08-31 取证：那台主机直连 `api.telegram.org` 超时不通，经它 1.2s 通）。
-**按你自己的网络环境改**：直连可达就填空串 `''`，否则填你自己的
-`http://` / `https://` 代理（socks 不支持，构造期会抛）。这一位**只能从装配面来** ——
-传输层自身零 env 读取，所以改它就是改签名过的配置，要重签。
-出处：`cordis.prod.yml` telegram-transport 段、
-`packages/lykoi-adapter-telegram/src/http.ts` 文件头④。
+**代理值**：生产 profile 使用 `proxy: instance`，从 persona 所在目录的
+`deploy.toml` 读取 `[telegram] proxy = "http://192.0.2.10:7890"`。
+这里的地址仅为文档示例，请填部署网络的真实代理；缺文件、缺值或 URL 非 HTTP(S)
+都会拒绝启动，不会静默直连。需要直连的部署可以把受签名 profile 的 proxy 明确改为
+空串；dev profile 仍以空串直连。
+
+安装 `deploy.toml` 时使用与 persona 相同的 `root:root`、0444 文件权限，目录0755；
+可选 `seeds.toml` 同法。两个文件只要存在，就与 persona 一起进入 manifest 的哈希及
+属主/不可写校验；新增、改动或删除都需重新签署。没有新环境变量。
+浏览器独立宿主仍读它自己的 host JSON 配置，不读取这里的 Telegram 代理。
 
 `api.deepseek.com` 那一跳**没有代理旋钮**（`ProxyAgent` 只接在 telegram 传输层）。
 你的服务器必须能直连它。

@@ -1,5 +1,7 @@
 # WO-E4-4 · 部署与网络事实占位符化（E4 第四批）
 
+> 2026-09-07 整批接续修订（优先于下面旧定位/边界）：真实代理消费者是 `lykoi-adapter-telegram/production`，不是 organ-browser。继承 `6a705ee`；部署表改为 `[telegram].proxy`，生产传输配置以 personaToml 指向同一实例包，proxy=instance 时读取，缺失拒起。浏览器独立 host JSON 不改。允许 adapter 声明对现有 workspace 包 lykoi-decide 的实例加载依赖，不新增外部库。为保持原已签署代理配置的完整性保证，本单同时把存在的 seeds.toml/deploy.toml 纳入 gate/manifest 的 root 域并补 verify 的属主/不可写校验；这是 E4-2 report §6 已发现缺口的同批收束，优先于旧文“不改manifest/verify”。不改 surface/ENV_PINS/policy-core，不执行生产签署或部署。原 D-1～D-5 中 browser_proxy/[browser] 均按真实消费者替换成 telegram_proxy/[telegram]。
+
 - 状态：**待派**。执行方：执行子 Agent。复核：主治理 Agent。
 - 立单：2026-09-05，主治理 Agent。
 - 依据：E4-SPEC §3.3、§2.4、§4 表 E4-4、§6.5（README clone URL 不算实例事实）；审计 A2。

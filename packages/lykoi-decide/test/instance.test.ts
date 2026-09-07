@@ -31,7 +31,7 @@ test('合成实例包：根 = persona TOML 所在目录；seeds.toml 恰一条 p
 
 test('无 seeds.toml → 零种子（不是缺省一条）；根仍正确、相对路径归一为绝对', () => {
   const persona = instancePackage(null)
-  assert.deepEqual(loadInstancePackage(persona), { root: dirname(persona), seeds: [] })
+  assert.deepEqual(loadInstancePackage(persona), { root: dirname(persona), seeds: [], deploy: {} })
   const asRelative = relative(process.cwd(), persona)
   assert.notEqual(asRelative, persona)
   assert.equal(loadInstancePackage(asRelative).root, resolve(dirname(persona)))

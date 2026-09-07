@@ -2,8 +2,8 @@
  * manifest 生成器的**纯函数性**与「签的=验的」（GK-13：清单生成器纯函数）。
  */
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { chmodSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
 import {
   computeManifest, manifestPath, parseManifest, protectedEntries, renderManifest, sha256File,
@@ -188,4 +188,30 @@ test('GK-15：活规则不入钉面 —— 签名后 grantStanding 式改写，�
   } finally {
     fx.cleanup()
   }
+})
+
+test('实例seeds/deploy同源纳入root域：新增/篡改/删除皆红，重签恢复绿', () => {
+  const fx = makeFixture()
+  try {
+    for (const name of ['seeds.toml', 'deploy.toml']) {
+      const path = join(dirname(fx.env.personaToml), name)
+      writeFileSync(path, '# synthetic\n', { mode: 0o444 })
+      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '新增未签署文件须红')
+      signManifest(fx.env)
+      assert.deepEqual(verify(fx.env), [])
+      assert.equal(protectedEntries(fx.repoRoot, { personaToml: fx.env.personaToml }).find(e => e.path === path)?.domain, 'root')
+      chmodSync(path, 0o644)
+      writeFileSync(path, '# changed\n')
+      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '哈希改动须红')
+      signManifest(fx.env)
+      assert.deepEqual(verify(fx.env), [])
+      chmodSync(path, 0o666)
+      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '可写文件即使已签署也须红')
+      chmodSync(path, 0o444)
+      unlinkSync(path)
+      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '删除已签署文件须红')
+      signManifest(fx.env)
+      assert.deepEqual(verify(fx.env), [])
+    }
+  } finally { fx.cleanup() }
 })
