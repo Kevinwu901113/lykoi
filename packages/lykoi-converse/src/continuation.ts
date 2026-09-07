@@ -18,7 +18,7 @@
  */
 import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
-import type { Conversation } from './conversation.ts'
+import type { Conversation, CycleResult } from './conversation.ts'
 import { failureReason } from './failure.ts'
 import type { TurnFailReason } from './outcome.ts'
 
@@ -204,20 +204,23 @@ export class ContinuationRunner implements ContinuationsService {
     let replyChars = 0
     let chained = false
     try {
-      let utterances: readonly string[] | undefined
+      let captured: CycleResult | undefined
       const reply = await this.#deps.conversation.send(CONTINUATION_PROMPT(row.goal), {
         background: true,
         runId,
         turnId: row.id,
-        onUtterances: parts => { utterances = parts },
+        onCycleResult: result => { captured = result; this.#deps.conversation.takeFollowupRequest() },
       })
       // D-6：续跑里又答应"稍后做" —— 取走丢弃，只记旗子，不登记新行。
-      chained = this.#deps.conversation.hasFollowupRequest()
-      if (chained) this.#deps.conversation.takeFollowupRequest()
-      const kind = this.#deps.conversation.lastCycleOutcome()?.kind ?? null
+      const result = captured ?? {
+        outcome: this.#deps.conversation.lastCycleOutcome(), followup: this.#deps.conversation.takeFollowupRequest(),
+        utterances: reply ? [reply] : [],
+      }
+      chained = result.followup !== null
+      const kind = result.outcome?.kind ?? null
       if (reply.trim().length > 0) {
         replyChars = reply.length
-        for (const part of utterances ?? [reply]) this.#deps.postProgress(part)
+        for (const part of result.utterances) this.#deps.postProgress(part)
       }
       if (kind === 'envelope_failed') { state = 'failed'; reason = 'envelope_failed' }
       else if (kind === 'missing_tool') { state = 'failed'; reason = 'missing_tool' }

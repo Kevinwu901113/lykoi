@@ -255,6 +255,13 @@ export const ASK_FALLBACK = '这事需要你点头, 我稍后再问。'
  */
 export const DELEGATED_ASK_FIELDS = ['action_type', 'params', 'action_id', 'correlation_id'] as const
 
+export interface CycleResult {
+  outcome: CycleOutcome | null
+  followup: string | null
+  delegatedAsk: DelegatedAsk | null
+  utterances: readonly string[]
+}
+
 export interface DelegatedAsk {
   action_type: string
   params: Record<string, unknown>
@@ -1546,6 +1553,7 @@ export class Conversation {
     opts: {
       background?: boolean
       onUtterances?: (parts: readonly string[]) => void
+      onCycleResult?: (result: CycleResult) => void
       replyToNotification?: ReplyToNotification | null
       runId?: string
       turnId?: string | null
@@ -1645,6 +1653,12 @@ export class Conversation {
           error: exc instanceof Error ? exc.message : String(exc),
         })
       }
+      opts.onCycleResult?.({
+        outcome: structuredClone(this.lastCycleOutcome()),
+        followup: this.#followupRequest,
+        delegatedAsk: this.#delegatedAsk === null ? null : structuredClone(this.#delegatedAsk),
+        utterances: [...this.#cycleUtterances],
+      })
       opts.onUtterances?.([...this.#cycleUtterances])
       return reply
     })

@@ -84,8 +84,8 @@ function fakeConversation(o: ConvOptions) {
   let taken = 0
   const conversation = {
     async send(text: string, opts: Record<string, unknown>) {
-      const { onUtterances, ...identity } = opts
-      assert.equal(typeof onUtterances, 'function')
+      const { onUtterances, onCycleResult, ...identity } = opts
+      assert.equal(typeof onCycleResult, 'function')
       sends.push({ text, opts: identity })
       if (o.gate) await o.gate.wait
       if (o.error !== undefined) throw o.error

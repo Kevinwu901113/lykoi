@@ -128,3 +128,64 @@ test('模型分段再经真实BotApiTransport拆4096包，HTTP载荷拼回完全
   assert.ok(calls.every(call => String(call.text).length <= 4096))
   assert.equal(calls[2]!.text, input[1])
 })
+
+test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局快照', async () => {
+  const h = makeConversation()
+  let release!: () => void
+  let entered!: () => void
+  const blocked = new Promise<void>(r => { release = r })
+  const waiting = new Promise<void>(r => { entered = r })
+  let calls = 0
+  h.conversation.governContext = async () => { if (++calls === 1) { entered(); await blocked } }
+  const registered: string[] = []
+  const messenger = {
+    routeOwnerMessage: async () => null, outboundWired: () => true,
+    sendReply: async () => ({ outcome: 'delivered' }),
+  }
+  const ctx = { get: () => messenger, audit: { record: async () => {} } } as unknown as Context
+  try {
+    h.llm.push({ content: reply(['稍后给你。'], 'promise_followup') })
+    const first = handleTurn(ctx, h.conversation, turn, 'first-run', {
+      register: input => { registered.push(input.goal); return 'first-cont' },
+      kick: () => {}, scan: async () => ({ skipped: false, claimed: 0, expired: 0 }),
+    })
+    await waiting
+    h.llm.push({ content: reply(['后轮已完成。']) })
+    await h.conversation.send('第二轮', { runId: 'second-run', turnId: 'second-turn' })
+    assert.equal(h.conversation.hasFollowupRequest(), false)
+    release()
+    const result = await first
+    assert.equal(result.terminal.status, 'replied')
+    assert.equal(result.terminal.followup_registered, true)
+    assert.equal(result.terminal.continuation_id, 'first-cont')
+    assert.deepEqual(registered, ['TASK_GOAL'])
+  } finally { release(); h.store.close() }
+})
+
+test('continuation收账不取走锁外等待期间新用户轮的followup', async () => {
+  const h = makeConversation()
+  let release!: () => void
+  let entered!: () => void
+  const blocked = new Promise<void>(r => { release = r })
+  const waiting = new Promise<void>(r => { entered = r })
+  let calls = 0
+  h.conversation.governContext = async () => { if (++calls === 1) { entered(); await blocked } }
+  const events: Record<string, unknown>[] = []
+  const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
+    audit: { record: async event => { events.push(event) } }, messenger: () => undefined,
+    postProgress: () => {}, now: () => T0,
+  })
+  try {
+    h.llm.push({ content: reply(['旧任务完成。']) })
+    const id = runner.register({ originTurnId: 'old', originRunId: 'old-run', goal: '旧任务' })!
+    const scanning = runner.scan(T0)
+    await waiting
+    h.llm.push({ content: reply(['新任务稍后处理。'], 'promise_followup') })
+    await h.conversation.send('新任务', { runId: 'new-run', turnId: 'new-turn' })
+    release()
+    await scanning
+    assert.equal(h.store.getContinuation(id)!.state, 'completed')
+    assert.equal(events.find(event => event.type === 'continuation/terminal')!.chained_request, false)
+    assert.equal(h.conversation.takeFollowupRequest(), 'TASK_GOAL')
+  } finally { release(); h.store.close() }
+})

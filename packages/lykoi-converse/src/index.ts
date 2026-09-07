@@ -55,7 +55,7 @@ import { recordExperience } from 'lykoi-reflow'
 import { collectRestartClues, latestRestartEvent, recordDeployEvent, recordRestartEvent } from 'lykoi-snapshot'
 import {
   ContextBudgetError, Conversation, selfStateBlock,
-  type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
+  type CycleResult, type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import {
   VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
@@ -732,6 +732,7 @@ export async function handleTurn(
   const replyAnchor = lastPart.platformMessageId
   let terminal: Pick<TurnOutcome, 'status' | 'reason'> | null = null
   let followupRegistered = false
+  let followupGoal: string | null = null
   let askSent = false
   let noticeSent = false
   let replyChars = 0
@@ -809,14 +810,23 @@ export async function handleTurn(
     } else {
       // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
       const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')
-      let utterances: readonly string[] | undefined
-      const reply = await conversation.send(rendered, { runId, turnId, onUtterances: parts => { utterances = parts } })
-      followupRegistered = conversation.hasFollowupRequest()
+      let captured: CycleResult | undefined
+      const reply = await conversation.send(rendered, { runId, turnId, onCycleResult: result => {
+        captured = result
+        if (messenger?.outboundWired()) conversation.takeDelegatedAsk()
+        if (continuations !== undefined) conversation.takeFollowupRequest()
+      } })
+      // Compatibility for external test doubles/older Conversation implementations.
+      const result: CycleResult = captured ?? {
+        outcome: conversation.lastCycleOutcome(), followup: conversation.takeFollowupRequest(),
+        delegatedAsk: conversation.peekDelegatedAsk(), utterances: reply ? [reply] : [],
+      }
+      const utterances = result.utterances
+      followupGoal = result.followup
+      followupRegistered = followupGoal !== null
 
     const deviceSideWired = messenger !== undefined && messenger.outboundWired()
-    const delegatedAsk = deviceSideWired
-      ? conversation.takeDelegatedAsk()
-      : conversation.peekDelegatedAsk()
+    const delegatedAsk = result.delegatedAsk
     if (delegatedAsk !== null) {
       await ctx.audit.record({
         type: 'converse/approval_request_pending',
@@ -854,7 +864,7 @@ export async function handleTurn(
         await askAbout()
         terminal = resolveTurnOutcome({
           kind: 'empty',
-          cycleKind: conversation.lastCycleOutcome()?.kind ?? null,
+          cycleKind: result.outcome?.kind ?? null,
           askSent,
         })
       }
@@ -945,7 +955,7 @@ export async function handleTurn(
   // runner 自己落账并返回 null，终局照常。唯一 terminal 由 ingress 持久化后落审计。
   let continuationId: string | null = null
   if (continuations !== undefined && CONTINUATION_ELIGIBLE_STATUSES.has(outcome.status)) {
-    const goal = conversation.takeFollowupRequest()
+    const goal = followupGoal
     if (goal !== null) {
       continuationId = continuations.register({ originTurnId: turnId, originRunId: runId, goal })
     }
