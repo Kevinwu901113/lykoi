@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
-import { DECIDE_SYSTEM_PROMPT } from 'lykoi-decide'
+import { DECIDE_SYSTEM_PROMPT, renderOwnerTemplate } from 'lykoi-decide'
 import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import { DatabaseSync } from 'node:sqlite'
@@ -36,7 +36,7 @@ async function waitUntil(cond: () => boolean, timeoutMs = 2_000): Promise<void> 
   }
 }
 
-test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 合成 state）', async () => {
+test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 合成 state）', async (t) => {
   const { store, path } = makeStore()
   store.createConcern('interest', '词源学', { weight: 0.5, origin: 'seed', now: new Date() })
   store.close() // 插件自己持有 rw 句柄（W1 TODO#9）
@@ -81,6 +81,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
     model: 'mock-model',
     checkIntervalMs: 3_600_000, // cheap tick 驱动不进本测试
   })
+  t.after(() => fiber.dispose())
   assert.ok(ctx.get('wake'), 'wake 服务在位')
 
   ctx.emit('heart/beat', { source: 'interval', pending: 1, at: new Date().toISOString() })
@@ -89,7 +90,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
   // LLM 词汇映射：前导 system 段（persona 内核 + decide 契约）收进 system 槽；
   // user 快照是唯一 message；runId 贯穿。
   assert.equal(llmCalls.length, 1)
-  assert.ok(llmCalls[0]!.system!.includes(DECIDE_SYSTEM_PROMPT))
+  assert.ok(llmCalls[0]!.system!.includes(renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, TEST_PERSONA)))
   assert.ok(llmCalls[0]!.system!.includes(`我是 ${TEST_PERSONA.identity.name}`))
   assert.equal(llmCalls[0]!.messageCount, 1)
 
@@ -124,7 +125,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
   assert.equal(ctx.get('wake'), undefined)
 })
 
-test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化）+ G-7 器官清单真源入自主侧', async () => {
+test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化）+ G-7 器官清单真源入自主侧', async (t) => {
   const { store, path } = makeStore()
   // 器官身份轴真源：identity_bindings 登记一条 owner 绑定（channel_key 不出读面）。
   const { DatabaseSync: Raw } = await import('node:sqlite')
@@ -182,6 +183,7 @@ test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化�
     model: 'mock-model',
     checkIntervalMs: 3_600_000,
   })
+  t.after(() => fiber.dispose())
 
   ctx.emit('heart/beat', { source: 'interval', pending: 1, at: new Date().toISOString() })
   await waitUntil(() => audit.events.some((e) => e.type === 'autonomy_wake'))

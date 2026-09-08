@@ -8,7 +8,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Context } from '@deepseek-ai/cordis'
-import type { InboundMessage, TelegramAdapterService, TelegramSendOptions } from 'lykoi-adapter-telegram'
+import type { TelegramAdapterService, TelegramSendOptions } from 'lykoi-adapter-telegram'
+import type { UserTurn } from 'lykoi-ingress'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
 import {
   CONTINUATION_FAILURE_NOTICE, CONTINUATION_PROMPT, CONTINUATION_SCAN_LIMIT, CONTINUATION_TTL_S,
@@ -65,7 +66,7 @@ class FakeStore implements ContinuationStore {
     r.state = state; r.terminal_reason = reason; r.updated_at = pyIso(now)
     return true
   }
-  ownerChannelKey(): string | null { return this.owner }
+  ownerBinding(): { channel: string; channel_key: string } | null { return this.owner === null ? null : { channel: 'telegram', channel_key: this.owner } }
 }
 
 interface ConvOptions {
@@ -83,7 +84,9 @@ function fakeConversation(o: ConvOptions) {
   let taken = 0
   const conversation = {
     async send(text: string, opts: Record<string, unknown>) {
-      sends.push({ text, opts })
+      const { onUtterances, onCycleResult, ...identity } = opts
+      assert.equal(typeof onCycleResult, 'function')
+      sends.push({ text, opts: identity })
       if (o.gate) await o.gate.wait
       if (o.error !== undefined) throw o.error
       followup = o.chained ? 'CHAINED_GOAL_SENTINEL' : null
@@ -119,7 +122,7 @@ function harness(conv: ConvOptions, opts: { telegram?: 'ok' | 'throws' | 'absent
     store,
     conversation: c.conversation as never,
     audit: { async record(e) { events.push(e) } },
-    telegram: () => (opts.telegram === 'absent' ? undefined : tg.telegram),
+    messenger: () => (opts.telegram === 'absent' ? undefined : tg.telegram),
     postProgress: (content) => { progress.push(content) },
     now: opts.clock ?? (() => T0),
     onError: (where) => { errors.push(where) },
@@ -313,10 +316,19 @@ test('(j) 回执出口：无传输 / 无 owner 绑定 / 发送抛错 → continu
 
 // ---- handleTurn 侧的登记（D-2） ----
 
-const MESSAGE: InboundMessage = {
-  userId: 'user_001', contextId: 'chat-1', isOwner: true, text: 'USER_BODY_SENTINEL',
-  messageId: '100', updateId: 1,
+const TURN: UserTurn = {
+  turnId: 'turn:telegram:1', channel: 'telegram',
+  userId: 'user_001', contextId: 'chat-1', isOwner: true,
+  parts: [{
+    inboundId: 'telegram:1', channel: 'telegram', platformMessageId: '100', platformUpdateId: '1',
+    userId: 'user_001', contextId: 'chat-1', isOwner: true, text: 'USER_BODY_SENTINEL',
+    receivedAt: '2026-09-05T00:00:00.000Z',
+  }],
+  firstReceivedAt: '2026-09-05T00:00:00.000Z',
+  lastReceivedAt: '2026-09-05T00:00:00.000Z',
+  committedAt: '2026-09-05T00:00:01.500Z', commitReason: 'idle_timeout',
 }
+const TURN_RUN_ID = 'run:turn:telegram:1:r0'
 
 function turnHarness(conv: { reply: string; error?: unknown; followup: string | null }) {
   const events: ({ type: string } & Record<string, unknown>)[] = []
@@ -333,11 +345,12 @@ function turnHarness(conv: { reply: string; error?: unknown; followup: string | 
     async send() { return { sent: true, messageId: 'm' } },
     async sendReply() { return { outcome: 'delivered' } },
     async askAbout() { return { asked: false, status: 'none' } },
+    async routeOwnerMessage() { return null },
     outboundWired: () => true,
   }
   const ctx = {
     audit: { async record(e: { type: string }) { events.push(e as never) } },
-    get: (name: string) => (name === 'telegram' ? telegram : undefined),
+    get: (name: string) => (name === 'messenger' ? telegram : undefined),
   } as unknown as Context
   const registered: { originTurnId: string; originRunId: string | null; goal: string }[] = []
   let kicks = 0
@@ -353,10 +366,9 @@ function turnHarness(conv: { reply: string; error?: unknown; followup: string | 
 
 test('handleTurn：replied + followup → 登记（turn/run id 原样）+ 终局带 continuation_id + kick', async () => {
   const h = turnHarness({ reply: 'ok', followup: GOAL })
-  await handleTurn(h.ctx, h.conversation, MESSAGE, h.continuations)
-  assert.deepEqual(h.registered, [{ originTurnId: 'tg:1', originRunId: 'converse-1-100', goal: GOAL }])
-  const t = h.events.find((e) => e.type === 'turn/terminal')!
-  assert.equal(t.status, 'replied')
+  const { terminal: t } = await handleTurn(h.ctx, h.conversation, TURN, TURN_RUN_ID, h.continuations)
+  assert.deepEqual(h.registered, [{ originTurnId: TURN.turnId, originRunId: TURN_RUN_ID, goal: GOAL }])
+  assert.equal(t.status, 'completed')
   assert.equal(t.followup_registered, true)
   assert.equal(t.continuation_id, 'cont-x')
   assert.equal(h.kicks(), 1)
@@ -365,18 +377,20 @@ test('handleTurn：replied + followup → 登记（turn/run id 原样）+ 终局
 
 test('handleTurn：failed 回合的 followup 不登记；无 followup 不登记；未接 runner 时零调用', async () => {
   const failed = turnHarness({ reply: '', error: new Error('boom'), followup: GOAL })
-  await handleTurn(failed.ctx, failed.conversation, MESSAGE, failed.continuations)
+  const failedResult = await handleTurn(
+    failed.ctx, failed.conversation, TURN, TURN_RUN_ID, failed.continuations,
+  )
   assert.deepEqual(failed.registered, [])
-  assert.equal(failed.events.find((e) => e.type === 'turn/terminal')!.continuation_id, null)
+  assert.equal(failedResult.terminal.continuation_id, null)
   assert.equal(failed.kicks(), 0)
 
   const none = turnHarness({ reply: 'ok', followup: null })
-  await handleTurn(none.ctx, none.conversation, MESSAGE, none.continuations)
+  await handleTurn(none.ctx, none.conversation, TURN, TURN_RUN_ID, none.continuations)
   assert.deepEqual(none.registered, [])
   assert.equal(none.kicks(), 0)
 
   const unwired = turnHarness({ reply: 'ok', followup: GOAL })
-  await handleTurn(unwired.ctx, unwired.conversation, MESSAGE)
-  assert.equal(unwired.events.find((e) => e.type === 'turn/terminal')!.followup_registered, true)
-  assert.equal(unwired.events.find((e) => e.type === 'turn/terminal')!.continuation_id, null)
+  const unwiredResult = await handleTurn(unwired.ctx, unwired.conversation, TURN, TURN_RUN_ID)
+  assert.equal(unwiredResult.terminal.followup_registered, true)
+  assert.equal(unwiredResult.terminal.continuation_id, null)
 })

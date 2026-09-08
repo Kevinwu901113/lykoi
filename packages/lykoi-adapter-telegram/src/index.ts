@@ -17,6 +17,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type { AuditService } from 'lykoi-audit'
+import type { IngressService, InboundPart } from 'lykoi-ingress'
+import { markActive } from 'lykoi-kernel'
 import type { LykoiMemoryService } from 'lykoi-memory'
 import { readFileSync } from 'node:fs'
 import { mkdir, open, rename } from 'node:fs/promises'
@@ -97,21 +99,6 @@ export interface TelegramTransport {
   ): Promise<TelegramSendResult>
 }
 
-// ============================== 盖章后的入站消息 ==============================
-
-/** 来源盖章：消息离开适配器时必带 user_id / context_id（工单③）。 */
-export interface InboundMessage {
-  userId: string
-  contextId: string
-  /** S-09：严格窄于 bound——owner_primary 的 telegram 绑定；任一未知即 false。 */
-  isOwner: boolean
-  text: string
-  /** 入站 message_id：出站应答 reply_to 的锚（SPEC §1.2：只存在于设备层）。 */
-  messageId: string
-  updateId: number
-  ts?: string
-}
-
 export interface TelegramAdapterCounters {
   polls: number
   inbound: number
@@ -127,7 +114,9 @@ export interface TelegramAdapterCounters {
   sendFailed: number
 }
 
-export interface TelegramAdapterService {
+export interface MessengerAdapterService {
+  /** 当前单传输实例负责的通道。 */
+  readonly channel: string
   /**
    * 裸出站（M1 的应答路径，reply_to 必带）—— **M3-W3 起它不再是回复的正路**：
    * 她的回复走 `sendReply`（经 dispatch，E2 盖章，SK-78 三分支结局）。本方法保留
@@ -169,6 +158,13 @@ export interface TelegramAdapterService {
   consumeOutboxOnce(): Promise<void>
   /** 出站器官是否已接线（converse 的 `device_side_wired` 账面取值源）。 */
   outboundWired(): boolean
+  /** S-08：owner 的显式 reply_to 先审批、再建议；普通消息返回 null。 */
+  routeOwnerMessage(input: {
+    text: string
+    contextId: string
+    replyTo: string | null
+    messageId: string
+  }): Promise<'approval_answer' | 'suggestion_answer' | null>
   /**
    * messenger 的 transport 真身（`messenger._TRANSPORT = transport` 对应物）。
    * `replyTo` 可为 null —— 主动出站走这里，裸 `send` 是它的 reply-only 门面。
@@ -181,14 +177,13 @@ export interface TelegramAdapterService {
   ): Promise<TelegramSendResult>
 }
 
+/** @deprecated 使用 MessengerAdapterService；保留一版类型兼容。 */
+export type TelegramAdapterService = MessengerAdapterService
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    telegram: TelegramAdapterService
+    messenger: MessengerAdapterService
     telegramTransport: TelegramTransport
-  }
-  interface Events {
-    /** 盖章后的入站消息（parallel 派发：处理完才推进游标，S-03 的时序前提）。 */
-    'lykoi/telegram/inbound'(message: InboundMessage): Promise<void> | void
   }
 }
 
@@ -240,15 +235,18 @@ async function writeJsonAtomic(path: string, value: unknown, seq: number): Promi
 
 // ============================== 适配器实现 ==============================
 
-export class TelegramAdapter implements TelegramAdapterService {
-  #ctx: Context
+export class TelegramAdapter implements MessengerAdapterService {
+  readonly channel = 'telegram'
   #transport: TelegramTransport
   #audit: AuditService
+  #ingress: IngressService
   #memory: LykoiMemoryService
   #cursorPath: string
   #archivePath: string
   #pollTimeoutS: number
   #cursor: number
+  #bootTime = Date.now()
+  #catchingUp = true
   #archive: ArchiveFile
   #counters: TelegramAdapterCounters = {
     polls: 0,
@@ -265,17 +263,18 @@ export class TelegramAdapter implements TelegramAdapterService {
   /** M3-W3：出站器官（晚绑定，见 wireOutbound）。 */
   #outbound: OutboundOrgan | null = null
 
-  constructor(ctx: Context, options: {
+  constructor(_ctx: Context, options: {
     transport: TelegramTransport
     audit: AuditService
+    ingress: IngressService
     memory: LykoiMemoryService
     cursorPath: string
     archivePath: string
     pollTimeoutS: number
   }) {
-    this.#ctx = ctx
     this.#transport = options.transport
     this.#audit = options.audit
+    this.#ingress = options.ingress
     this.#memory = options.memory
     this.#cursorPath = resolve(options.cursorPath)
     this.#archivePath = resolve(options.archivePath)
@@ -300,6 +299,16 @@ export class TelegramAdapter implements TelegramAdapterService {
 
   outboundWired(): boolean {
     return this.#outbound !== null
+  }
+
+  async routeOwnerMessage(input: {
+    text: string
+    contextId: string
+    replyTo: string | null
+    messageId: string
+  }): Promise<'approval_answer' | 'suggestion_answer' | null> {
+    if (this.#outbound === null) return null
+    return await this.#outbound.routeOwnerMessage(input)
   }
 
   #requireOutbound(): OutboundOrgan {
@@ -357,12 +366,13 @@ export class TelegramAdapter implements TelegramAdapterService {
   /**
    * 一轮长轮询。S-01：offset=cursor+1（平台侧 ack）；S-02：进程侧
    * `update_id <= cursor → continue` 第二道去重；S-03：每条 update
-   * **处理完毕之后**才推进并落盘游标（不是批量末尾）。处理中抛错 →
-   * 该条不推进游标（重放方向：丢话之害 > 偶发重复之害，SPEC §1.2 崩溃语义）。
+   * **durable accept 完成之后**才推进并落盘游标（不是批量末尾）。SQLite commit
+   * 之后 cognition 与本轮 poll 物理解耦；accept 抛错时该条不推进，重放由平台
+   * identity 唯一索引吸收。
    */
   async pollOnce(): Promise<number> {
     this.#counters.polls += 1
-    const updates = await this.#transport.poll(this.#cursor + 1, { timeoutS: this.#pollTimeoutS })
+    const updates = await this.#transport.poll(this.#cursor + 1, { timeoutS: this.#catchingUp ? 0 : this.#pollTimeoutS })
     let processed = 0
     for (const update of updates) {
       // S-02 第二道：进程侧去重（update_id 缺失/非法与重复同路：跳过不推进）。
@@ -375,7 +385,14 @@ export class TelegramAdapter implements TelegramAdapterService {
       // S-03：逐条推进 + 落盘（处理完才推进）。
       this.#cursor = update.updateId
       await this.#persistCursor()
+      // WO-TURN-01：认知/assembler 只能在 durable accept 与 cursor 都落稳后抢跑。
+      await this.#ingress.kick()
       processed += 1
+    }
+    // 启动时用零等待拉尽积压；空批是确定性边界，不猜服务器批大小。
+    if (this.#catchingUp && updates.length === 0) {
+      await this.#ingress.finishReplay?.('telegram')
+      this.#catchingUp = false
     }
     return processed
   }
@@ -442,17 +459,25 @@ export class TelegramAdapter implements TelegramAdapterService {
     // 任一侧未知即 false，永不默认 yes。
     const isOwner = binding.role === 'owner_primary'
 
-    const stamped: InboundMessage = {
+    const stamped: InboundPart = {
+      inboundId: `telegram:${update.updateId}`,
+      channel: 'telegram',
+      platformMessageId: String(message.messageId),
+      platformUpdateId: String(update.updateId),
       userId: binding.userId,
       contextId: chatId,
       isOwner,
       text,
-      messageId: String(message.messageId),
-      updateId: update.updateId,
-      ...(message.ts === undefined ? {} : { ts: message.ts }),
+      receivedAt: new Date(receivedAt).toISOString(),
+      ...(this.#catchingUp && message.ts !== undefined && Date.parse(message.ts) < this.#bootTime
+        ? { replay: true } : {}),
+      ...(message.ts === undefined ? {} : { sourceTimestamp: message.ts }),
+      ...(message.replyToMessageId === undefined
+        ? {}
+        : { replyToPlatformMessageId: message.replyToMessageId }),
     }
-    this.#counters.inbound += 1
-    // 隐私：audit 行只带字数不带正文（SPEC §7.2 record_undelivered 的事件口径）。
+    // 传输层“收到”先留痕；是否已可靠接纳、归到哪个 turn 由紧随其后的
+    // inbound/accepted 正本回答。正文仍不入 audit。
     await this.#audit.record({
       type: 'telegram/inbound',
       updateId: update.updateId,
@@ -460,74 +485,19 @@ export class TelegramAdapter implements TelegramAdapterService {
       userId: binding.userId,
       isOwner,
       chars: text.length,
+      inboundId: stamped.inboundId,
     })
-    // S-08 三级路由的**消费位**（SK-82，M3-W3 接真）：审批回答 → 规则建议回答 →
-    // 普通对话。前两级**仅 `isOwner`**（严格窄于 `isBound`）：绑定了但不是 owner
-    // 的发信人是完全合法的通信对象，他写的任何东西都不许被读作一次审批（判据 5）。
-    // 前两级里任一 outcome !== 'ignored' 即**消费并 return** —— 这条消息就是那次
-    // 回合，不再同时当成一次对话提示；两级都 ignored 则原样落到普通对话级
-    // （零 DB 写、零 LLM 调用），所以正常对话毫发无损。
-    if (isOwner && this.#outbound !== null) {
-      let consumed: 'approval_answer' | 'suggestion_answer' | null
-      try {
-        consumed = await this.#outbound.routeOwnerMessage({
-          text,
-          contextId: chatId,
-          replyTo: message.replyToMessageId ?? null,
-          messageId: String(message.messageId),
-        })
-      } catch (routeError) {
-        const turnId = `tg:${update.updateId}`
-        await this.#audit.record({
-          type: 'turn/route_failed',
-          turn_id: turnId,
-          error_name: routeError instanceof Error ? routeError.name : 'unknown',
-        })
-        await this.#audit.record({
-          type: 'turn/terminal',
-          turn_id: turnId,
-          inbound_id: turnId,
-          run_id: null,
-          update_id: update.updateId,
-          message_id: String(message.messageId),
-          context_id: chatId,
-          user_id: binding.userId,
-          is_owner: isOwner,
-          status: 'failed',
-          reason: 'unknown',
-          followup_registered: false,
-          ask_sent: false,
-          notice_sent: false,
-          reply_chars: 0,
-          elapsed_ms: Math.max(0, Date.now() - receivedAt),
-        })
-        return
-      }
-      if (consumed !== null) {
-        const turnId = `tg:${update.updateId}`
-        await this.#audit.record({
-          type: 'turn/terminal',
-          turn_id: turnId,
-          inbound_id: turnId,
-          run_id: null,
-          update_id: update.updateId,
-          message_id: String(message.messageId),
-          context_id: chatId,
-          user_id: binding.userId,
-          is_owner: isOwner,
-          status: 'consumed',
-          reason: consumed,
-          followup_registered: false,
-          ask_sent: false,
-          notice_sent: false,
-          reply_chars: 0,
-          elapsed_ms: Math.max(0, Date.now() - receivedAt),
-        })
-        return
-      }
+    const accepted = await this.#ingress.accept(stamped, () => {
+      // 入站已持久化即让 wake 礼让，不等审计 I/O 或排队的 cognition。
+      markActive(undefined, new Date(receivedAt))
+    })
+    if (accepted.duplicate) {
+      this.#counters.duplicates += 1
+      return
     }
-    // parallel：等待全部消费者处理完，才回到 pollOnce 推进游标（S-03 时序）。
-    await this.#ctx.parallel('lykoi/telegram/inbound', stamped)
+    this.#counters.inbound += 1
+    // S-08 与 cognition 都由 UserTurn executor 在 FIFO 上处理；这里到 durable accept
+    // 即返回，让 pollOnce 可以先推进 cursor，再收下一条外界消息。
   }
 
   async send(
@@ -667,7 +637,7 @@ function loadArchive(path: string): ArchiveFile {
 
 export const name = 'lykoi-adapter-telegram'
 // 依赖显式化：audit（治理地基①）、lykoiMemory（绑定查询②d）、telegramTransport（传输 seam）。
-export const inject = ['audit', 'lykoiMemory', 'telegramTransport']
+export const inject = ['audit', 'ingress', 'lykoiMemory', 'telegramTransport']
 
 export interface Config {
   cursorPath: string
@@ -745,12 +715,13 @@ export function apply(ctx: Context, config: Config) {
   const adapter = new TelegramAdapter(ctx, {
     transport: ctx.telegramTransport,
     audit: ctx.audit,
+    ingress: ctx.ingress,
     memory: ctx.lykoiMemory,
     cursorPath: config.cursorPath,
     archivePath: config.archivePath,
     pollTimeoutS: config.pollTimeoutS,
   })
-  ctx.provide('telegram', adapter)
+  ctx.provide('messenger', adapter)
   // M3-W3：**这个进程的 `messenger.send` 从此真的说得出话**（活体
   // `messenger._TRANSPORT = transport` 那一行的对应物，telegram_device.py:529）。
   // 于是她的每一条出站 —— 回复 / 审批问句 / 建议问句 / 投递线 —— 都继承同一套

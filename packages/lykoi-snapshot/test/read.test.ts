@@ -180,7 +180,7 @@ test('环境块：读数、探索断粮、节律、预算（G-6 系数 1.0 直�
   const store = new ReadWriteMemory(path)
   const deps = stubDeps()
   const snap = read(store, deps, NOW)
-  assert.equal(snap.环境.距上次和Kevin互动小时, 2.0)
+  assert.equal(snap.环境.距上次与所有者互动小时, 2.0)
   assert.equal(snap.环境.同时段历史.观察天数, 14)
   assert.equal(snap.环境.同时段历史.典型互动间隔小时, 24.0) // 样本不足 → 缺省
   assert.equal(snap.环境.同时段历史.近14天此时段有互动的天数, 1) // 仅 8/19 落在昨日锚点 ±2h

@@ -12,7 +12,7 @@
 # lykoi 可写树里 —— 看守者与被看守者物理分离）。
 
 [Unit]
-Description=Lykoi Cordis watchdog probe (root supervisor)
+Description=Cordis watchdog probe (root supervisor)
 
 [Service]
 Type=oneshot

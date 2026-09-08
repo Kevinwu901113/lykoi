@@ -18,6 +18,7 @@
     "lykoi-audit": "0.1.0",
     "lykoi-decide": "0.1.0",
     "lykoi-kernel": "0.1.0",
+    "lykoi-ingress": "0.1.0",
     "lykoi-learn": "0.1.0",
     "lykoi-llm": "0.1.0",
     "lykoi-memory": "0.1.0",

@@ -15,7 +15,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { mkdir, open, type FileHandle } from 'node:fs/promises'
+import { mkdir, open, readFile, type FileHandle } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 /**
@@ -33,6 +33,11 @@ export interface AuditEvent {
 export interface AuditService {
   /** 追加一行 JSON。串行、单次 write 一整行（R-16）；失败抛给调用方。 */
   record(event: AuditEvent): Promise<void>
+  /**
+   * 带稳定 event id 的幂等投影。用于 SQLite 已有 canonical 终态、JSONL 需要崩溃补账
+   * 的窄场景；普通遥测仍用 record。返回 true 表示本次实际追加。
+   */
+  recordOnce?(eventId: string, event: AuditEvent): Promise<boolean>
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -46,6 +51,8 @@ class AuditWriter implements AuditService {
   #handle: FileHandle | null = null
   #opening: Promise<FileHandle> | null = null
   #tail: Promise<unknown> = Promise.resolve()
+  #onceIds: Set<string> | null = null
+  #needsLineBoundary = false
   #disposed = false
 
   constructor(path: string) {
@@ -71,31 +78,84 @@ class AuditWriter implements AuditService {
     return this.#opening
   }
 
-  record(event: AuditEvent): Promise<void> {
-    if (typeof event?.type !== 'string' || event.type.length === 0) {
-      return Promise.reject(new TypeError('lykoi-audit: event.type must be a non-empty string'))
+  async #append(event: AuditEvent): Promise<void> {
+    if (this.#disposed) {
+      throw new Error('lykoi-audit: sink disposed (fiber unloaded); refusing to record')
     }
+    const line = { ts: new Date().toISOString(), ...event }
+    // R-16: 整行（含换行符）序列化为单个 buffer，单次 write 写入，不分片。
+    const buf = Buffer.from((this.#needsLineBoundary ? '\n' : '') + JSON.stringify(line) + '\n', 'utf8')
+    const handle = await this.#open()
+    const { bytesWritten } = await handle.write(buf, 0, buf.length)
+    if (bytesWritten !== buf.length) {
+      this.#needsLineBoundary = true
+      // 部分写意味着行可能被撕裂——fail-closed，抛给调用方。
+      throw new Error(
+        `lykoi-audit: partial write (${bytesWritten}/${buf.length} bytes) to ${this.#path}`,
+      )
+    }
+    this.#needsLineBoundary = false
+    if (this.#onceIds !== null && typeof event.event_id === 'string') {
+      this.#onceIds.add(event.event_id)
+    }
+  }
+
+  #enqueue<T>(write: () => Promise<T>): Promise<T> {
     const prev = this.#tail
     const job = (async () => {
       // 进程内串行：等待前序写完成（前序失败不阻断本次；错误已传播给前序调用方）。
       await prev.catch(() => {})
-      if (this.#disposed) {
-        throw new Error('lykoi-audit: sink disposed (fiber unloaded); refusing to record')
-      }
-      const line = { ts: new Date().toISOString(), ...event }
-      // R-16: 整行（含换行符）序列化为单个 buffer，单次 write 写入，不分片。
-      const buf = Buffer.from(JSON.stringify(line) + '\n', 'utf8')
-      const handle = await this.#open()
-      const { bytesWritten } = await handle.write(buf, 0, buf.length)
-      if (bytesWritten !== buf.length) {
-        // 部分写意味着行可能被撕裂——fail-closed，抛给调用方。
-        throw new Error(
-          `lykoi-audit: partial write (${bytesWritten}/${buf.length} bytes) to ${this.#path}`,
-        )
-      }
+      return await write()
     })()
     this.#tail = job.catch(() => {})
     return job
+  }
+
+  record(event: AuditEvent): Promise<void> {
+    if (typeof event?.type !== 'string' || event.type.length === 0) {
+      return Promise.reject(new TypeError('lykoi-audit: event.type must be a non-empty string'))
+    }
+    return this.#enqueue(async () => await this.#append(event))
+  }
+
+  async #loadOnceIds(): Promise<Set<string>> {
+    if (this.#onceIds !== null) return this.#onceIds
+    const ids = new Set<string>()
+    let raw = ''
+    try {
+      raw = await readFile(this.#path, 'utf8')
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+    this.#needsLineBoundary = raw.length > 0 && !raw.endsWith('\n')
+    for (const line of raw.split('\n')) {
+      if (line.length === 0 || !line.includes('"event_id"')) continue
+      try {
+        const row = JSON.parse(line) as { event_id?: unknown }
+        if (typeof row.event_id === 'string') ids.add(row.event_id)
+      } catch { /* crash 遗留的撕裂尾行不是成功事件，允许补写完整行 */ }
+    }
+    this.#onceIds = ids
+    return ids
+  }
+
+  recordOnce(eventId: string, event: AuditEvent): Promise<boolean> {
+    if (typeof eventId !== 'string' || eventId.length === 0) {
+      return Promise.reject(new TypeError('lykoi-audit: eventId must be a non-empty string'))
+    }
+    if (typeof event?.type !== 'string' || event.type.length === 0) {
+      return Promise.reject(new TypeError('lykoi-audit: event.type must be a non-empty string'))
+    }
+    return this.#enqueue(async () => {
+      if (this.#disposed) throw new Error('lykoi-audit: sink disposed; refusing to record')
+      const ids = await this.#loadOnceIds()
+      const duplicate = ids.has(eventId)
+      if (!duplicate) await this.#append({ ...event, event_id: eventId })
+      // SQLite 只有在 JSONL 真正落盘后才能标记已投影。sync 失败后的同 ID 重试也要 sync。
+      await (await this.#open()).sync()
+      ids.add(eventId)
+      return !duplicate
+    })
   }
 
   async dispose(): Promise<void> {

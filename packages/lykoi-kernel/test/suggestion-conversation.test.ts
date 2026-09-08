@@ -32,7 +32,7 @@ const C_SECTION: [string, number, string][] = [
   [UNCLEAR_REPLY, 36, '3c705262b7c4e8fdc883f78f3001e20af85b3b6a645a0543762f4c76119cbff0'],
   [EXPIRED_NOTICE, 36, '6d5e1ee7a89e3b6c9d1d5bcc214dcb4dcfc8bc86cd43aa6a4dc56d42965b182d'],
   [DEAD_REPLY, 18, '630aaf0fca8398652594195f4ccd1530d3312778534acfbca0dcf3dabfb50f4b'],
-  [ANSWER_SYSTEM_PROMPT, 656, '74f4efdbc7ba02f21e4010d9f516a8731c5b616a060796778b9604e87b317f4b'],
+  [ANSWER_SYSTEM_PROMPT, 652, '3e2635e2ff2f78827274c08494e8264a96ab422247599a818f6a987fcf2d1f9b'],
   [ANSWER_DATA_TEMPLATE, 80, '95107a698651e7db429e7837563097f5cfcaa966082985bd316a1bf7da53275a'],
   [ANSWER_OWNER_TEMPLATE, 81, 'f68f4704664b1b71190bdc4dc470c449e5d97a4556833db0938c7e475ad66a89'],
 ]
@@ -115,7 +115,7 @@ function memoryStore(rows: Row[] = [], opts: {
     resolved,
     claims,
     currentFocusCycleId: () => opts.cycle ?? 100,
-    ownerChannelKey: () => (opts.ownerKey === undefined ? '1001' : opts.ownerKey),
+    ownerBinding: () => opts.ownerKey === null ? null : ({ channel: 'matrix', channel_key: opts.ownerKey ?? '1001' }),
     outstandingAskedRuleSuggestions: () => rows.filter((r) => r.status === 'asked'),
     nextPendingRuleSuggestion: () => rows.find((r) => r.status === 'pending') ?? null,
     overdueAskedRuleSuggestions: (cycleId, ttl) => rows.filter(

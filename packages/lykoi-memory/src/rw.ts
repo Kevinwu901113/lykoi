@@ -1152,6 +1152,16 @@ export class ReadWriteMemory {
    * 身份层）。SK-51 的 `_owner_context` 与 SK-79 出站投递的 chat_id 都只认这
    * 一个口。绑定仍然只读、绝不在这里写。
    */
+  /** owner 的 canonical 通道绑定；排序稳定，未绑定返回 null。 */
+  ownerBinding(): { channel: string; channel_key: string } | null {
+    const owner = this.ownerPrimaryUserId()
+    if (!owner) return null
+    return this.#db.prepare(
+      'SELECT channel, channel_key FROM identity_bindings WHERE user_id = ? '
+      + 'ORDER BY channel, channel_key LIMIT 1',
+    ).get(owner) as { channel: string; channel_key: string } | undefined ?? null
+  }
+
   ownerChannelKey(channel: string): string | null {
     const owner = this.ownerPrimaryUserId()
     if (!owner) return null

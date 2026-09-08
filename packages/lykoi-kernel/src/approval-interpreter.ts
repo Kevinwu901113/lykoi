@@ -185,11 +185,11 @@ export const INTERPRET_SCHEMA: Record<string, unknown> = {
 /** 851 字逐字（sha256 ed9c86d1…；SPEC-KERNEL §2 B 段第 1 条）。 */
 export const INTERPRET_SYSTEM_PROMPT = `你是一个审批语义判定器, 服务于一个 AI 的权限系统。
 
-有一个待批准的具体动作, 和主人(Kevin)刚说的一句话。你唯一的工作是判断:
+有一个待批准的具体动作, 和所有者刚说的一句话。你唯一的工作是判断:
 **这句话是不是在批准这个具体动作**, 以及批准得有多宽。
 
 铁律:
-1. 只有他明确同意「这件事」才算 approve。同意的是别的事、泛泛的客套、
+1. 只有所有者明确同意「这件事」才算 approve。同意的是别的事、泛泛的客套、
    在反问、在闲聊、看不懂 —— 一律 unclear。
 2. 拿不准就 unclear。unclear 的代价是多问一句; 错判成 approve 的代价是
    替他做了他没同意的事。这两个代价不对等。

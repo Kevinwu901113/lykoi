@@ -209,7 +209,7 @@ test('SA-152：staged_instructions 渲染=给 root 会话看的执行说明；�
     assert.deepEqual(changedTables(before, tableDigests(path)), [])
     assert.match(text, new RegExp(`^\\[规则建议 #${result.id} · 你已经同意 · 等你在 root 会话落笔\\]`))
     assert.match(text, /建议: 这类事可以自动批准吧/)
-    assert.match(text, /来源: insight 42 \(insight #42 · concern #7 · 触及权限边界, 按 §3.8 只能问 Kevin\)/)
+    assert.match(text, /来源: insight 42 \(insight #42 · concern #7 · 触及权限边界, 按 §3.8 只能问所有者\)/)
     assert.match(text, new RegExp(`product_id='${result.id}'`))
     assert.match(text, /你的原话: 可以, 你排一下/)
     assert.match(text, /由你在 root 会话里改 guardian 侧的审批规则/)

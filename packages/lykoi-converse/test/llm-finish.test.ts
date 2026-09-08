@@ -31,6 +31,7 @@ import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, seedBinding } from './fixture.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 
 const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
@@ -92,6 +93,7 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -120,7 +122,7 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
     visionRoute: 'disabled',
     visionModel: 'disabled',
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 900, chatId: '1001', senderId: '1001', text: '在吗' },

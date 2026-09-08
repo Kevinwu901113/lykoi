@@ -28,7 +28,7 @@
  * 的 clock 薄件（生产=systemClock、测试=VirtualClock）。
  */
 import {
-  emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
+  AUTONOMY_ACTIONS, emitCapabilityGap, GAP_NO_EXECUTION_BRANCH, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { parseStateTimestamp, type EpistemicStance, type HistoryRow } from 'lykoi-memory'
 import type { ConversationDirection, ExperienceSource } from 'lykoi-memory/rw'
@@ -292,7 +292,7 @@ export async function executeAndReflow(
   decision: Decision,
   runId: string,
   counts: WakeCounts,
-  opts: { store: ReflowStore; dispatchFn: DispatchFn; now: Date; logEvent?: LogEvent },
+  opts: { store: ReflowStore; dispatchFn: DispatchFn; now: Date; logEvent?: LogEvent; ownerName?: string },
 ): Promise<'completed' | 'failed'> {
   const { store, dispatchFn, now, logEvent } = opts
 
@@ -335,7 +335,7 @@ export async function executeAndReflow(
         result = 'explore 扑空:想去看看,但没有起点 url,什么都没读到'
       } else {
         const observation = await dispatchFn(
-          'research_browser.read_text', { url: decision.url }, runId,
+          AUTONOMY_ACTIONS.explore.action, { url: decision.url }, runId,
         )
         // SA-57：counts["action"] 在 dispatch 之后**无条件** +1（被拦下也算）。
         counts.action += 1
@@ -367,7 +367,7 @@ export async function executeAndReflow(
       // WO-NIGHT-01/B3 主动开口:对话消息,不是手机通知。同 queue_notification
       // 一样走 kernel dispatch(origin=autonomous),预算被拦下时她体验为结果。
       const observation = await dispatchFn(
-        'autonomy.initiate_chat',
+        AUTONOMY_ACTIONS.initiate_chat.action,
         { content: (decision.content ?? '').trim(), run_id: runId },
         runId,
       )
@@ -390,7 +390,7 @@ export async function executeAndReflow(
       // 分支的 kind 都会默默变成一条发给 Kevin 的通知（contemplate 踩过的坑）。
       // 新体改**显式分支**；语义与活体逐字等价（今日七 kind 全覆盖）。
       const observation = await dispatchFn(
-        'autonomy.queue_notification',
+        AUTONOMY_ACTIONS.queue_notification.action,
         { summary: (decision.content ?? '').trim(), run_id: runId },
         runId,
       )
@@ -400,7 +400,7 @@ export async function executeAndReflow(
         // SA-57：counts["notification"] 只在真入队时 +1（行动预算记"她试了一次
         // 外部动作"，通知配额记"确实留了一条话"）。
         counts.notification += 1
-        result = 'queue_notification 完成:留了话给 Kevin,等他回应'
+        result = `queue_notification 完成:留了话给 ${opts.ownerName ?? '所有者'},等待回应`
       } else if (observation.success) {
         // SA-62：The kernel throttle held — that IS the governance cap working,
         // and she experiences it as a result, not a crash (红线 #5)。
@@ -508,6 +508,7 @@ export type CheapTickStore = SnapshotStore & ReflowStore & {
  * lykoi-wake 的驱动循环承担，SA-67）。
  */
 export function cheapTick(opts: {
+  ownerName?: string
   store: CheapTickStore
   notifications: NotificationsView
   now: Date
@@ -523,7 +524,7 @@ export function cheapTick(opts: {
     recordExperience(
       store,
       'silence',
-      `我主动联系了 Kevin,超过 ${Math.trunc(CONTACT_RESPONSE_TIMEOUT_H)} 小时没有回应`,
+      `我主动联系了 ${opts.ownerName ?? '所有者'},超过 ${Math.trunc(CONTACT_RESPONSE_TIMEOUT_H)} 小时没有回应`,
       { salience: SILENCE_SALIENCE, now },
     )
     logEvent?.('mind_contact_unanswered', { pending_since: pending })
@@ -549,8 +550,8 @@ export function cheapTick(opts: {
         recordExperience(
           store,
           'silence',
-          `Kevin 比平时安静:已经 ${pyFloat1(hoursQuiet)} 小时没有互动`
-          + `(他这个时段通常在,典型间隔约 ${pyFloat1(typical)} 小时)`,
+          `${opts.ownerName ?? '所有者'} 比平时安静:已经 ${pyFloat1(hoursQuiet)} 小时没有互动`
+          + `(这个时段通常有互动,典型间隔约 ${pyFloat1(typical)} 小时)`,
           { salience: SILENCE_SALIENCE, now },
         )
         store.applyRegulationCause('owner_silence_anomaly', { now })
@@ -590,6 +591,7 @@ export interface ReplyToNotification {
 export function conversationTurnReflow(opts: {
   store: ReflowStore & { lastCauseEventTs(causes: readonly string[]): string | null }
   notifications: NotificationsView
+  ownerName?: string
   userText: string
   replyText: string
   historyId: number
@@ -607,8 +609,8 @@ export function conversationTurnReflow(opts: {
   const { store, notifications, now, logEvent } = opts
   // 摘要模板逐字（reflow.py:308-311）：user/reply 各裁 80 字。
   let content
-    = `和 Kevin 聊了一轮(history #${opts.historyId}):`
-    + `他说「${clipStripped(opts.userText, 80)}」,我答「${clipStripped(opts.replyText, 80)}」`
+    = `和 ${opts.ownerName ?? '所有者'} 聊了一轮(history #${opts.historyId}):`
+    + `对方说「${clipStripped(opts.userText, 80)}」,我答「${clipStripped(opts.replyText, 80)}」`
   let via = 'chat_turn'
   const replyTo = opts.replyToNotification ?? null
   if (replyTo !== null) {

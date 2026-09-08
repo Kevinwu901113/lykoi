@@ -11,6 +11,23 @@ function tmp(): string {
   return mkdtempSync(join(tmpdir(), 'lykoi-audit-'))
 }
 
+test('recordOnce：撕裂尾行只追加换行隔离，重启后完整终局可解析且不重复', async () => {
+  const path = join(tmp(), 'audit.jsonl')
+  const torn = '{"type":"turn/terminal","event_id":"turn-1","status":'
+  writeFileSync(path, torn)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctx = new Context()
+    const fiber = await ctx.plugin(audit, { path })
+    assert.equal(await ctx.audit.recordOnce!('turn-1', { type: 'converse/turn_terminal', status: 'completed' }), attempt === 0)
+    await fiber.dispose()
+  }
+  const raw = readFileSync(path, 'utf8')
+  assert.equal(raw.startsWith(torn + '\n'), true, '不截断或改写历史字节')
+  const lines = raw.split('\n').filter(Boolean)
+  assert.equal(lines.length, 2)
+  assert.equal(JSON.parse(lines[1]!).event_id, 'turn-1')
+})
+
 test('并发 record 不交错：每行都是完整 JSON，一条不丢', async () => {
   const path = join(tmp(), 'audit.jsonl')
   const ctx = new Context()
@@ -62,4 +79,28 @@ test('fiber 卸载后 record 拒绝（audit 不在 = 不许静默继续）', asy
   await assert.rejects(() => svc.record({ type: 'test/after-dispose' }))
   const lines = readFileSync(path, 'utf8').split('\n').filter((l) => l.length > 0)
   assert.equal(lines.length, 1)
+})
+
+test('recordOnce：并发与进程重启后同一稳定 event_id 都只追加一次', async () => {
+  const path = join(tmp(), 'audit.jsonl')
+  const firstCtx = new Context()
+  const firstFiber = await firstCtx.plugin(audit, { path })
+  const first = firstCtx.get('audit') as AuditService
+  assert.ok(first.recordOnce !== undefined)
+  const writes = await Promise.all(Array.from({ length: 20 }, () =>
+    first.recordOnce!('turn-terminal:turn-1', { type: 'converse/turn_terminal', turn_id: 'turn-1' })))
+  assert.equal(writes.filter(Boolean).length, 1)
+  await firstFiber.dispose()
+
+  const secondCtx = new Context()
+  const secondFiber = await secondCtx.plugin(audit, { path })
+  const second = secondCtx.get('audit') as AuditService
+  assert.equal(await second.recordOnce!('turn-terminal:turn-1', {
+    type: 'converse/turn_terminal', turn_id: 'turn-1', status: 'completed',
+  }), false)
+  await secondFiber.dispose()
+
+  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean)
+  assert.equal(lines.length, 1)
+  assert.equal((JSON.parse(lines[0]!) as { event_id: string }).event_id, 'turn-terminal:turn-1')
 })

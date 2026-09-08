@@ -1,30 +1,38 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
 import { BudgetExceeded } from 'lykoi-budget'
+import type { UserTurn } from 'lykoi-ingress'
 import { LlmFinishError } from 'lykoi-llm'
-import type { BindingResolution, LykoiMemoryService } from 'lykoi-memory'
-import {
-  OutboundOrgan, TelegramAdapter, type InboundMessage, type TelegramAdapterService,
-  type TelegramSendOptions,
-} from 'lykoi-adapter-telegram'
-import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
+import type { TelegramAdapterService, TelegramSendOptions } from 'lykoi-adapter-telegram'
 import {
   ContextBudgetError, DeadlineExceededError, SYSTEM_FAILURE_NOTICE,
   handleTurn, type Conversation, type CycleOutcome, type TurnFailReason,
 } from '../src/index.ts'
 
-const MESSAGE: InboundMessage = {
+const RUN_ID = 'run:turn:telegram:1:r0'
+const TURN: UserTurn = {
+  turnId: 'turn:telegram:1',
+  channel: 'telegram',
   userId: 'user_001',
   contextId: 'chat-1',
   isOwner: true,
-  text: 'USER_BODY_SENTINEL https://private.example/input',
-  messageId: '100',
-  updateId: 1,
+  parts: [{
+    inboundId: 'telegram:1',
+    channel: 'telegram',
+    platformMessageId: '100',
+    platformUpdateId: '1',
+    userId: 'user_001',
+    contextId: 'chat-1',
+    isOwner: true,
+    text: 'USER_BODY_SENTINEL https://private.example/input',
+    receivedAt: '2026-09-05T00:00:00.000Z',
+  }],
+  firstReceivedAt: '2026-09-05T00:00:00.000Z',
+  lastReceivedAt: '2026-09-05T00:00:00.000Z',
+  committedAt: '2026-09-05T00:00:01.500Z',
+  commitReason: 'idle_timeout',
 }
 
 function fakeAudit(): AuditService & { events: AuditEvent[] } {
@@ -56,7 +64,7 @@ function fakeConversation(options: FakeConversationOptions): {
   const conversation = {
     async send(text: string, opts: { runId: string; turnId?: string }) {
       messages.push(text)
-      sendOptions.push(opts)
+      sendOptions.push({ runId: opts.runId, turnId: opts.turnId })
       if (options.error !== undefined) throw options.error
       return options.reply ?? ''
     },
@@ -82,14 +90,18 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
   bareSends: { contextId: string; text: string; replyTo: string }[]
   bareSendOptions: (TelegramSendOptions | undefined)[]
   replyContexts: { run_id?: string | null; turn_id?: string | null }[]
+  replyAnchors: (string | null)[]
 } {
   const bareSends: { contextId: string; text: string; replyTo: string }[] = []
   const bareSendOptions: (TelegramSendOptions | undefined)[] = []
   const replyContexts: { run_id?: string | null; turn_id?: string | null }[] = []
+  const replyAnchors: (string | null)[] = []
   return {
+    channel: 'telegram',
     bareSends,
     bareSendOptions,
     replyContexts,
+    replyAnchors,
     async send(contextId, text, replyTo, sendOptions) {
       if (options.noticeThrows) {
         const error = new Error('VENDOR_RAW_SENTINEL https://private.example/vendor')
@@ -100,7 +112,8 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
       bareSendOptions.push(sendOptions)
       return { sent: true, messageId: 'notice-1' }
     },
-    async sendReply(_contextId, _text, _replyTo, context) {
+    async sendReply(_contextId, _text, replyTo, context) {
+      replyAnchors.push(replyTo)
       replyContexts.push(context ?? {})
       return { outcome: options.delivery ?? 'delivered' }
     },
@@ -112,6 +125,7 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
       }
       return { asked: true, status: options.askStatus ?? 'asked', pending_id: 'p-1' }
     },
+    async routeOwnerMessage() { return null },
     outboundWired: () => true,
     wireOutbound() {},
     async pollOnce() { return 0 },
@@ -126,7 +140,7 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
 }
 
 interface HandleScenario extends FakeConversationOptions, FakeTelegramOptions {
-  expectedStatus: 'replied' | 'intentional_silence' | 'deferred' | 'failed'
+  expectedStatus: 'completed' | 'intentional_silence' | 'deferred' | 'failed'
   expectedReason: string | null
   expectedNotice: boolean
   noTransport?: boolean
@@ -137,38 +151,34 @@ async function runHandleScenario(scenario: HandleScenario): Promise<{
   audit: ReturnType<typeof fakeAudit>
   telegram: ReturnType<typeof fakeTelegram> | undefined
   conversation: ReturnType<typeof fakeConversation>
+  terminal: Awaited<ReturnType<typeof handleTurn>>['terminal']
 }> {
   const audit = fakeAudit()
   const telegram = scenario.noTransport ? undefined : fakeTelegram(scenario)
   const ctx = {
     audit,
-    get(name: string) { return name === 'telegram' ? telegram : undefined },
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
   } as unknown as Context
   const conversation = fakeConversation(scenario)
-  await handleTurn(ctx, conversation.conversation, MESSAGE)
+  const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
 
-  const terminals = audit.events.filter((event) => event.type === 'turn/terminal')
-  assert.equal(terminals.length, 1, '每条入站必须恰有一条正本终局')
-  const terminal = terminals[0]!
+  const terminals = audit.events.filter((event) => event.type === 'converse/turn_terminal')
+  assert.equal(terminals.length, 0, 'Converse 不得与 ingress 双写 terminal')
+  const terminal = result.terminal
   assert.equal(terminal.status, scenario.expectedStatus)
   assert.equal(terminal.reason, scenario.expectedReason)
   assert.equal(terminal.notice_sent, scenario.expectedNotice)
   assert.equal(terminal.ask_sent, scenario.expectedAsk ?? false)
   assert.equal(terminal.followup_registered, scenario.followup ?? false)
-  assert.equal(terminal.turn_id, 'tg:1')
-  assert.equal(terminal.inbound_id, 'tg:1')
-  assert.equal(terminal.run_id, 'converse-1-100')
-  assert.equal(terminal.update_id, 1)
-  assert.equal(terminal.message_id, '100')
   assert.equal(typeof terminal.elapsed_ms, 'number')
   assert.ok(Number(terminal.elapsed_ms) >= 0)
 
   const received = audit.events.find((event) => event.type === 'converse/received')!
-  assert.equal(received.turn_id, 'tg:1')
-  assert.equal(received.inbound_id, 'tg:1')
+  assert.equal(received.turn_id, TURN.turnId)
+  assert.equal(received.inbound_id, TURN.parts[0]!.inboundId)
   assert.equal(Object.hasOwn(received, 'run_id'), false)
   for (const event of audit.events.filter((item) => String(item.type).startsWith('converse/'))) {
-    assert.equal(event.turn_id, 'tg:1', `${event.type} 缺 turn_id`)
+    assert.equal(event.turn_id, TURN.turnId, `${event.type} 缺 turn_id`)
   }
   for (const event of audit.events) {
     const flat = JSON.stringify(event)
@@ -176,7 +186,7 @@ async function runHandleScenario(scenario: HandleScenario): Promise<{
     assert.equal(flat.includes('VENDOR_RAW_SENTINEL'), false)
     assert.equal(flat.includes('https://private.example'), false)
   }
-  return { audit, telegram, conversation }
+  return { audit, telegram, conversation, terminal }
 }
 
 const llmError = new LlmFinishError({
@@ -197,7 +207,7 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
     name: 'reply delivered → replied，sendReply 收到 run_id/turn_id',
     scenario: {
       reply: '可靠回复', cycleKind: 'reply', delivery: 'delivered',
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
@@ -290,14 +300,14 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
     name: '回复已交付后 askAbout 抛错 → 保留 replied 且不补系统回执',
     scenario: {
       reply: '先交付的回复', cycleKind: 'reply', delegatedAsk: true, askThrows: true,
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
     name: 'promise_followup reply → replied 且 followup_registered',
     scenario: {
       reply: '我会继续', cycleKind: 'followup', followup: true, delivery: 'delivered',
-      expectedStatus: 'replied', expectedReason: null, expectedNotice: false,
+      expectedStatus: 'completed', expectedReason: null, expectedNotice: false,
     },
   },
   {
@@ -319,7 +329,7 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
 for (const { name, scenario } of handleScenarios) {
   test(name, async () => {
     const result = await runHandleScenario(scenario)
-    const terminal = result.audit.events.find((event) => event.type === 'turn/terminal')!
+    const terminal = result.terminal
     if (scenario.reply !== undefined && scenario.reply.trim() !== '') {
       assert.ok(Number(terminal.reply_chars) > 0)
     }
@@ -330,12 +340,12 @@ for (const { name, scenario } of handleScenarios) {
         replyTo: '100',
       }])
       assert.deepEqual(result.telegram?.bareSendOptions, [{ recordUndeliveredExperience: false }])
-      assert.deepEqual(result.conversation.messages, [MESSAGE.text],
+      assert.deepEqual(result.conversation.messages, [TURN.parts[0]!.text],
         '系统回执不得写入 Conversation messages/history')
     }
     if (name.startsWith('reply delivered')) {
       assert.deepEqual(result.telegram?.replyContexts, [{
-        run_id: 'converse-1-100', turn_id: 'tg:1',
+        run_id: RUN_ID, turn_id: TURN.turnId,
       }])
     }
     if (scenario.noticeThrows) {
@@ -354,70 +364,48 @@ for (const { name, scenario } of handleScenarios) {
   })
 }
 
-function fakeMemory(): LykoiMemoryService {
-  const owner: BindingResolution = {
-    userId: 'user_001', role: 'owner_primary', userStatus: 'active',
-  }
-  return {
-    regulationField: () => [],
-    activeConcerns: () => [],
-    openThoughts: () => [],
-    recentHistory: () => [],
-    recentExperiences: () => [],
-    identityBinding: () => owner,
-    autonomyState: () => undefined,
-  }
-}
-
 async function runConsumed(reason: 'approval_answer' | 'suggestion_answer'): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), 'lykoi-outcome-consumed-'))
-  const ctx = new Context()
   const audit = fakeAudit()
-  const transport = new MemoryTelegramTransport()
-  let cognitiveInbound = 0
-  ctx.on('lykoi/telegram/inbound', () => { cognitiveInbound += 1 })
-  const adapter = new TelegramAdapter(ctx, {
-    transport,
+  const telegram = fakeTelegram()
+  telegram.routeOwnerMessage = async () => reason
+  const ctx = {
     audit,
-    memory: fakeMemory(),
-    cursorPath: join(dir, 'cursor.json'),
-    archivePath: join(dir, 'archive.json'),
-    pollTimeoutS: 1,
-  })
-  const approvalOutcome = reason === 'approval_answer' ? 'granted' : 'ignored'
-  const suggestionOutcome = reason === 'suggestion_answer' ? 'accepted' : 'ignored'
-  adapter.wireOutbound(new OutboundOrgan({
-    dispatch: (async () => ({ success: true, data: {} })) as never,
-    ownerChannelKey: () => 'chat-1',
-    approval: {
-      requestApproval: async () => ({ status: 'asked', pending_id: null }),
-      handleOwnerAnswer: async () => ({ outcome: approvalOutcome, executed: false }),
-    },
-    suggestion: {
-      handleOwnerAnswer: async () => ({ outcome: suggestionOutcome, suggestion_id: null }),
-    },
-  }))
-  transport.queueUpdate({
-    updateId: 9,
-    message: {
-      messageId: 901, chatId: 'chat-1', senderId: '1001', text: '可以',
-      replyToMessageId: 'question-1',
-    },
-  })
-  assert.equal(await adapter.pollOnce(), 1)
-  assert.equal(cognitiveInbound, 0, '消费路径不得进入认知 inbound')
-  const terminals = audit.events.filter((event) => event.type === 'turn/terminal')
-  assert.equal(terminals.length, 1)
-  assert.equal(terminals[0]!.status, 'consumed')
-  assert.equal(terminals[0]!.reason, reason)
-  assert.equal(terminals[0]!.turn_id, 'tg:9')
-  assert.equal(terminals[0]!.run_id, null)
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
+  } as unknown as Context
+  const conversation = fakeConversation({ reply: '不应执行' })
+  const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
+  assert.equal(result.terminal.status, 'completed')
+  assert.equal(result.terminal.reason, reason)
+  assert.deepEqual(conversation.messages, [], '消费 part 不进入 cognition')
+  assert.equal(audit.events.filter((event) => event.type === 'turn/part_consumed').length, 1)
 }
 
-test('设备层 approval answer 被消费 → consumed/approval_answer', async () => {
+test('FIFO executor 中 approval answer 被消费 → completed/approval_answer', async () => {
   await runConsumed('approval_answer')
 })
 
-test('设备层 suggestion answer 被消费 → consumed/suggestion_answer', async () => {
+test('FIFO executor 中 suggestion answer 被消费 → completed/suggestion_answer', async () => {
   await runConsumed('suggestion_answer')
+})
+
+test('T10：多 part 只在末端确定性 render，普通回复锚定最后 platformMessageId', async () => {
+  const audit = fakeAudit()
+  const telegram = fakeTelegram()
+  const ctx = {
+    audit,
+    get(name: string) { return name === 'messenger' ? telegram : undefined },
+  } as unknown as Context
+  const conversation = fakeConversation({ reply: '收到', cycleKind: 'reply' })
+  const merged: UserTurn = {
+    ...TURN,
+    parts: [
+      { ...TURN.parts[0]!, text: '第一句', platformMessageId: '101' },
+      { ...TURN.parts[0]!, inboundId: 'telegram:2', platformMessageId: '102', platformUpdateId: '2', text: '第二句' },
+      { ...TURN.parts[0]!, inboundId: 'telegram:3', platformMessageId: '103', platformUpdateId: '3', text: '第三句' },
+    ],
+    lastReceivedAt: '2026-09-05T00:00:01.000Z',
+  }
+  await handleTurn(ctx, conversation.conversation, merged, RUN_ID)
+  assert.deepEqual(conversation.messages, ['[2026-09-05T00:00:00.000Z]\n第一句\n[2026-09-05T00:00:00.000Z]\n第二句\n[2026-09-05T00:00:00.000Z]\n第三句'])
+  assert.deepEqual(telegram.replyAnchors, ['103'])
 })

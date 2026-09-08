@@ -217,6 +217,7 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
   const llm = new FakeLlm()
   const events: [string, Record<string, unknown>][] = []
   const organs = new OrganInventoryCache({
+    persona: overrides.persona ?? FIXTURE_PERSONA,
     bindings: () => overrides.bindings ?? store.identityBindingInventory(),
     catalog: testDoubleActionCatalog,
     logEvent: (n, f) => events.push([n, f]),

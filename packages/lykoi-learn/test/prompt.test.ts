@@ -16,8 +16,8 @@ function pin(text: string, chars: number, sha256: string, label: string): void {
 }
 
 test('SA-94：INTEGRATION_SYSTEM_PROMPT 逐字（1862 字符，sha256=b130d647…2193c）', () => {
-  pin(INTEGRATION_SYSTEM_PROMPT, 1862,
-    'b130d6473ff9c2e8983f06cced5ca97ae837644886f5db2f6f38ddf31132193c',
+  pin(INTEGRATION_SYSTEM_PROMPT, 1860,
+    '74994d9d569ece33e2836c336ff0c619fee7c1361aa2427b56e92e9b49531c74',
     'INTEGRATION_SYSTEM_PROMPT')
 })
 

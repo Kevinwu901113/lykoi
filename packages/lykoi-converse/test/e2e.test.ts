@@ -25,6 +25,7 @@ import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 
 const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
@@ -76,6 +77,7 @@ async function assemble(replyText: string): Promise<Assembly> {
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -115,7 +117,7 @@ async function assemble(replyText: string): Promise<Assembly> {
     visionRoute: "disabled",
     visionModel: "disabled",
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   const budget = ctx.get('budget') as BudgetService
   return { ctx, audit, transport, telegram, budget, dbPath }
 }
@@ -172,7 +174,7 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   // budget 有账 + run 归因贯穿。
   assert.equal(budget.usage('mock').routeTokens, 244)
   const charge = audit.events.find((e) => e.type === 'budget/charge')!
-  assert.equal(charge.runId, 'converse-1-100')
+  assert.equal(charge.runId, 'run:turn:telegram:1:r0')
   // 隐私（D-08）：**对话面**的 audit 行零正文。
   // M3-W3 起她的回复是一次真的 `messenger.send` 动作（SK-78：E2 盖章唯一点在
   // 设备层），所以 kernel 的 `action_dispatch` 行按 SK-05 逐字带 redacted params
@@ -200,15 +202,15 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
   )!
   assert.equal(replySend.exemption, 'E2')
   assert.equal(replySend.origin, 'interactive')
-  assert.equal(replySend.run_id, 'converse-1-100')
-  assert.equal(replySend.turn_id, 'tg:1')
+  assert.equal(replySend.run_id, 'run:turn:telegram:1:r0')
+  assert.equal(replySend.turn_id, 'turn:telegram:1')
   for (const event of audit.events.filter((e) =>
     String(e.type).startsWith('converse/') || String(e.type).startsWith('u3_cycle_') || String(e.type).startsWith('turn/'))) {
-    assert.equal(event.turn_id, 'tg:1', `${event.type} 缺 turn_id`)
+    assert.equal(event.turn_id, 'turn:telegram:1', `${event.type} 缺 turn_id`)
   }
-  const terminals = audit.events.filter((e) => e.type === 'turn/terminal')
+  const terminals = audit.events.filter((e) => e.type === 'converse/turn_terminal')
   assert.equal(terminals.length, 1)
-  assert.equal(terminals[0]!.status, 'replied')
+  assert.equal(terminals[0]!.status, 'completed')
   assert.equal(terminals[0]!.reason, null)
   // 库面写集：history 一行（全文归她的记忆）+ conversation 经验 + normal_interaction。
   const store = new ReadWriteMemory(dbPath)
@@ -250,7 +252,6 @@ test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传�
     'budget/charge', //     第三次调用（带引导）
     'u3_cycle_failed', //   仍失败 → 归因 + 元数据
     'inner_outer_pair', //  回合成立（reply=""）
-    'converse/silence', //  设备侧不发
   ])
   const retriedEvents = audit.events.filter((e) => e.type === 'u3_cycle_retried')
   assert.equal(retriedEvents.length, 2, 'mock LLM 每次都回同一份非 JSON 文本 → 两次重试都打满')
@@ -277,7 +278,7 @@ test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传�
     assert.equal(JSON.stringify(event).includes('直接开口说话'), false)
   }
   assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
-  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  const terminal = audit.events.find((e) => e.type === 'converse/turn_terminal')!
   assert.equal(terminal.status, 'failed')
   assert.equal(terminal.reason, 'envelope_failed')
   assert.equal(terminal.notice_sent, true)
@@ -347,7 +348,7 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
     '固定回复的 fake LLM 会一直选同一个未接线工具——真正的收场闸是工具步数预算',
   )
   assert.equal(audit.events.filter((e) => e.type === 'telegram/sent').length, 1)
-  const terminal = audit.events.find((e) => e.type === 'turn/terminal')!
+  const terminal = audit.events.find((e) => e.type === 'converse/turn_terminal')!
   assert.equal(terminal.status, 'failed')
   assert.equal(terminal.reason, 'tool_budget_exhausted')
   assert.equal(terminal.notice_sent, true)

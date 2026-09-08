@@ -102,31 +102,39 @@ export function deadlineMs(seconds: number | undefined): number {
  * 比赛的那条腿的拒绝被就地吞掉（否则它会在几十秒后变成一次 unhandledRejection，
  * 把一个已经处理过的超时炸成进程级噪音）。
  *
- * `timeoutMs <= 0` = 不设限（原样 await，不造 controller、不排 timer）。
+ * `timeoutMs <= 0` = 不设时间上限、不排 timer；仍响应显式 external 取消。
  */
+export class RunAbortedError extends Error {
+  readonly reason = 'revision'
+  constructor() { super('run aborted for revision'); this.name = 'RunAbortedError' }
+}
+
 export async function withDeadline<T>(
   what: string,
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<T>,
+  external?: AbortSignal,
 ): Promise<T> {
-  if (timeoutMs <= 0) return await run(new AbortController().signal)
   const controller = new AbortController()
   const started = monotonicNowMs()
   let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => {
-      const exc = new DeadlineExceededError(what, timeoutMs, Math.round(monotonicNowMs() - started))
-      controller.abort(exc)
-      reject(exc)
+  let onAbort: (() => void) | undefined
+  const stopped = new Promise<never>((_resolve, reject) => {
+    const stop = (error: unknown) => { controller.abort(error); reject(error) }
+    onAbort = () => stop(external!.reason)
+    if (external?.aborted) onAbort()
+    else external?.addEventListener('abort', onAbort, { once: true })
+    if (timeoutMs > 0) timer = setTimeout(() => {
+      stop(new DeadlineExceededError(what, timeoutMs, Math.round(monotonicNowMs() - started)))
     }, timeoutMs)
   })
-  const running = run(controller.signal)
-  // 输掉比赛的那条腿：拒绝已经被上面这条边代表过了，就地吞掉。
-  running.catch(() => {})
+  // 即使调用方传入已取消 signal，也由 Promise 链观察拒绝，不产生孤立 rejection。
+  const running = Promise.resolve().then(() => { controller.signal.throwIfAborted(); return run(controller.signal) })
   try {
-    return await Promise.race([running, deadline])
+    return await Promise.race([running, stopped])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
+    if (onAbort !== undefined) external?.removeEventListener('abort', onAbort)
   }
 }
 

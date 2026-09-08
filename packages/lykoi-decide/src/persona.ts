@@ -51,6 +51,7 @@ export interface PersonaInterests {
 }
 
 export interface PersonaConfig {
+  owner?: { name: string }
   identity: PersonaIdentity
   voice: PersonaVoice
   relationship: PersonaRelationship
@@ -122,6 +123,7 @@ export function parsePersonaData(data: unknown): PersonaConfig {
   const personality = section(data, 'personality')
   const interests = section(data, 'interests')
   return {
+    ...(data.owner === undefined ? {} : { owner: { name: str(section(data, 'owner'), 'owner', 'name') } }),
     identity: {
       name: str(identity, 'identity', 'name'),
       self: str(identity, 'identity', 'self'),
@@ -215,7 +217,15 @@ function bullets(rows: { content: string }[]): string {
  * ③ 全空返回**空串**（decide 侧 buildMessages 据此决定加不加这条 system
  * 消息 —— 空串不注入）。
  */
-export function buildPersonaPrompt(store: InsightsReader): string {
+/** 固定三种模板位；一次替换，不解释实例值中的模板字符。 */
+export function renderOwnerTemplate(text: string, persona?: PersonaConfig): string {
+  const names = { owner: persona?.voice.address_owner ?? '所有者',
+    owner_name: persona?.owner?.name ?? persona?.voice.address_owner ?? '所有者',
+    self: persona?.identity.name ?? '你' }
+  return text.replace(/\{(owner|owner_name|self)\}/g, (_match, key: keyof typeof names) => names[key])
+}
+
+export function buildPersonaPrompt(store: InsightsReader, config?: PersonaConfig): string {
   const persona = store.getInsights('persona')
   const prefs = store.getInsights('preference')
   const sections: string[] = []
@@ -223,7 +233,7 @@ export function buildPersonaPrompt(store: InsightsReader): string {
     sections.push('你对自己的理解：\n' + bullets(persona))
   }
   if (prefs.length > 0) {
-    sections.push('Kevin 的偏好：\n' + bullets(prefs))
+    sections.push(renderOwnerTemplate('{owner} 的偏好：\n', config) + bullets(prefs))
   }
   if (sections.length === 0) return ''
   return '\n\n' + sections.join('\n\n')

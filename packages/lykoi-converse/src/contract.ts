@@ -22,7 +22,7 @@
  * D-03 降级后果写进契约 + u3_cycle_tool_demoted；D-08 全部事件只记长度/哈希。
  */
 import {
-  evaluateMessage, extractJson, JSON_RETRY_NUDGE,
+  TOOL_TABLE, evaluateMessage, extractJson, JSON_RETRY_NUDGE, renderOwnerTemplate, type PersonaConfig,
   type AssessmentEntry, type Candidate, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { CAUSES } from 'lykoi-regulation'
@@ -47,7 +47,7 @@ export const CONVERSATION_CONTENT_REQUIRED = [REPLY, PROMISE_FOLLOWUP] as const
 export const CONVERSATION_SAFE_KIND = SILENCE
 
 /** 情境专属字段：由 evaluateMessage 原样抬进 Decision.envelope，在这里消毒。 */
-export const ENVELOPE_FIELDS = ['tool', '情绪脉冲'] as const
+export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
 
 export const TOOL_NAME_MAX = 64
 export const TOOL_ARGS_CHARS_MAX = 2000
@@ -134,97 +134,7 @@ export function buildConversationCandidates(): Candidate[] {
  * （SYSTEM_PROMPT 散文、契约 `{tools}` 裸名、器官清单）一处都不带参数，只能从
  * 失败串里学（`url 必填`、`requires 'content'`），每猜错一次烧掉一个工具步。
  */
-export interface ToolSpec {
-  /** kernel 动作类型；三个 in-cognition 工具不过 dispatch，记 `null`。 */
-  action: string | null
-  /** 形参列表，**不含工具名本身** —— 渲染时拼成 `name(signature)`。 */
-  signature: string
-  /** 什么时候用它、它与别的出口的分工。 */
-  purpose: string
-}
-
-/**
- * 工具名不能带点，所以在这里映到 kernel 的动作类型上；signature 一律以动作层
- * handler **实际读取的参数名**为准（依据逐条见 WO-FIX-TOOLSPEC-01 报告）。
- *
- * 五个动作至今只有 `unwiredResources()` 的替身（`browser.click/type/screenshot`、
- * `research_browser.open/extract_links`）：其中 research 两项按 browser 器官
- * handler 的 `needsUrl` 惯例写 `url`，另外三项没有任何真身可核，signature 记
- * `...` —— 宁可说"形状未定"，也不编一个她会照着填的假参数。生产口径下
- * `wiredActions` 会把这五行整个滤掉，她看不到它们。
- */
-export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
-  terminal_exec: {
-    action: 'terminal.exec',
-    signature: 'command',
-    purpose: '在你自己的虚拟电脑上跑一条 shell 命令；这是真动手的事，执行前会先问 Kevin',
-  },
-  browser_navigate: {
-    action: 'browser.navigate',
-    signature: 'url',
-    purpose: '常驻桌面浏览器打开一个网址：真实浏览器、带登录态，防爬验证拦下 research 时换它',
-  },
-  browser_screenshot: {
-    action: 'browser.screenshot',
-    signature: '...',
-    purpose: '未接线（真身未到）：常驻浏览器截屏；参数形状随真身确定',
-  },
-  browser_get_text: {
-    action: 'browser.get_text',
-    signature: 'max_chars?',
-    purpose: '读常驻浏览器此刻停在那一页的正文；它不收 url，先 browser_navigate 再读',
-  },
-  browser_click: {
-    action: 'browser.click',
-    signature: '...',
-    purpose: '未接线（真身未到）：常驻浏览器里点一下；参数形状随真身确定',
-  },
-  browser_type: {
-    action: 'browser.type',
-    signature: '...',
-    purpose: '未接线（真身未到）：常驻浏览器里输入文字；输入是密码、付款的必经之路，接线后会问 Kevin',
-  },
-  research_open: {
-    action: 'research_browser.open',
-    signature: 'url',
-    purpose: '未接线（真身未到）：一次性只读浏览器打开一个网址',
-  },
-  research_read_text: {
-    action: 'research_browser.read_text',
-    signature: 'url, max_chars?',
-    purpose: '一次性只读浏览器读一个网址的正文：查资料、搜索、读网页优先用它'
-      + '——免审批、即开即用、没有登录态、读完即焚。它只收 url，没有检索词参数',
-  },
-  research_extract_links: {
-    action: 'research_browser.extract_links',
-    signature: 'url',
-    purpose: '未接线（真身未到）：一次性只读浏览器取一页上的链接',
-  },
-  notify_owner: {
-    action: 'notify.owner',
-    signature: 'content',
-    purpose: '对话之外主动找 Kevin：问验证码、联系方式这类只有他能给的信息，'
-      + '或把后台跟进的结果送到他那里。正在对话里就直接 reply，不要用它送答案',
-  },
-  // 三个 in-cognition 工具（S-54）：不过 dispatch，所以 action 为 null，也就不
-  // 进 TOOL_TO_ACTION 投影；参数形状与其余工具同表同形，她读到的是同一张表。
-  vision_describe: {
-    action: null,
-    signature: 'attachment_id, question?',
-    purpose: '把上下文里的截图交给视觉模型"看懂"；attachment_id 只能用上下文里出现过的那个',
-  },
-  promise_followup: {
-    action: null,
-    signature: 'task',
-    purpose: '这一轮做不完：登记后台跟进（task 写清要完成什么、卡在哪里）；'
-      + '回复结束后你会在后台继续做，做完的结果以你的名义发进对话',
-  },
-  post_progress: {
-    action: null,
-    signature: 'content',
-    purpose: '后台跟进途中给 Kevin 发一条进展；只在后台回合可用，现场对话直接在回复里说',
-  },
-}
+export { TOOL_TABLE, type ToolSpec } from 'lykoi-decide'
 
 /**
  * 工具名 → 动作类型（S-55；conversation.py:141-152 逐字 10 项）。
@@ -329,14 +239,14 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
 - decision.reason 必须逐字引用(原样复制)meaning_assessment 里至少一条的 item
   或 meaning 文本 —— 不引用任何评估条目的非 silence 决定会被确定性地降级为
   silence。被降级的 tool_call 不会执行那个工具。
-- reply: content 是你要说的话,会经 messenger.send 发给来话的对端。
+- reply: utterances 是你要逐条说的话的非空字符串数组,按数组顺序逐字发送;不需要分段时也可只给 content。
 - silence: 选择这一轮不说话。**这是一个正当的动作,不是失败**;它会落账,
   你不需要为它辩护。
 - tool_call: 需要 tool.name 与 tool.arguments。tool.name 只能取下面这张表里的
   名字(表外的名字不会执行):
   {tools}
   工具照旧分级 —— 需要他点头的工具不会因为你同时说了话就免了。
-- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里。
+- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里;可另给 utterances 作为本轮要说的话。
 - inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
   简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。
 - 情绪脉冲可选,是一个字符串数组,只能取下面这张表里的名字(它们是调节场唯一
@@ -402,9 +312,10 @@ export function buildEnvelopeMessages(
   assembled: readonly ConverseMessage[],
   wiredActions?: ReadonlySet<string>,
   nudge?: boolean,
+  persona?: PersonaConfig,
 ): ConverseMessage[] {
   const withContract: ConverseMessage[] =
-    [...assembled, { role: 'system', content: envelopeSystemPrompt(wiredActions) }]
+    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions), persona) }]
   return nudge === true
     ? [...withContract, { role: 'user', content: JSON_RETRY_NUDGE }]
     : withContract
@@ -473,6 +384,20 @@ export function parseEnvelope(
     runId?: string | null
   } = {},
 ): Decision {
+  // 用同一 extractJson 做情境字段预检；原文只投影到旧 content 接口，不改任何条目。
+  const raw = extractJson(message.content ?? '')
+  if (isPlainObject(raw) && isPlainObject(raw.decision)) {
+    const row = raw.decision
+    const supplied = Object.hasOwn(row, 'utterances') ? row.utterances : raw.utterances
+    if (supplied !== undefined && (row.kind === REPLY || row.kind === PROMISE_FOLLOWUP)) {
+      if (!Array.isArray(supplied) || supplied.length === 0
+        || supplied.some(part => typeof part !== 'string' || part.trim().length === 0)) {
+        throw new UtterancesError()
+      }
+      if (row.kind === REPLY) row.content = supplied.join('')
+      message = { content: JSON.stringify(raw) }
+    }
+  }
   const decision = evaluateMessage(message, opts.candidates ?? CONVERSATION_CATALOGUE, {
     injectedThoughtIds: opts.injectedThoughtIds,
     injectedConcernIds: opts.injectedConcernIds,
@@ -492,6 +417,8 @@ export function parseEnvelope(
   decision.envelope = {
     tool: sanitizeTool(decision.envelope.tool),
     pulse: sanitizePulse(decision.envelope['情绪脉冲']),
+    ...(decision.kind === REPLY || decision.kind === PROMISE_FOLLOWUP
+      ? { utterances: decision.envelope.utterances ?? [decision.content ?? ''] } : {}),
   }
   return decision
 }
@@ -507,6 +434,10 @@ export const FAIL_UNKNOWN_KIND = 'unknown_kind'
 export const FAIL_MISSING_CONTENT = 'missing_content'
 export const FAIL_PULSE_INVALID = 'pulse_invalid'
 export const FAIL_OTHER = 'other'
+
+export class UtterancesError extends Error {
+  constructor() { super('invalid utterances'); this.name = 'UtterancesError' }
+}
 
 export const FAILURE_REASONS = [
   FAIL_NOT_JSON, FAIL_NO_DECISION_OBJECT, FAIL_UNKNOWN_KIND,
@@ -623,6 +554,7 @@ export function classifyFailure(
   content: string | null | undefined,
 ): [string, string] {
   try {
+    if (exc instanceof UtterancesError) return [FAIL_OTHER, 'utterances_invalid']
     if (!(exc instanceof Error)) {
       return [FAIL_OTHER, 'classifier_error']
     }

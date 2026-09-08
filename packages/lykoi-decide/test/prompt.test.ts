@@ -10,7 +10,7 @@ import {
   buildMessages,
   buildPersonaKernel,
   buildPersonaPrompt,
-  DECIDE_SYSTEM_PROMPT,
+  renderOwnerTemplate, DECIDE_SYSTEM_PROMPT,
   parsePersonaData,
   PersonaConfigError,
   PERSONA_PROJECTION_CATEGORIES,
@@ -24,10 +24,10 @@ test('G-2：DECIDE_SYSTEM_PROMPT 新 sha 钉死；next_wake_after_minutes 字段
   // 旧（活体 decide.py:244-288）：chars=1634
   //   sha256=a495848d8abaae9f5e22ec9aaa95688f8928ac1e0b8cca6ec14de5d8f38a636e
   // 新（移除 `  "next_wake_after_minutes": 45,` 一行后）：
-  assert.equal([...DECIDE_SYSTEM_PROMPT].length, 1601)
+  assert.equal([...DECIDE_SYSTEM_PROMPT].length, 1605)
   assert.equal(
     sha256(DECIDE_SYSTEM_PROMPT),
-    'd54726e3ee182f600f5fc0222db76de940d3a66cddfb63cb8e29ff71b633e74c',
+    '09e6e9490230b1091b11122eae53a66afe97519758d4847cfa20eab603c7af50',
   )
   assert.ok(!DECIDE_SYSTEM_PROMPT.includes('next_wake_after_minutes'))
 })
@@ -56,7 +56,7 @@ test('SA-154：persona 内核九段装配 fixture 对拍（chars=367、sha=72b48
 })
 
 test('SA-156：parsePersonaData fail-fast（缺 section / 类型错 / 空列表逐条炸）', () => {
-  assert.deepEqual(parsePersonaData(FIXTURE_PERSONA_DATA), FIXTURE_PERSONA)
+  assert.deepEqual(parsePersonaData({ ...FIXTURE_PERSONA_DATA, owner: { name: 'Owner' } }), FIXTURE_PERSONA)
   const without = (key: string) => {
     const clone: Record<string, unknown> = { ...FIXTURE_PERSONA_DATA }
     delete clone[key]
@@ -92,10 +92,10 @@ test('SA-158：persona 投影三形状 + 影子门（focus 类别不在白名单
   // 两节齐 → 前置 \n\n（①）+ 节间 \n\n（②）
   assert.equal(
     buildPersonaPrompt(store({ persona: ['p1', 'p2'], preference: ['k1'] })),
-    '\n\n你对自己的理解：\n- p1\n- p2\n\nKevin 的偏好：\n- k1',
+    '\n\n你对自己的理解：\n- p1\n- p2\n\n所有者 的偏好：\n- k1',
   )
   // 单节
-  assert.equal(buildPersonaPrompt(store({ preference: ['k1'] })), '\n\nKevin 的偏好：\n- k1')
+  assert.equal(buildPersonaPrompt(store({ preference: ['k1'] })), '\n\n所有者 的偏好：\n- k1')
   // 影子门：只查 persona/preference 两类，focus 永不进投影（SPEC-MIND §6.2）
   assert.deepEqual([...new Set(asked)].sort(), ['persona', 'preference'])
   assert.deepEqual([...PERSONA_PROJECTION_CATEGORIES], ['persona', 'preference'])
@@ -119,7 +119,7 @@ test('SA-16/17 + G-7：五段顺序；内核必须第一条；acquired/器官非
   assert.equal(msgs[0]!.content, buildPersonaKernel(FIXTURE_PERSONA)) // SA-17 第一条
   assert.equal(msgs[1]!.content, '你对自己的理解：\n- p1') // strip 后注入
   assert.equal(msgs[2]!.content, '[器官清单(只读)]\nX') // G-7：紧随 acquired、契约之前
-  assert.equal(msgs[3]!.content, DECIDE_SYSTEM_PROMPT)
+  assert.equal(msgs[3]!.content, renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, FIXTURE_PERSONA))
   assert.equal(msgs[4]!.content, 'self-state')
   assert.equal(
     msgs[5]!.content,
@@ -133,6 +133,15 @@ test('SA-16/17 + G-7：五段顺序；内核必须第一条；acquired/器官非
   })
   assert.equal(bare.length, 3)
   assert.equal(bare[0]!.content, buildPersonaKernel(FIXTURE_PERSONA))
-  assert.equal(bare[1]!.content, DECIDE_SYSTEM_PROMPT)
+  assert.equal(bare[1]!.content, renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, FIXTURE_PERSONA))
   assert.equal(bare[2]!.role, 'user')
+})
+
+test('E4-3：可选正式名回退称呼；模板只替换一次，实例值不再解释', () => {
+  const fallback = parsePersonaData(FIXTURE_PERSONA_DATA)
+  assert.equal(renderOwnerTemplate('{owner}/{owner_name}/{self}', fallback), 'Owner/Owner/Fixture')
+  const persona = parsePersonaData({ ...FIXTURE_PERSONA_DATA, owner: { name: '正式名' } })
+  assert.equal(renderOwnerTemplate('{owner}/{owner_name}/{self}', persona), 'Owner/正式名/Fixture')
+  assert.throws(() => parsePersonaData({ ...FIXTURE_PERSONA_DATA, owner: { name: 42 } }), PersonaConfigError)
+  assert.equal(renderOwnerTemplate('{owner_name}', { ...persona, owner: { name: '{owner}' } }), '{owner}')
 })

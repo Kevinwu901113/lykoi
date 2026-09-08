@@ -36,7 +36,7 @@ test('SA-70：contact 超时 24h → contact_unanswered + silence 经验（salie
   assert.deepEqual(out, { contact_unanswered: true, silence_anomaly: false })
   const exp = store.recentExperiences(1)[0]!
   assert.equal(exp.source, 'silence')
-  assert.equal(exp.content, '我主动联系了 Kevin,超过 24 小时没有回应')
+  assert.equal(exp.content, '我主动联系了 所有者,超过 24 小时没有回应')
   assert.equal(exp.salience, 0.6)
   assert.deepEqual(causeSequence(store), ['contact_unanswered', 'experience_recorded'])
   assert.deepEqual(log.events, [['mind_contact_unanswered', { pending_since: pending }]])
@@ -115,7 +115,7 @@ test('SA-68/69：沉默异常三条件全成立才写；每沉默期一次；文
   assert.equal(exp.salience, 0.6)
   assert.equal(
     exp.content,
-    'Kevin 比平时安静:已经 49.0 小时没有互动(他这个时段通常在,典型间隔约 24.0 小时)',
+    '所有者 比平时安静:已经 49.0 小时没有互动(这个时段通常有互动,典型间隔约 24.0 小时)',
   )
   assert.deepEqual(causeSequence(store), ['experience_recorded', 'owner_silence_anomaly'])
   assert.deepEqual(log.events, [['mind_silence_anomaly', { hours_quiet: 49 }]])

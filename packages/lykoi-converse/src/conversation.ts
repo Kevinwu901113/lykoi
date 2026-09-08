@@ -28,10 +28,11 @@
  * 替身的是 vision 模型 / 出站进度队列 / interactive_lock / 未送达账本的生产侧
  * （随 W3 出站器官波）。
  */
+import { RunAbortedError } from './deadline.ts'
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
-  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay,
+  applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay, renderOwnerTemplate,
   emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION, repairTrailingClosers,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
@@ -254,6 +255,13 @@ export const ASK_FALLBACK = '这事需要你点头, 我稍后再问。'
  */
 export const DELEGATED_ASK_FIELDS = ['action_type', 'params', 'action_id', 'correlation_id'] as const
 
+export interface CycleResult {
+  outcome: CycleOutcome | null
+  followup: string | null
+  delegatedAsk: DelegatedAsk | null
+  utterances: readonly string[]
+}
+
 export interface DelegatedAsk {
   action_type: string
   params: Record<string, unknown>
@@ -422,6 +430,19 @@ export function selfStateBlock(
 }
 
 export class Conversation {
+  #runController: AbortController | null = null
+  #runSealed = true
+
+  canInterrupt(runId: string): boolean {
+    return this.#runController !== null && !this.#runSealed && !this.#background && this.#lastRunId === runId
+  }
+
+  interrupt(runId: string): boolean {
+    if (!this.canInterrupt(runId)) return false
+    this.#runController!.abort(new RunAbortedError())
+    return true
+  }
+
   #deps: ConverseDeps
   #messages: ConverseMessage[]
   #prefixEpoch: string | null
@@ -441,6 +462,7 @@ export class Conversation {
   #cycleInner: string | null = null
   /** WO-PULSE-01 D-2：本轮最终被接受信封的情绪脉冲（一轮一份；S-13 清、S-14 丢）。 */
   #cyclePulse: string[] = []
+  #cycleUtterances: string[] = []
   #lastRunId = ''
   #lastTurnId: string | null = null
   #lastCycleOutcome: CycleOutcome | null = null
@@ -508,8 +530,8 @@ export class Conversation {
     const parts = [buildPersonaKernel(this.#deps.persona)]
     const notice = renderRestartNotice(this.#deps.restartEvent?.() ?? null)
     if (notice) parts.push(notice)
-    parts.push(renderSystemPrompt(this.#deps.wiredActions))
-    const acquired = buildPersonaPrompt(this.#deps.store).trim()
+    parts.push(renderOwnerTemplate(renderSystemPrompt(this.#deps.wiredActions), this.#deps.persona))
+    const acquired = buildPersonaPrompt(this.#deps.store, this.#deps.persona).trim()
     if (acquired) parts.push(acquired)
     const promoted = this.#promotedInsightsSection()
     if (promoted) parts.push(promoted)
@@ -596,7 +618,7 @@ export class Conversation {
         skipped += 1 // an unreadable row is dropped, never invented
         continue
       }
-      entries.push(`[${row.ts}] Kevin: ${user}\n我: ${reply}`)
+      entries.push(`[${row.ts}] ${this.#deps.persona.voice.address_owner}: ${user}\n我: ${reply}`)
     }
     if (skipped > 0) {
       // 静默丢弃会让历史损坏变成安静的失忆 —— 大声。
@@ -799,7 +821,7 @@ export class Conversation {
     const lines = items.map(
       (item) => `- [${beijingStamp(String(item.ts ?? ''))}] 「${item.text_summary ?? ''}」`,
     )
-    return { role: 'system', content: UNDELIVERED_HEADER + lines.join('\n') }
+    return { role: 'system', content: renderOwnerTemplate(UNDELIVERED_HEADER, this.#deps.persona) + lines.join('\n') }
   }
 
   /**
@@ -925,16 +947,16 @@ export class Conversation {
         lines.push(`[工具结果] ${content}`)
       } else if (role === 'assistant' && message.tool_calls) {
         const calls = message.tool_calls.map((c) => c.function.name).join(', ')
-        lines.push(`Lykoi（调用工具：${calls}）${content}`)
+        lines.push(`${this.#deps.persona.identity.name}（调用工具：${calls}）${content}`)
       } else if (role === 'assistant') {
-        lines.push(`Lykoi: ${content}`)
+        lines.push(`${this.#deps.persona.identity.name}: ${content}`)
       } else {
-        lines.push(`Kevin: ${content}`)
+        lines.push(`${this.#deps.persona.voice.address_owner}: ${content}`)
       }
     }
     const result = await this.#deps.llm(
       [
-        { role: 'system', content: SUMMARIZE_SYSTEM_PROMPT },
+        { role: 'system', content: renderOwnerTemplate(SUMMARIZE_SYSTEM_PROMPT, this.#deps.persona) },
         { role: 'user', content: lines.join('\n') },
       ],
       {
@@ -993,7 +1015,7 @@ export class Conversation {
    */
   async #completion(signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge)
+    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge, this.#deps.persona)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: nudge ? null : (envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null),
@@ -1041,6 +1063,8 @@ export class Conversation {
         // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
         const nudge = attempt >= 1
         const result = await this.#completion(signal, nudge)
+        // 旧调用即使不合作、晚到成功，也不能进入 parse/inner/tool 或下一 run 状态。
+        signal?.throwIfAborted()
         lastResult = result
         const jsonMode = !nudge && envelopeJsonMode()
         elapsedMs = Math.round(monotonicNowMs() - started)
@@ -1124,6 +1148,8 @@ export class Conversation {
           return ''
         }
       }
+      // 同步提交段从这里开始；inner、进度等内部写入也不允许事后回滚。
+      this.#runSealed = true
       // D-05（修正版）：这一周期最终成立之后才收未送达展示期。
       this.#markUndeliveredSurfaced()
       const injected = new Set(this.#lastInjectedThoughtIds)
@@ -1161,15 +1187,17 @@ export class Conversation {
         return ''
       }
       if (kind === REPLY) {
-        this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
         this.#lastCycleOutcome = { kind: 'reply', step }
         return decision.content ?? ''
       }
       if (kind === PROMISE_FOLLOWUP) {
         this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
-        this.#messages.push({ role: 'assistant', content: decision.content })
+        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
         this.#lastCycleOutcome = { kind: 'followup', step }
-        return decision.content ?? ''
+        return this.#cycleUtterances.join('')
       }
       // --- tool_call ---
       const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
@@ -1420,7 +1448,7 @@ export class Conversation {
     this.#followupRequest = task // 一轮多次调用取最后一次
     if (this.#background) {
       this.#log('continuation_requested', { chars: [...task].length })
-      return { success: true, data: { queued: true, note: '回合结束后任务挂起,等 Kevin 批准再继续' } }
+      return { success: true, data: { queued: true, note: renderOwnerTemplate('回合结束后任务挂起,等 {owner} 批准再继续', this.#deps.persona) } }
     }
     this.#log('followup_requested', { chars: [...task].length })
     return { success: true, data: { queued: true, note: '回复结束后开始后台跟进' } }
@@ -1432,7 +1460,7 @@ export class Conversation {
     if (error !== null) return error
     const content = String(args.content ?? '').trim()
     if (!content) {
-      return { success: false, error: "post_progress 需要 'content':要发给 Kevin 的进展" }
+      return { success: false, error: renderOwnerTemplate("post_progress 需要 'content':要发给 {owner} 的进展", this.#deps.persona) }
     }
     if (!this.#background) {
       return { success: false, error: '现场对话直接在回复里说,post_progress 只在后台回合可用' }
@@ -1524,6 +1552,8 @@ export class Conversation {
     message: string,
     opts: {
       background?: boolean
+      onUtterances?: (parts: readonly string[]) => void
+      onCycleResult?: (result: CycleResult) => void
       replyToNotification?: ReplyToNotification | null
       runId?: string
       turnId?: string | null
@@ -1538,6 +1568,7 @@ export class Conversation {
       this.#delegatedAsk = null
       this.#cycleInner = null
       this.#cyclePulse = [] // WO-PULSE-01 D-2：一轮一份
+      this.#cycleUtterances = []
       this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
       this.#lastTurnId = opts.turnId ?? null
@@ -1545,12 +1576,18 @@ export class Conversation {
       this.#messages.push({ role: 'user', content: message })
       // 来话即探针 —— 一轮一次检索，结果贴进易变尾部（零 LLM）。
       this.#relevantMemories = this.#buildRelevantMemories(message)
+      this.#runSealed = false
+      this.#runController = new AbortController()
       let reply: string
       try {
         // D-01（M4-W1）：整个周期有一条边。撞线 = AbortSignal 掐断那一跳 +
         // 下面的 S-14 回滚 + `u3_cycle_timeout` 落账（elapsed 与判定读同一只表）。
         const timeoutMs = deadlineMs(this.#deps.cycleTimeoutS ?? D01_CYCLE_TIMEOUT_S)
-        reply = await withDeadline('conversation_cycle', timeoutMs, (signal) => this.#runCycle(signal))
+        const controller = this.#runController
+        reply = await withDeadline('conversation_cycle', timeoutMs, async signal => {
+          try { return await this.#runCycle(signal) }
+          finally { if (this.#runController === controller) this.#runSealed = true }
+        }, controller.signal)
       } catch (exc) {
         if (exc instanceof DeadlineExceededError) {
           // 风格对齐 G-10 的 u3_cycle_failed：类别/时延/原因/零正文。
@@ -1569,15 +1606,18 @@ export class Conversation {
         this.#log('chat_turn_rolled_back', { dropped_messages: dropped })
         throw exc
       } finally {
+        this.#runController = null
+        this.#runSealed = true
         // S-15：召回是针对这句话的，展示期就是这一轮。
         this.#relevantMemories = null
       }
+      if (this.#cycleUtterances.length === 0 && reply) this.#cycleUtterances = [reply]
       const appliedInner = this.#cycleInner
       const now = this.#now()
       // S-16：每个成功回合恰一条 history(conversation) 行（含 silence，reply=""）。
       const historyId = this.#deps.store.appendHistory(
         'conversation',
-        JSON.stringify({ user: message, reply }),
+        JSON.stringify({ user: message, reply, ...(this.#cycleUtterances.length > 1 ? { utterances: this.#cycleUtterances } : {}) }),
         { now },
       )
       // D-08（G-10 修正版）：inner_outer_pair 只记长度/哈希 —— 正文归 history 表
@@ -1595,6 +1635,7 @@ export class Conversation {
         conversationTurnReflow({
           store: this.#deps.store,
           notifications: this.#deps.notifications ?? emptyNotifications,
+          ownerName: this.#deps.persona.owner?.name ?? this.#deps.persona.voice.address_owner,
           userText: message,
           replyText: reply,
           historyId,
@@ -1612,6 +1653,13 @@ export class Conversation {
           error: exc instanceof Error ? exc.message : String(exc),
         })
       }
+      opts.onCycleResult?.({
+        outcome: structuredClone(this.lastCycleOutcome()),
+        followup: this.#followupRequest,
+        delegatedAsk: this.#delegatedAsk === null ? null : structuredClone(this.#delegatedAsk),
+        utterances: [...this.#cycleUtterances],
+      })
+      opts.onUtterances?.([...this.#cycleUtterances])
       return reply
     })
     // S-12：摘要在**锁外**跑 —— 摘要时延不挡并发回合。

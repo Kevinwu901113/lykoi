@@ -12,13 +12,19 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   PERSONA_TOML_CANONICAL, PINNED_DOCS, PINNED_ROOT_FILES, PROFILE_ROOT_OWNED_FILES,
   ROOT_OWNED_PACKAGES, collectTs, hashPinnedPackages, manifestKey,
 } from './surface.ts'
 
 /** GK-13 两域：`root` = 属主+权限+哈希三重；`hash` = 只核哈希（GOV-01）。 */
+/** 同一实例包的静态输入；不存在的可选文件不生成虚构哈希。 */
+export function instancePackageFiles(personaToml: string): string[] {
+  return [personaToml, ...['seeds.toml', 'deploy.toml']
+    .map(name => join(dirname(personaToml), name)).filter(path => existsSync(path))]
+}
+
 export type ProtectedDomain = 'root' | 'hash'
 
 export interface ProtectedEntry {
@@ -127,7 +133,7 @@ export function protectedEntries(
   }
 
   // --- root 属主域：人格 TOML（仓库外绝对规范路径；活规则不入钉面 = GK-15，见顶注） ---
-  push(personaToml, 'root')
+  for (const path of instancePackageFiles(personaToml)) push(path, 'root')
 
   // --- hash-pin 域：其余全部 packages 的 src ---
   for (const pkg of hashPinnedPackages(repoRoot)) {

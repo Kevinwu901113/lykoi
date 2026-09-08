@@ -198,7 +198,7 @@ export interface ThoughtView {
 }
 
 export interface EnvironmentBlock {
-  距上次和Kevin互动小时: number | null
+  距上次与所有者互动小时: number | null
   同时段历史: {
     近14天此时段有互动的天数: number
     观察天数: number
@@ -330,7 +330,7 @@ function environment(
   // 唯一事实来源是 regulation 账本里的 explore_completed 事件（snapshot.py:139-141）。
   const exploreLast = store.lastCauseEventTs(['explore_completed'])
   return {
-    距上次和Kevin互动小时: hoursSince !== null ? pyRound(hoursSince, 2) : null,
+    距上次与所有者互动小时: hoursSince !== null ? pyRound(hoursSince, 2) : null,
     同时段历史: {
       近14天此时段有互动的天数: sameWindowDays(stamps, now),
       观察天数: RHYTHM_WINDOW_DAYS,

@@ -21,6 +21,7 @@
  * 凭据纪律不变：token 走 env 引用（`tokenEnv`），永不落配置、永不落日志、
  * 永不回显；无 token 即拒起。
  */
+import { loadInstancePackage } from 'lykoi-decide'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createFetchHttpPost } from './http.ts'
@@ -154,16 +155,27 @@ export interface Config {
    * （2026-08-31 取证）：主机直连 api.telegram.org 不通，必须经内网代理箱。
    */
   proxy: string
+  /** proxy=instance 时定位同一实例包；其余模式不读。 */
+  personaToml?: string
 }
 
 export const Config: Schema<Config> = Schema.object({
   tokenEnv: Schema.string().default('LYKOI_TELEGRAM_BOT_TOKEN'),
   proxy: Schema.string().default(''),
+  personaToml: Schema.string().default(''),
 })
+
+export function resolveInstanceProxy(config: Pick<Config, 'proxy' | 'personaToml'>): string {
+  if (config.proxy !== 'instance') return config.proxy
+  if (!config.personaToml) throw new Error('deploy.toml: personaToml is required for instance proxy')
+  const proxy = loadInstancePackage(config.personaToml).deploy.telegram_proxy
+  if (!proxy) throw new Error('deploy.toml: [telegram].proxy is required for instance proxy')
+  return proxy
+}
 
 export function apply(ctx: Context, config: Config) {
   const transport = new ProductionTelegramTransport(process.env[config.tokenEnv], {
-    proxy: config.proxy,
+    proxy: resolveInstanceProxy(config),
   })
   ctx.provide('telegramTransport', transport)
 }

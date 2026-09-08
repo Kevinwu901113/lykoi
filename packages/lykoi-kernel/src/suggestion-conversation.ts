@@ -53,7 +53,7 @@ export const DECLINE_COOLDOWN_CYCLES = 30
 /** 他没理这条问询，冷却短一些：沉默不是拒绝，但也不该被当成"再问一次"的许可。 */
 export const EXPIRE_COOLDOWN_CYCLES = 10
 
-export const MESSENGER_CHANNEL = 'telegram'
+// 通道由 ownerBinding 提供。
 
 export const AUDIT_SUGGESTION = 'rule_suggestion_interaction'
 
@@ -86,12 +86,12 @@ export const DEAD_REPLY = '那条建议已经过期了, 要我重新问吗?'
 /** 656 字，sha256 74f4efdb…。 */
 export const ANSWER_SYSTEM_PROMPT = `你是一个语义判定器, 服务于一个 AI 的权限边界机制。
 
-她向主人(Kevin)提了一条**建议**(比如放掉一条关切, 或者某类事以后是不是
+她向所有者提了一条**建议**(比如放掉一条关切, 或者某类事以后是不是
 可以不用每次问), 主人刚回了一句话。你唯一的工作是判断: 这句话是不是在
 **同意这条建议**。
 
 铁律:
-1. 只有他明确同意「这条建议」才算 accept。同意的是别的事、泛泛的客套、
+1. 只有所有者明确同意「这条建议」才算 accept。同意的是别的事、泛泛的客套、
    在反问、在闲聊、看不懂 —— 一律 unclear。
 2. 拿不准就 unclear。unclear 的代价是这条建议继续挂着; 错判成 accept 的代价
    是她拿到了一份他没给过的许可。这两个代价不对等。
@@ -130,7 +130,7 @@ export const ANSWER_TEMPERATURE = 0.0
 /** rule_suggestions 队列面（`lykoi-memory` ReadWriteMemory 的结构子集）。 */
 export interface SuggestionStore {
   currentFocusCycleId(): number
-  ownerChannelKey(channel: string): string | null
+  ownerBinding(): { channel: string; channel_key: string } | null
   outstandingAskedRuleSuggestions(): Record<string, unknown>[]
   nextPendingRuleSuggestion(): Record<string, unknown> | null
   overdueAskedRuleSuggestions(cycleId: number, ttlCycles: number): Record<string, unknown>[]
@@ -333,7 +333,7 @@ export function createSuggestionConversation(
    * 队列里。宁可她憋着，也不能让"往哪儿问"成为一个可以被配置绕开的判断。
    */
   function _ownerContext(): string | null {
-    return store.ownerChannelKey(MESSENGER_CHANNEL)
+    return store.ownerBinding()?.channel_key ?? null
   }
 
   /**

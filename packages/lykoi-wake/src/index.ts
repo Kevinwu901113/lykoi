@@ -62,7 +62,7 @@ import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
   createDispatch, isActive as chatIsActive,
   notificationsRemainingToday, pendingCount, proactiveRemainingToday,
-  setIdentityBindingLookup, setKernelLogEvent, wiredActionCatalog,
+  setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent, wiredActionCatalog,
 } from 'lykoi-kernel'
 import {
   outboundOrganResources, setMessengerLogEvent, setTransportLogEvent,
@@ -246,6 +246,7 @@ export interface ContinuationScanner {
  * `continuation/scan_failed`。扫描是异步的，本函数不等它。
  */
 export function runCheapTick(input: {
+  ownerName?: string
   store: Parameters<typeof cheapTick>[0]['store']
   notifications: NotificationsView
   now: Date
@@ -253,7 +254,7 @@ export function runCheapTick(input: {
   continuations?: ContinuationScanner | undefined
 }): void {
   try {
-    cheapTick({ store: input.store, notifications: input.notifications, now: input.now, logEvent: input.logEvent })
+    cheapTick({ ownerName: input.ownerName, store: input.store, notifications: input.notifications, now: input.now, logEvent: input.logEvent })
   } catch (exc) {
     input.logEvent('cheap_tick_failed', { error: exc instanceof Error ? exc.message : String(exc) })
   }
@@ -326,7 +327,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     const snap = read(deps.store, deps.snapshotDeps, m)
     const snapLike = snap as unknown as SnapshotLike
     const candidates = buildCandidates(
-      snapLike, deps.wiredActions ? { wired: deps.wiredActions } : undefined,
+      snapLike, { wired: deps.wiredActions, persona: deps.messageDeps.persona },
     )
     // 本拍注意力域（_perceive 对应物）：她在快照里真看到的 id 集（裁决 8）。
     const injectedThoughtIds = new Set(snap.念头.map((t) => t.id))
@@ -372,6 +373,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     // 阶段 5：执行 + 回流。
     status = await executeAndReflow(decision, runId, counts, {
       store: deps.store, dispatchFn: deps.dispatchFn, now: m, logEvent: deps.logEvent,
+      ownerName: deps.messageDeps.persona.owner?.name ?? deps.messageDeps.persona.voice.address_owner,
     })
     // 阶段 6：inner 落地——在执行**之后**（SA-31/§5.5 §2：畸形 inner 不可能影响
     // 决策；applyInner 永不抛，它的失败不能让拍失败）。
@@ -521,6 +523,7 @@ export function apply(ctx: Context, config: Config) {
   setMessengerLogEvent(logEvent)
   setTransportLogEvent(logEvent)
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
+  setOwnerBindingLookup(() => store.ownerBinding())
 
   // D-FIX-1：先天内核从 owner 域 TOML 装载（converse 镜像；SA-156 fail-fast ——
   // 文件缺失/坏 TOML 抛 PersonaConfigError，不包不吞，病内核在启动时炸）。
@@ -533,6 +536,7 @@ export function apply(ctx: Context, config: Config) {
   const resources = outboundOrganResources()
   const wiredCatalog = wiredActionCatalog(resources)
   const organs = new OrganInventoryCache({
+    persona,
     bindings: () => store.identityBindingInventory(),
     // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
     // 是 `kernelActionCatalog` 的 18 项全表——器官清单四条禁止全朝"往少了说"，
@@ -612,7 +616,7 @@ export function apply(ctx: Context, config: Config) {
     shouldYieldToChat: () => chatIsActive(),
     messageDeps: {
       persona,
-      acquired: () => buildPersonaPrompt(store),
+      acquired: () => buildPersonaPrompt(store, persona),
       // WO-OVERLAY-WAKE-01 D-2：relationship overlay 进独处装配（与对话路径同一渲染
       // 函数；空态零字节零事件）。
       overlay: overlayMessageDep(store, logEvent),
@@ -670,6 +674,7 @@ export function apply(ctx: Context, config: Config) {
       const now = systemClock.now()
       if (!driver.due(now)) return
       runCheapTick({
+        ownerName: persona.owner?.name ?? persona.voice.address_owner,
         store, notifications, now, logEvent,
         continuations: ctx.get('continuations') as ContinuationScanner | undefined,
       })

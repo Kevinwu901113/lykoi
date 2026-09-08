@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  DEFAULT_CHANNEL, registeredDomain, resolveScopeKey, scopeKey,
+  setOwnerBindingLookup, registeredDomain, resolveScopeKey, scopeKey,
   setIdentityBindingLookup, UNSCOPABLE,
 } from '../src/index.ts'
 import { captureTelemetry, isolateKernelState } from './fixture.ts'
@@ -25,7 +25,11 @@ test('messenger.send：绑定塌 user:、未绑定停 channel:、无 context_id 
   assert.equal(scopeKey('messenger.send', { context_id: 7, channel: 'irc' }), 'channel:irc:7')
   assert.equal(scopeKey('messenger.send', {}), null)
   assert.equal(scopeKey('messenger.send', { context_id: '' }), null)
-  assert.equal(DEFAULT_CHANNEL, 'telegram')
+  setOwnerBindingLookup(null)
+  assert.throws(() => scopeKey('messenger.send', { context_id: '1001' }), /owner binding missing/)
+  assert.equal(scopeKey('messenger.send', { channel: 'irc', context_id: '1001' }), 'channel:irc:1001')
+  setOwnerBindingLookup(() => ({ channel: 'matrix', channel_key: 'owner' }))
+  assert.equal(scopeKey('messenger.send', { context_id: '1001' }), 'channel:matrix:1001')
 })
 
 test('messenger.send 降级不放宽：绑定读点抛 → 停在更窄的 channel 键 + 遥测', () => {

@@ -1,0 +1,1631 @@
+{
+  "schema": 1,
+  "workOrder": "WO-TURN-01",
+  "stage": "A2",
+  "status": "pass",
+  "clock": {
+    "base": "2026-09-05T00:00:00.000Z",
+    "source": "fixed BASE_MS plus injected DurableIngress.now and explicit tick dates",
+    "idleWindowMs": 1500,
+    "hardWindowMs": 4000,
+    "wallClockReads": 0
+  },
+  "database": {
+    "fixture": "DurableTurnStore infrastructure schema 1",
+    "expectedSchemaVersion": 1,
+    "temporary": true
+  },
+  "scope": {
+    "real": [
+      "DurableIngress",
+      "DurableTurnStore",
+      "lykoi-memory infrastructure schema-1 fixture",
+      "lykoi-gate protectedEntries/manifest pure functions"
+    ],
+    "fake": [
+      "in-memory AuditService sink",
+      "FIFO TurnExecutor"
+    ],
+    "transport": "excluded; no Telegram transport/cursor is fabricated",
+    "network": "zero external calls"
+  },
+  "scenarios": [
+    {
+      "name": "multipart_idle",
+      "layer": "ingress",
+      "status": "pass",
+      "assertions": {
+        "oneTurn": true,
+        "partsPreserveBoundaryAndOrder": true,
+        "idleCommitAtMs": 2500,
+        "commitReason": "idle_timeout",
+        "persistedByReopenedStore": true
+      },
+      "trace": [
+        {
+          "op": "accept",
+          "atMs": 0,
+          "inboundId": "in:telegram:1",
+          "result": {
+            "inboundId": "in:telegram:1",
+            "turnId": "turn:in:telegram:1",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:1",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:1",
+                "platform_message_id": "101",
+                "platform_update_id": "1",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 500,
+          "inboundId": "in:telegram:2",
+          "result": {
+            "inboundId": "in:telegram:2",
+            "turnId": "turn:in:telegram:1",
+            "duplicate": false,
+            "partCount": 2
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:1",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:1",
+                "platform_message_id": "101",
+                "platform_update_id": "1",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:2",
+                "platform_message_id": "102",
+                "platform_update_id": "2",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:00.500Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 1000,
+          "inboundId": "in:telegram:3",
+          "result": {
+            "inboundId": "in:telegram:3",
+            "turnId": "turn:in:telegram:1",
+            "duplicate": false,
+            "partCount": 3
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:1",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:1",
+                "platform_message_id": "101",
+                "platform_update_id": "1",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:2",
+                "platform_message_id": "102",
+                "platform_update_id": "2",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:00.500Z"
+              },
+              {
+                "inbound_id": "in:telegram:3",
+                "platform_message_id": "103",
+                "platform_update_id": "3",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 2499,
+          "executorCalls": 0,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:1",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:1",
+                "platform_message_id": "101",
+                "platform_update_id": "1",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:2",
+                "platform_message_id": "102",
+                "platform_update_id": "2",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:00.500Z"
+              },
+              {
+                "inbound_id": "in:telegram:3",
+                "platform_message_id": "103",
+                "platform_update_id": "3",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 2500,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 0,
+              "running": 0,
+              "terminal": 1
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:1",
+                "state": "terminal",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:1:r0",
+                "terminalStatus": "replied",
+                "terminalReason": null,
+                "terminalAudited": 1
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:1",
+                "platform_message_id": "101",
+                "platform_update_id": "1",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:2",
+                "platform_message_id": "102",
+                "platform_update_id": "2",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:00.500Z"
+              },
+              {
+                "inbound_id": "in:telegram:3",
+                "platform_message_id": "103",
+                "platform_update_id": "3",
+                "turn_id": "turn:in:telegram:1",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "execution": [
+        {
+          "turnId": "turn:in:telegram:1",
+          "runId": "run:turn:in:telegram:1:r0",
+          "parts": [
+            {
+              "inboundId": "in:telegram:1",
+              "platformMessageId": "101",
+              "text": "A",
+              "receivedAt": "2026-09-05T00:00:00.000Z"
+            },
+            {
+              "inboundId": "in:telegram:2",
+              "platformMessageId": "102",
+              "text": "B",
+              "receivedAt": "2026-09-05T00:00:00.500Z"
+            },
+            {
+              "inboundId": "in:telegram:3",
+              "platformMessageId": "103",
+              "text": "C",
+              "receivedAt": "2026-09-05T00:00:01.000Z"
+            }
+          ],
+          "commitReason": "idle_timeout"
+        }
+      ],
+      "terminalLinkage": {
+        "count": 1,
+        "eventId": "turn-terminal:turn:in:telegram:1",
+        "turnId": "turn:in:telegram:1",
+        "inboundIds": [
+          "in:telegram:1",
+          "in:telegram:2",
+          "in:telegram:3"
+        ],
+        "platformMessageIds": [
+          "101",
+          "102",
+          "103"
+        ],
+        "replyAnchorMessageId": "103"
+      },
+      "auditTypes": [
+        "inbound/accepted",
+        "turn/collecting",
+        "inbound/accepted",
+        "turn/collecting",
+        "inbound/accepted",
+        "turn/collecting",
+        "turn/committed",
+        "turn/queued",
+        "turn/terminal"
+      ]
+    },
+    {
+      "name": "hard_max",
+      "layer": "ingress",
+      "status": "pass",
+      "assertions": {
+        "oneTurn": true,
+        "hardCommitAtMs": 4000,
+        "commitReason": "hard_timeout",
+        "allFourBoundariesPreserved": true,
+        "persistedByReopenedStore": true
+      },
+      "trace": [
+        {
+          "op": "accept",
+          "atMs": 0,
+          "inboundId": "in:telegram:11",
+          "result": {
+            "inboundId": "in:telegram:11",
+            "turnId": "turn:in:telegram:11",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 1000,
+          "inboundId": "in:telegram:12",
+          "result": {
+            "inboundId": "in:telegram:12",
+            "turnId": "turn:in:telegram:11",
+            "duplicate": false,
+            "partCount": 2
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:12",
+                "platform_message_id": "112",
+                "platform_update_id": "12",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 2000,
+          "inboundId": "in:telegram:13",
+          "result": {
+            "inboundId": "in:telegram:13",
+            "turnId": "turn:in:telegram:11",
+            "duplicate": false,
+            "partCount": 3
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:12",
+                "platform_message_id": "112",
+                "platform_update_id": "12",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:13",
+                "platform_message_id": "113",
+                "platform_update_id": "13",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 3000,
+          "inboundId": "in:telegram:14",
+          "result": {
+            "inboundId": "in:telegram:14",
+            "turnId": "turn:in:telegram:11",
+            "duplicate": false,
+            "partCount": 4
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:12",
+                "platform_message_id": "112",
+                "platform_update_id": "12",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:13",
+                "platform_message_id": "113",
+                "platform_update_id": "13",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:14",
+                "platform_message_id": "114",
+                "platform_update_id": "14",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 3,
+                "received_at": "2026-09-05T00:00:03.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 3999,
+          "executorCalls": 0,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:12",
+                "platform_message_id": "112",
+                "platform_update_id": "12",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:13",
+                "platform_message_id": "113",
+                "platform_update_id": "13",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:14",
+                "platform_message_id": "114",
+                "platform_update_id": "14",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 3,
+                "received_at": "2026-09-05T00:00:03.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 4000,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 0,
+              "running": 0,
+              "terminal": 1
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:11",
+                "state": "terminal",
+                "commitReason": "hard_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:11:r0",
+                "terminalStatus": "replied",
+                "terminalReason": null,
+                "terminalAudited": 1
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:11",
+                "platform_message_id": "111",
+                "platform_update_id": "11",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:12",
+                "platform_message_id": "112",
+                "platform_update_id": "12",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 1,
+                "received_at": "2026-09-05T00:00:01.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:13",
+                "platform_message_id": "113",
+                "platform_update_id": "13",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 2,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:14",
+                "platform_message_id": "114",
+                "platform_update_id": "14",
+                "turn_id": "turn:in:telegram:11",
+                "part_order": 3,
+                "received_at": "2026-09-05T00:00:03.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "execution": [
+        {
+          "turnId": "turn:in:telegram:11",
+          "parts": [
+            "H1",
+            "H2",
+            "H3",
+            "H4"
+          ],
+          "commitReason": "hard_timeout",
+          "committedAt": "2026-09-05T00:00:04.000Z"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_idempotence",
+      "layer": "ingress",
+      "status": "pass",
+      "assertions": {
+        "samePlatformIdentityMapsToOriginalInbound": true,
+        "partCount": 1,
+        "turnCount": 1,
+        "terminalCount": 1,
+        "duplicateAuditCount": 1
+      },
+      "trace": [
+        {
+          "op": "accept",
+          "atMs": 0,
+          "inboundId": "in:telegram:21",
+          "result": {
+            "inboundId": "in:telegram:21",
+            "turnId": "turn:in:telegram:21",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:21",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:21",
+                "platform_message_id": "121",
+                "platform_update_id": "21",
+                "turn_id": "turn:in:telegram:21",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 10,
+          "inboundId": "in:telegram:redelivery",
+          "result": {
+            "inboundId": "in:telegram:21",
+            "turnId": "turn:in:telegram:21",
+            "duplicate": true,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:21",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:21",
+                "platform_message_id": "121",
+                "platform_update_id": "21",
+                "turn_id": "turn:in:telegram:21",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "duplicate_check",
+          "first": {
+            "inboundId": "in:telegram:21",
+            "turnId": "turn:in:telegram:21",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "replay": {
+            "inboundId": "in:telegram:21",
+            "turnId": "turn:in:telegram:21",
+            "duplicate": true,
+            "partCount": 1
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 1500,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 0,
+              "running": 0,
+              "terminal": 1
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:21",
+                "state": "terminal",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:21:r0",
+                "terminalStatus": "replied",
+                "terminalReason": null,
+                "terminalAudited": 1
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:21",
+                "platform_message_id": "121",
+                "platform_update_id": "21",
+                "turn_id": "turn:in:telegram:21",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "audit": [
+        {
+          "type": "inbound/accepted",
+          "inboundId": "in:telegram:21",
+          "turnId": "turn:in:telegram:21",
+          "platformMessageId": "121",
+          "duplicate": false
+        },
+        {
+          "type": "inbound/accepted",
+          "inboundId": "in:telegram:21",
+          "turnId": "turn:in:telegram:21",
+          "platformMessageId": "121",
+          "duplicate": true
+        }
+      ]
+    },
+    {
+      "name": "blocked_a_fifo",
+      "layer": "ingress",
+      "status": "pass",
+      "assertions": {
+        "durablePartsWhileABlocked": 3,
+        "queuedTurnsWhileABlocked": 2,
+        "fifoOrder": [
+          "A",
+          "B",
+          "C"
+        ],
+        "maxConcurrency": 1,
+        "terminalTurnsAfterRelease": 3
+      },
+      "trace": [
+        {
+          "op": "accept",
+          "atMs": 0,
+          "inboundId": "in:telegram:31",
+          "result": {
+            "inboundId": "in:telegram:31",
+            "turnId": "turn:in:telegram:31",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 1500,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 0,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 2000,
+          "inboundId": "in:telegram:32",
+          "result": {
+            "inboundId": "in:telegram:32",
+            "turnId": "turn:in:telegram:32",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:32",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:32",
+                "platform_message_id": "132",
+                "platform_update_id": "32",
+                "turn_id": "turn:in:telegram:32",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 3500,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 1,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:32",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 2,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:32",
+                "platform_message_id": "132",
+                "platform_update_id": "32",
+                "turn_id": "turn:in:telegram:32",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "accept",
+          "atMs": 4000,
+          "inboundId": "in:telegram:33",
+          "result": {
+            "inboundId": "in:telegram:33",
+            "turnId": "turn:in:telegram:33",
+            "duplicate": false,
+            "partCount": 1
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 1,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:32",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 2,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:33",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:32",
+                "platform_message_id": "132",
+                "platform_update_id": "32",
+                "turn_id": "turn:in:telegram:32",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:33",
+                "platform_message_id": "133",
+                "platform_update_id": "33",
+                "turn_id": "turn:in:telegram:33",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:04.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "tick",
+          "atMs": 5500,
+          "executorCalls": 1,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 2,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:32",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 2,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:33",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 3,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:32",
+                "platform_message_id": "132",
+                "platform_update_id": "32",
+                "turn_id": "turn:in:telegram:32",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:33",
+                "platform_message_id": "133",
+                "platform_update_id": "33",
+                "turn_id": "turn:in:telegram:33",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:04.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "op": "blocked_snapshot",
+          "atMs": 5500,
+          "accepted": {
+            "b": {
+              "inboundId": "in:telegram:32",
+              "turnId": "turn:in:telegram:32",
+              "duplicate": false,
+              "partCount": 1
+            },
+            "c": {
+              "inboundId": "in:telegram:33",
+              "turnId": "turn:in:telegram:33",
+              "duplicate": false,
+              "partCount": 1
+            }
+          },
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 2,
+              "running": 1,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:31",
+                "state": "running",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:31:r0",
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:32",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 2,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              },
+              {
+                "id": "turn:in:telegram:33",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 3,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:31",
+                "platform_message_id": "131",
+                "platform_update_id": "31",
+                "turn_id": "turn:in:telegram:31",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:32",
+                "platform_message_id": "132",
+                "platform_update_id": "32",
+                "turn_id": "turn:in:telegram:32",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:02.000Z"
+              },
+              {
+                "inbound_id": "in:telegram:33",
+                "platform_message_id": "133",
+                "platform_update_id": "33",
+                "turn_id": "turn:in:telegram:33",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:04.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "execution": [
+        {
+          "event": "start",
+          "text": "A",
+          "atMs": 1500,
+          "runId": "run:turn:in:telegram:31:r0",
+          "active": 1
+        },
+        {
+          "event": "finish",
+          "text": "A",
+          "atMs": 5500,
+          "active": 1
+        },
+        {
+          "event": "start",
+          "text": "B",
+          "atMs": 5500,
+          "runId": "run:turn:in:telegram:32:r0",
+          "active": 1
+        },
+        {
+          "event": "finish",
+          "text": "B",
+          "atMs": 5500,
+          "active": 1
+        },
+        {
+          "event": "start",
+          "text": "C",
+          "atMs": 5500,
+          "runId": "run:turn:in:telegram:33:r0",
+          "active": 1
+        },
+        {
+          "event": "finish",
+          "text": "C",
+          "atMs": 5500,
+          "active": 1
+        }
+      ],
+      "transportEvidence": {
+        "included": false,
+        "reason": "normalized InboundPart feed only; Telegram poll/cursor is a separate adapter-layer proof"
+      }
+    },
+    {
+      "name": "restart_collecting_queued_terminal",
+      "layer": "ingress",
+      "status": "pass",
+      "assertions": {
+        "collectingSurvivesRestart": true,
+        "queuedSurvivesRestart": true,
+        "terminalSurvivesRestart": true,
+        "executionCount": 1,
+        "rerunCountAfterTerminalRestart": 0,
+        "finalStateCounts": {
+          "collecting": 0,
+          "queued": 0,
+          "running": 0,
+          "terminal": 1
+        }
+      },
+      "phases": [
+        {
+          "phase": "collecting_before_restart",
+          "atMs": 0,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:41",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:41",
+                "platform_message_id": "141",
+                "platform_update_id": "41",
+                "turn_id": "turn:in:telegram:41",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "phase": "collecting_after_restart_before_deadline",
+          "atMs": 1000,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 1,
+              "queued": 0,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:41",
+                "state": "collecting",
+                "commitReason": null,
+                "queueSeq": null,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:41",
+                "platform_message_id": "141",
+                "platform_update_id": "41",
+                "turn_id": "turn:in:telegram:41",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "phase": "queued_after_restart_due_tick",
+          "atMs": 1500,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 1,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:41",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:41",
+                "platform_message_id": "141",
+                "platform_update_id": "41",
+                "turn_id": "turn:in:telegram:41",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "phase": "queued_after_restart_start",
+          "atMs": 2000,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 1,
+              "running": 0,
+              "terminal": 0
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:41",
+                "state": "queued",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": null,
+                "terminalStatus": null,
+                "terminalReason": null,
+                "terminalAudited": 0
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:41",
+                "platform_message_id": "141",
+                "platform_update_id": "41",
+                "turn_id": "turn:in:telegram:41",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        },
+        {
+          "phase": "terminal_after_restart_execution",
+          "atMs": 2000,
+          "db": {
+            "schemaVersion": 1,
+            "stateCounts": {
+              "collecting": 0,
+              "queued": 0,
+              "running": 0,
+              "terminal": 1
+            },
+            "turns": [
+              {
+                "id": "turn:in:telegram:41",
+                "state": "terminal",
+                "commitReason": "idle_timeout",
+                "queueSeq": 1,
+                "runId": "run:turn:in:telegram:41:r0",
+                "terminalStatus": "replied",
+                "terminalReason": null,
+                "terminalAudited": 1
+              }
+            ],
+            "parts": [
+              {
+                "inbound_id": "in:telegram:41",
+                "platform_message_id": "141",
+                "platform_update_id": "41",
+                "turn_id": "turn:in:telegram:41",
+                "part_order": 0,
+                "received_at": "2026-09-05T00:00:00.000Z"
+              }
+            ]
+          }
+        }
+      ],
+      "execution": [
+        {
+          "turnId": "turn:in:telegram:41",
+          "runId": "run:turn:in:telegram:41:r0",
+          "parts": [
+            "restart-me"
+          ]
+        }
+      ],
+      "terminalAudit": [
+        {
+          "eventId": "turn-terminal:turn:in:telegram:41",
+          "turnId": "turn:in:telegram:41",
+          "runId": "run:turn:in:telegram:41:r0",
+          "inboundIds": [
+            "in:telegram:41"
+          ],
+          "platformMessageIds": [
+            "141"
+          ],
+          "status": "replied",
+          "reason": null
+        }
+      ]
+    },
+    {
+      "name": "manifest_preflight",
+      "layer": "governance-manifest",
+      "status": "pass",
+      "syntheticPersona": true,
+      "productionSignature": false,
+      "writesProductionManifest": false,
+      "entries": 125,
+      "roundTripEntries": 125,
+      "ingressEntries": [
+        {
+          "name": "packages/lykoi-ingress/package.json",
+          "digest": "81c77528bafa1ca8c81037517195d557a1dce9d8cb136d9078978bf671262855",
+          "domain": "hash"
+        },
+        {
+          "name": "packages/lykoi-ingress/src/index.ts",
+          "digest": "f6c43d79cc05845257210f2ad6468f23eb65d1316c9ee38c17d9916029d4d2b3",
+          "domain": "hash"
+        },
+        {
+          "name": "packages/lykoi-ingress/src/store.ts",
+          "digest": "f5b5db073b378e19c8760383b74c8d75d933013fdfc741d534346dfe0f8cb619",
+          "domain": "hash"
+        },
+        {
+          "name": "packages/lykoi-ingress/src/types.ts",
+          "digest": "5829e402e61bd71d706a4ac95be23b6dbc3122e0f721e4c8e6a7952d52c53278",
+          "domain": "hash"
+        }
+      ],
+      "note": "ephemeral computeManifest/render/parse only; no packages/lykoi-gate/manifest.sha256 write"
+    }
+  ],
+  "cleanup": {
+    "temporaryDirectoryRemoved": true,
+    "temporaryDirectoriesCreated": 5,
+    "existedBeforeCleanup": true
+  }
+}

@@ -46,8 +46,12 @@ export const UNSCOPABLE: ReadonlySet<string> = new Set([
   'delegation.dispatch',
 ])
 
-/** params 未指名通道时消息落的通道（现存唯一 messenger 传输 = Telegram 设备）。 */
-export const DEFAULT_CHANNEL = 'telegram'
+export type OwnerBindingLookup = () => { channel: string; channel_key: string } | null
+let _ownerBindingLookup: OwnerBindingLookup | null = null
+
+export function setOwnerBindingLookup(fn: OwnerBindingLookup | null): void {
+  _ownerBindingLookup = fn
+}
 
 // 实践中所见的两级公共后缀。**不是**完整 Public Suffix List：vendor/拉取会引入
 // 新依赖。下面的判定因此在拿不准时**多留标签**（更窄的键）—— 纪律 1。漏一条的
@@ -144,7 +148,8 @@ export function setIdentityBindingLookup(fn: IdentityBindingLookup | null): void
 function messengerKey(params: Record<string, unknown>): string | null {
   const contextId = params.context_id
   if (contextId === null || contextId === undefined || contextId === '') return null
-  const channel = (typeof params.channel === 'string' && params.channel) || DEFAULT_CHANNEL
+  const channel = (typeof params.channel === 'string' && params.channel) || _ownerBindingLookup?.()?.channel
+  if (!channel) throw new Error('scope: owner binding missing')
   const channelKey = String(contextId)
   let userId: string | null = null
   if (_bindingLookup !== null) {

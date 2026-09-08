@@ -33,6 +33,7 @@ import {
   bootstrapOwnerPreauthorization, getNotification, pendingCount, sendNotification,
 } from 'lykoi-kernel'
 import { _reserveProactiveSlot, messengerProactiveRemainingToday } from 'lykoi-adapter-telegram'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 import { composeSurfaceReply } from '../src/index.ts'
 import * as converse from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
@@ -89,6 +90,7 @@ async function assemble(replyText: string) {
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -119,7 +121,7 @@ async function assemble(replyText: string) {
   })
   return {
     audit, transport, dbPath,
-    telegram: ctx.get('telegram') as TelegramAdapterService,
+    telegram: ctx.get('messenger') as TelegramAdapterService,
     service: ctx.get('converse') as converse.ConverseService,
   }
 }
@@ -220,8 +222,10 @@ test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机消
   assert.equal(turn.suggestion_id, suggestionId)
   assert.ok(['unclear', 'declined', 'accepted'].includes(String(turn.outcome)))
   assert.equal(turn.outcome, 'unclear', '判不出来 = unclear，永远不是 accept')
-  // **消费即 return**：这条消息不再进普通对话级
-  assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 0)
+  // “收到”照常有正本；part_consumed 证明它没有进入普通 Conversation cognition。
+  assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 1)
+  assert.equal(audit.events.filter((e) => e.type === 'turn/part_consumed').length, 1)
+  assert.equal(audit.events.filter((e) => e.type === 'u3_cycle_envelope').length, 0)
   // 铁律的审计面：每一条都自证没碰规则文件
   const rows = audit.events.filter((e) => e.type === 'rule_suggestion_interaction')
   assert.ok(rows.length > 0)
@@ -361,5 +365,5 @@ test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"�
   // 直接对着权威源验横幅装配（沉默路不加横幅是 D-04 的另一半，上面已钉）。
   assert.equal(composeSurfaceReply('在的', pendingCount(), false), '⚠️ 有 1 条待批准操作。\n\n在的')
   assert.equal(composeSurfaceReply('', pendingCount(), false), '', '沉默一路走到底')
-  assert.ok(audit.events.some((e) => e.type === 'converse/silence'))
+  assert.equal(audit.events.some((e) => e.type === 'converse/silence'), false)
 })

@@ -11,6 +11,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { DurableIngress } from 'lykoi-ingress'
 import type { AuditEvent, AuditService } from 'lykoi-audit'
 import type { LykoiMemoryService } from 'lykoi-memory'
 import type { TelegramAdapterService } from '../src/index.ts'
@@ -279,6 +280,8 @@ async function setup(post: HttpPost) {
   const ctx = new Context()
   const audit = fakeAudit()
   ctx.provide('audit', audit)
+  const ingress = new DurableIngress({ dbPath: ':memory:', audit, autoStart: false })
+  ctx.provide('ingress', ingress)
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', new ProductionTelegramTransport(undefined, { api: api(post) }))
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-split-adapter-'))
@@ -286,7 +289,7 @@ async function setup(post: HttpPost) {
     cursorPath: join(dir, 'cursor.json'), archivePath: join(dir, 'inbound.json'),
     autoStart: false, pollTimeoutS: 25,
   })
-  return { svc: ctx.get('telegram') as TelegramAdapterService, audit }
+  return { svc: ctx.get('messenger') as TelegramAdapterService, audit }
 }
 
 test('D-4 telegram/sent 审计：chars 记全文，parts 记段数；单段 parts=1', async () => {

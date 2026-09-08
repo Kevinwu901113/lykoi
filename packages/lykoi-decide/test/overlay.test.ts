@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  DECIDE_SYSTEM_PROMPT, RELATIONSHIP_OVERLAY_HEADER, buildMessages, buildPersonaKernel,
+  renderOwnerTemplate, DECIDE_SYSTEM_PROMPT, RELATIONSHIP_OVERLAY_HEADER, buildMessages, buildPersonaKernel,
   buildRelationshipOverlay, type OverlayReader,
 } from '../src/index.ts'
 import { FIXTURE_PERSONA } from './persona-fixture.ts'
@@ -86,7 +86,7 @@ test('D-2：不给 overlay 闭包 / 闭包返回空 → 装配逐字节与本单
     buildPersonaKernel(FIXTURE_PERSONA),
     '你对自己的理解：\n- p1',
     '[器官清单(只读)]\nX',
-    DECIDE_SYSTEM_PROMPT,
+    renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, FIXTURE_PERSONA),
     without[4]!.content,
   ])
 })
@@ -103,7 +103,7 @@ test('D-2：overlay 非空 → 段在 acquired 之后、器官块之前，内容
   assert.equal(msgs[1]!.content, '你对自己的理解：\n- p1')
   assert.equal(msgs[2]!.content, text)
   assert.equal(msgs[3]!.content, '[器官清单(只读)]\nX')
-  assert.equal(msgs[4]!.content, DECIDE_SYSTEM_PROMPT)
+  assert.equal(msgs[4]!.content, renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, FIXTURE_PERSONA))
   // acquired 为空时 overlay 仍在内核之后、器官块之前。
   const noAcquired = buildMessages(SNAP, CAND, {
     persona: FIXTURE_PERSONA,
@@ -112,6 +112,6 @@ test('D-2：overlay 非空 → 段在 acquired 之后、器官块之前，内容
     organBlock: () => null,
   })
   assert.deepEqual(noAcquired.map((m) => m.content).slice(0, 3), [
-    buildPersonaKernel(FIXTURE_PERSONA), text, DECIDE_SYSTEM_PROMPT,
+    buildPersonaKernel(FIXTURE_PERSONA), text, renderOwnerTemplate(DECIDE_SYSTEM_PROMPT, FIXTURE_PERSONA),
   ])
 })

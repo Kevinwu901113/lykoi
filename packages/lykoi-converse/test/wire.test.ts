@@ -38,6 +38,7 @@ import { MemoryTelegramTransport } from 'lykoi-adapter-telegram/testing'
 import * as converse from '../src/index.ts'
 import { toDshEnvelopeMessages, type ConverseMessage } from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, envelope, seedBinding, makeConversation } from './fixture.ts'
+import { ImmediateTestIngress } from './turn-fixture.ts'
 
 const PERSONA_TOML = FIXTURE_PERSONA_TOML
 
@@ -122,6 +123,7 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
+  ctx.provide('ingress', new ImmediateTestIngress(audit))
   ctx.provide('lykoiMemory', fakeMemory())
   ctx.provide('telegramTransport', transport)
   await ctx.plugin(LlmRuntime)
@@ -159,7 +161,7 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
     visionModel: "disabled",
 
   })
-  const telegram = ctx.get('telegram') as TelegramAdapterService
+  const telegram = ctx.get('messenger') as TelegramAdapterService
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 900, chatId: '1001', senderId: '1001', text: '帮我读读那篇' },
