@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import { BodySchemaRegistry, KNOWN_ACTION_LIST, isHardGated, unwiredResources } from 'lykoi-kernel'
 import type {
@@ -31,6 +32,7 @@ export class CapabilityRuntime implements RuntimeService {
   #closed = false
   #accepting = true
   #work = new Set<Promise<unknown>>()
+  #admission = new AsyncLocalStorage<{ active: boolean }>()
   #log: RuntimeLog
   #events: Array<[string, Record<string, unknown>]> = []
   readonly resources: ResourceRegistry
@@ -68,15 +70,19 @@ export class CapabilityRuntime implements RuntimeService {
   }
 
   async run<T>(work: () => Promise<T>): Promise<T> {
-    if (!this.#accepting || this.#closed) throw new Error('instance runtime is stopping')
-    const task = Promise.resolve().then(work)
+    if (this.#closed || (!this.#accepting && !this.#admission.getStore()?.active)) {
+      throw new Error('instance runtime is stopping')
+    }
+    const admission = { active: true }
+    const task = this.#admission.run(admission, () => Promise.resolve().then(work))
     this.#work.add(task)
-    try { return await task } finally { this.#work.delete(task) }
+    try { return await task } finally { admission.active = false; this.#work.delete(task) }
   }
 
   async quiesce(): Promise<void> {
+    if (this.#admission.getStore()?.active) throw new Error('cannot drain runtime from its own work')
     this.#accepting = false
-    await Promise.allSettled([...this.#work])
+    while (this.#work.size) await Promise.allSettled([...this.#work])
   }
 
   get revision() { return this.#revision }
@@ -94,7 +100,10 @@ export class CapabilityRuntime implements RuntimeService {
     for (const [action, handler] of entries) {
       const guarded: ResourceHandler = async params => {
         if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
-        return handler(params)
+        return this.run(async () => {
+          if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
+          return handler(params)
+        })
       }
       owned.set(action, guarded)
       this.#handlers.set(action, guarded)
