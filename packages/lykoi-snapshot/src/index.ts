@@ -1,8 +1,4 @@
-/**
- * 感知快照：maintain 执行维护写入，read 只读装配。
- * 调用方注入同一个 now；读写通过状态层完成，本包不开连接、不读取系统时钟。
- * 注意力上限由下方常量定义。迁移说明见 governance/archive/runtime-slimdown-01-history.md。
- */
+/** Read-only perception with separate maintenance. Maintenance ages existing state without creating concerns. */
 import {
   parseStateTimestamp,
   type AutonomyStateRow,
@@ -28,20 +24,16 @@ import {
   type RegulationVariableName,
 } from 'lykoi-regulation'
 import { median, pyRound } from './num.ts'
-import { floorMaintain } from './floor.ts'
 
 export * from './num.ts'
-export * from './floor.ts'
 export * from './restart.ts'
 export * from './restart-collect.ts'
 
-// ============== 注意力预算（snapshot.py:44-48 逐字；SA-38） ==============
 export const SNAPSHOT_CONCERN_TOP_N = 6
 export const SNAPSHOT_THREAD_CAP = 5
 export const SNAPSHOT_RECENT_EXPERIENCES = 3
 export const SNAPSHOT_REGULATION_EVENTS = 3
 
-// ============== 裁剪常量（snapshot.py:50-53 逐字；SA-39） ==============
 export const NARRATIVE_CLIP = 400
 export const DESCRIPTION_CLIP = 100
 export const EXPERIENCE_CLIP = 200
@@ -49,7 +41,6 @@ export const EXPERIENCE_CLIP = 200
 /** 快照呈现的小时行动上限；environment 按调节系数折算剩余额度。实际执行仍经过派发权限与预算检查。 */
 export const HOURLY_ACTION_CAP = 20
 
-// ====== 环境采样 / 懒惩罚（snapshot.py:59-65 逐字，初值待观察期校准） ======
 export const OVERDUE_PENALTY_MIN_INTERVAL_H = 24.0
 export const RHYTHM_WINDOW_DAYS = 14
 export const RHYTHM_WINDOW_HOURS = 2.0
@@ -61,19 +52,8 @@ export const DEFAULT_TYPICAL_GAP_H = 24.0
 
 /** 状态层依赖。read 只使用读取方法，maintain 才调用写入方法。 */
 export interface SnapshotStore {
-  // —— maintain 写面（顺序即 SA-34） ——
+
   markDimmingDormant(opts: { now: Date }): ConcernTransition[]
-  createConcern(
-    kind: string,
-    title: string,
-    opts: {
-      weight: number
-      origin: string
-      description?: string
-      parentId?: number | null
-      now: Date
-    },
-  ): number
   applyRegulationCause(cause: string, opts: { now: Date }): unknown
   decayAllOpenThoughts(opts: { now: Date }): unknown
   // —— 读面 ——
@@ -180,7 +160,6 @@ export interface EnvironmentBlock {
     本小时剩余行动数: number
     今日剩余通知数: number
     今日剩余主动开口数: number
-    预算系数: number
   }
 }
 
@@ -216,8 +195,6 @@ export function clip(text: string, limit: number): string {
   const cps = [...text]
   return cps.length <= limit ? text : cps.slice(0, limit).join('') + '…'
 }
-
-// ========== 环境采样（纯时间比较；reflow 的 cheap_tick 复用 —— SA-42 一族） ==========
 
 /** 有界读取最近 days 天的对话时间戳，按时间升序排列；跳过无法解析的行。 */
 export function conversationTimestamps(
@@ -280,8 +257,7 @@ function environment(
 
   const actionsSpent = store.autonomyActionsLastHour({ now })
   const notificationsRemaining = deps.notificationsRemainingToday(now)
-  // WO-NIGHT-01/B3：探索断粮时钟 —— decide 的饥饿棘轮修复读它（WO-P4R-18）；
-  // 唯一事实来源是 regulation 账本里的 explore_completed 事件（snapshot.py:139-141）。
+
   const exploreLast = store.lastCauseEventTs(['explore_completed'])
   return {
     距上次与所有者互动小时: hoursSince !== null ? pyRound(hoursSince, 2) : null,
@@ -296,18 +272,15 @@ function environment(
       断粮小时: exploreLast ? pyRound(hoursBetween(exploreLast, now), 1) : null,
     },
     预算: {
-      // G-6（治理定案，DA-06 接通；列 Kevin 追认清单）：行动预算判定兑现
-      // load.outlet_doc 声明的"高于 0.7:唤醒预算减半" ——
-      //   本小时剩余行动数 = max(0, floor(HOURLY_ACTION_CAP × budget_multiplier) - 已花)
-      // 活体只呈现 budget_multiplier 不执行（裸 20）；新体在**快照侧**折算一次，
+
+
       // decide 层直读该读数、不再另乘（见 lykoi-decide build_candidates 注释）。
       本小时剩余行动数: Math.max(
         0,
-        Math.floor(HOURLY_ACTION_CAP * effects.budget_multiplier) - actionsSpent,
+        HOURLY_ACTION_CAP - actionsSpent,
       ),
       今日剩余通知数: notificationsRemaining,
       今日剩余主动开口数: deps.proactiveRemainingToday(now),
-      预算系数: effects.budget_multiplier,
     },
   }
 }
@@ -367,12 +340,12 @@ function concernBlock(store: SnapshotStore, now: Date): ConcernView[] {
 }
 
 function narrativeBlock(store: SnapshotStore, now: Date): NarrativeView {
-  // WO-P4R-06 / SA-41：清醒拍快照是 LIVE 认知路径 —— 感知认知叙事（跳过
+
   // strict-empty 'narrative_only' 虚构），绝不读原始最新行：空整合的改写
   // 不被感知为自我。
   const current = store.currentCognitiveNarrative()
   const threads = [...store.listThreads(['open', 'suspended'])]
-  // SA-40：按 updated_at 升序 —— 最久没动的先看见（Python 对 ts 字符串稳定排序；
+
   // 业务行同为 isoformat 形态，串序 == 时间序）。
   threads.sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0))
   return {
@@ -437,18 +410,14 @@ function previousBeat(store: SnapshotStore): PreviousBeat | null {
   return null
 }
 
-// ============================== restart 叙事（SA-162） ==============================
-
 /** 重启事件渲染。notes 自带标点、无分隔符连接；空事件返回空串。 */
 export function renderRestartNotice(event: RestartEvent | null | undefined): string {
-  // Python `if not event` —— 空 dict 也为假。
+
   if (!event || Object.keys(event).length === 0) return ''
   const notes = event.notes || []
   const body = notes.length > 0 ? notes.join('') : '你刚从一次重启中醒来。'
   return `[${body}]`
 }
-
-// ============================== 三分主面（SA-33） ==============================
 
 /**
  * 感知期维护：老化关切 → 补充关切地板 → 超龄惩罚 → 念头衰减。
@@ -457,14 +426,11 @@ export function renderRestartNotice(event: RestartEvent | null | undefined): str
  */
 export function maintain(store: SnapshotStore, deps: SnapshotDeps, now: Date): Date {
   store.markDimmingDormant({ now })
-  // WO-P4R-08 concern floor：把 (active,dimming) 活性数从叙事派生目标补到 N。
-  floorMaintain(store, now)
   applyLazyOverduePenalty(store, deps, now)
   store.decayAllOpenThoughts({ now }) // §5.5 §3 出口 ③
   return now
 }
 
-/** 纯读装配，不写状态；状态和注入时刻相同时，两次读取逐字段一致。 */
 export function read(store: SnapshotStore, deps: SnapshotDeps, now: Date): Snapshot {
   const [regBlock, , effects] = regulationBlock(store, now)
   const snap: Snapshot = {
@@ -478,7 +444,7 @@ export function read(store: SnapshotStore, deps: SnapshotDeps, now: Date): Snaps
     环境: environment(store, deps, now, effects),
     上一拍: previousBeat(store),
   }
-  // SA-165：仅当有未处理的 restart 事件时键才存在（W5 接真实生产者；
+
   // 本波 deps 可恒返 null）。
   const restart = deps.unprocessedRestartEvent(store.autonomyState()?.lastWakeAt ?? null)
   if (restart && Object.keys(restart).length > 0) {

@@ -129,19 +129,9 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     pendingBeats = 1
     outcomes.push(await service.beat())
   }
-  // D-1c：第一拍模型选 explore，但 research_browser.read_text 未接线 → wake 喂
-  // 给 buildCandidates 的 wiredActions 里没有它，explore 不候选 → 既有位点②
-  // （kind_not_in_candidates）降级为 rest，平安 completed（不再走到 dispatch
-  // 替身、不再大声失败）。后两拍的器官已换真身 → 原样 completed。
-  assert.deepEqual(outcomes.map((o) => o.decision), ['rest', 'initiate_chat', 'queue_notification'])
-  assert.deepEqual(outcomes.map((o) => o.status), ['completed', 'completed', 'completed'])
-  // 降级走既有位点②：decision_ungrounded（why=kind_not_in_candidates）打头，
-  // capability_gap（reason=kind_not_in_candidates,source=wake）随后补一笔 ——
-  // 两条账都是既有安全网，D-1c 不新造、只是让 explore 真的走到这条既有路上。
-  const ungrounded = audit.events.filter((e) => e.type === 'decision_ungrounded')
-  assert.equal(ungrounded.length, 1)
-  assert.equal(ungrounded[0]!.why, 'kind_not_in_candidates')
-  assert.equal(ungrounded[0]!.original_kind, 'explore')
+  assert.deepEqual(outcomes.map(o => o.decision), [undefined, 'initiate_chat', 'queue_notification'])
+  assert.deepEqual(outcomes.map(o => o.status), ['failed', 'completed', 'completed'])
+  assert.equal(audit.events.filter(e => e.type === 'decision_ungrounded').length, 0)
   const gaps = audit.events.filter((e) => e.type === 'capability_gap')
   assert.equal(gaps.length, 1)
   assert.equal(gaps[0]!.wanted, 'explore')
@@ -198,11 +188,9 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
   try {
     const rows = db.prepare('SELECT id FROM autonomy_runs ORDER BY started_at').all() as { id: string }[]
     assert.deepEqual(new Set(rows.map((r) => r.id)), allRunIds)
-    // 她的经验落账（没有结果也是结果）：三拍各 wake_action + action_result，
-    // 与该拍是否走到 dispatch 无关（executeAndReflow 两处 recordExperience
-    // 都是拍级无条件调用）。
+    // Only two accepted decisions execute/reflow. The unavailable choice is a failed run, not a manufactured rest.
     const n = (db.prepare('SELECT COUNT(*) AS n FROM experiences').get() as { n: number }).n
-    assert.equal(n, 6)
+    assert.equal(n, 4)
   } finally {
     db.close()
   }

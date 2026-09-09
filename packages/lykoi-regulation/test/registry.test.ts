@@ -76,7 +76,7 @@ test('破坏：声明了 cognitive_effects 不产出的 outlet key 必报', () =
   const registry = cloneRegistry()
   registry.coherence = {
     ...registry.coherence!,
-    outletEffects: ['force_inner_tending', 'flag_low_coherence', 'no_such_effect'],
+    outletEffects: ['flag_low_coherence', 'no_such_effect'],
   }
   const problems = registryProblems({ registry })
   assert.ok(problems.some((p) => p.includes("'no_such_effect'") && p.includes('not produced')))

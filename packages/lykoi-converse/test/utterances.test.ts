@@ -21,9 +21,9 @@ test('分段正本逐字、content只是无新增字符的投影；坏条目整�
     assert.throws(() => parseEnvelope({ content: reply(bad) }), /invalid utterances/)
   }
   assert.equal(parseEnvelope({ content: reply(parts, 'silence') }).envelope.utterances, undefined)
-  const demoted = parseEnvelope({ content: envelope({ decision: { kind: 'reply', utterances: parts, reason: '未引用' } }) })
-  assert.equal(demoted.kind, 'silence')
-  assert.equal(demoted.envelope.utterances, undefined)
+  const unquoted = parseEnvelope({ content: envelope({ decision: { kind: 'reply', utterances: parts, reason: '未引用' } }) })
+  assert.equal(unquoted.kind, 'reply')
+  assert.deepEqual(unquoted.envelope.utterances, parts)
 })
 
 test('真实Conversation记录边界，锁内交出各run分段，followup任务与话语分别保留', async () => {

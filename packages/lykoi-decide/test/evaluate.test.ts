@@ -12,7 +12,6 @@ import {
   groundedEntries,
   normalizeForGrounding,
   GROUND_FRAGMENT_CHARS,
-  JSON_RETRY_NUDGE,
   type Candidate,
   type LogEvent,
 } from '../src/index.ts'
@@ -42,7 +41,7 @@ const GROUNDED = {
 test('红测 1：非 JSON → raise（消息含 content[:200] repr）', () => {
   assert.throws(
     () => evaluateMessage({ content: '我想想……不输出 JSON' }, CANDS),
-    /autonomous model did not return a decision JSON: '我想想……不输出 JSON'/,
+    /invalid decision JSON/,
   )
 })
 
@@ -85,39 +84,6 @@ test('红测 5：content 必填缺失 → raise；contemplate 刻意豁免（SA-
     msg({ decision: { kind: 'contemplate', reason: '' } }),
     [...CANDS, { kind: 'contemplate', weight: 0.4, cost: 'c', note: 'n' }],
   )
-  assert.equal(d.original_kind, 'contemplate') // 未接地照样降级，但不是 raise
-})
-
-test('红测 6：kind 不在候选表 → demote(kind_not_in_candidates) + 事件 + 清空 grounded', () => {
-  const { logEvent, events } = recorder()
-  const d = evaluateMessage(
-    msg({
-      meaning_assessment: GROUNDED.meaning_assessment,
-      decision: { kind: 'queue_notification', content: 'hi', reason: '积压的经验值得看一眼' },
-    }),
-    CANDS, // 表里没有 queue_notification
-    { injectedConcernIds: [7], logEvent },
-  )
-  assert.equal(d.kind, 'rest')
-  assert.equal(d.demoted, true)
-  assert.equal(d.demote_why, 'kind_not_in_candidates')
-  assert.equal(d.original_kind, 'queue_notification')
-  assert.deepEqual(d.grounded_concern_ids, []) // 降级后不许再点亮任何关切
-  // WO-U2-SENSE-01：护栏账在前（语义不变），capability_gap 是它旁边补的一笔。
-  // 本例没传 gap 情境栏 → source/run_id 记 null（不编造来源）。
-  assert.deepEqual(events, [
-    ['decision_ungrounded', {
-      why: 'kind_not_in_candidates',
-      original_kind: 'queue_notification',
-      reason: '积压的经验值得看一眼',
-    }],
-    ['capability_gap', {
-      wanted: 'queue_notification',
-      source: null,
-      run_id: null,
-      reason: 'kind_not_in_candidates',
-    }],
-  ])
 })
 
 test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/21）', () => {
@@ -129,17 +95,8 @@ test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/
     }),
     CANDS, { logEvent },
   )
-  assert.equal(d.kind, 'rest')
-  assert.equal(d.demote_why, 'reason_not_grounded')
-  assert.equal(events[0]![0], 'decision_ungrounded')
-})
-
-test('红测 8：demote 优先级 —— kind 不在表且未接地时先记 kind_not_in_candidates（SA-21）', () => {
-  const d = evaluateMessage(
-    msg({ decision: { kind: 'tend_inner', content: 'x', reason: '没有引用' } }),
-    CANDS,
-  )
-  assert.equal(d.demote_why, 'kind_not_in_candidates')
+  assert.equal(d.kind, 'explore')
+  assert.deepEqual(events, [])
 })
 
 test('safe_kind 免疫：rest 未接地也永不降级（SA-03）', () => {
@@ -148,8 +105,6 @@ test('safe_kind 免疫：rest 未接地也永不降级（SA-03）', () => {
     CANDS,
   )
   assert.equal(d.kind, 'rest')
-  assert.equal(d.demoted, false)
-  assert.equal(d.demote_why, null)
 })
 
 test('红测 9：assessment 的 concern_id 越界 → 丢 id 留文本 + 事件 where=assessment（SA-22）', () => {
@@ -177,7 +132,6 @@ test('红测 9：assessment 的 concern_id 越界 → 丢 id 留文本 + 事件 
   ])
   // 甲被引用但没有 concern_id → grounded 为空
   assert.deepEqual(d.grounded_concern_ids, [])
-  assert.equal(d.demoted, false)
 })
 
 test('红测 10：decision.thread_id/concern_id 快照闸 → null + 事件 where=decision（SA-22）', () => {
@@ -214,7 +168,6 @@ test('红测 10：decision.thread_id/concern_id 快照闸 → null + 事件 wher
 test('接地绿路：逐字引用 → grounded_concern_ids 收集被引条目的 concern_id', () => {
   const d = evaluateMessage(msg(GROUNDED), CANDS, { injectedConcernIds: [7] })
   assert.equal(d.kind, 'explore')
-  assert.equal(d.demoted, false)
   assert.deepEqual(d.grounded_concern_ids, [7])
   assert.equal(d.url, 'https://example.org')
 })
@@ -248,7 +201,6 @@ test('SA-24：envelope 白名单原样抬入零解释；decision 层优先于顶
     {
       kinds: ['silence', 'reply'],
       contentRequired: ['reply'],
-      safeKind: 'silence', // SA-23：对话情境四词汇表
       envelopeFields: ['tool', 'mood_pulse', 'absent_key'],
     },
   )
@@ -323,46 +275,6 @@ test('D-2 路径 4 反例：decisionConcernId 为 null/未命中 → 不因结�
   assert.deepEqual(groundedEntries([entry], '我单纯想出去走走'), []) // 不传第三参同样不命中
 })
 
-test('D-2b：groundingExempt 命中的 kind 跳过第 3 道溯源门，候选表（第 2 道）照过', () => {
-  const CUSTOM_CANDS: Candidate[] = [{ kind: 'tool_call', weight: 0.5, cost: '0', note: 'n' }]
-  const opts = {
-    kinds: ['tool_call', 'reply'],
-    contentRequired: ['reply'],
-    safeKind: 'silence',
-  }
-  // 不给 groundingExempt：reason 未引用任何评估条目 → 按现行逻辑降级。
-  const demoted = evaluateMessage(
-    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
-    CUSTOM_CANDS, opts,
-  )
-  assert.equal(demoted.demoted, true)
-  assert.equal(demoted.demote_why, 'reason_not_grounded')
-  // 给了 groundingExempt = {'tool_call'}：同样的未接地 reason，不再降级。
-  const exempted = evaluateMessage(
-    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
-    CUSTOM_CANDS, { ...opts, groundingExempt: new Set(['tool_call']) },
-  )
-  assert.equal(exempted.kind, 'tool_call')
-  assert.equal(exempted.demoted, false)
-  // 第 2 道（候选表）依旧照过：kind 不在候选表时，即便在豁免集里也照样降级。
-  const stillGated = evaluateMessage(
-    msg({ decision: { kind: 'tool_call', content: 'x', reason: '完全没有引用任何东西' } }),
-    [{ kind: 'reply', weight: 0.5, cost: '0', note: 'n' }], // 候选表里没有 tool_call
-    { ...opts, groundingExempt: new Set(['tool_call']) },
-  )
-  assert.equal(stillGated.demoted, true)
-  assert.equal(stillGated.demote_why, 'kind_not_in_candidates')
-})
-
-test('SA-18：两段式解析 —— 前后有杂文时取首 { 到末 } 的切片', () => {
-  const wrapped = `好的，我的决定是：\n${JSON.stringify(GROUNDED)}\n以上。`
-  const d = evaluateMessage({ content: wrapped }, CANDS, { injectedConcernIds: [7] })
-  assert.equal(d.kind, 'explore')
-  assert.deepEqual(extractJson('{"a": 1}'), { a: 1 })
-})
-
-test('WO-FIX-NOTJSON-01 D-1：JSON_RETRY_NUDGE 非空、含「JSON」四字（DeepSeek 建议提示词里出现 json 才稳定）', () => {
-  assert.equal(typeof JSON_RETRY_NUDGE, 'string')
-  assert.ok(JSON_RETRY_NUDGE.length > 0)
-  assert.ok(JSON_RETRY_NUDGE.includes('JSON'), 'DeepSeek 文档要求提示词里出现 json 才稳定')
+test('domain evaluation requires canonical JSON; provider framing is handled by LLM adapter', () => {
+  assert.throws(() => extractJson('前缀 {"decision":{"kind":"rest"}}'), /invalid decision JSON/)
 })

@@ -4,7 +4,6 @@ import assert from 'node:assert/strict'
 import {
   cognitiveEffects,
   EXPLORATION_WEIGHT_BONUS,
-  LOAD_BUDGET_MULTIPLIER,
   RELATIONSHIP_WEIGHT_BONUS,
   REGISTRY,
   THRESHOLDS,
@@ -31,14 +30,11 @@ test('SA-79：THRESHOLDS 五值逐字 + 三常量', () => {
   })
   assert.equal(RELATIONSHIP_WEIGHT_BONUS, 0.2)
   assert.equal(EXPLORATION_WEIGHT_BONUS, 0.2)
-  assert.equal(LOAD_BUDGET_MULTIPLIER, 0.5)
 })
 
 test('SA-80：中性态（全 baseline）八键全不触发', () => {
   assert.deepEqual(cognitiveEffects(neutral()), {
-    force_inner_tending: false,
     flag_low_coherence: false,
-    budget_multiplier: 1.0,
     prefer_rest: false,
     trigger_early_integration: false,
     relationship_weight_bonus: 0.0,
@@ -49,20 +45,16 @@ test('SA-80：中性态（全 baseline）八键全不触发', () => {
 
 test('SA-79 边界：coherence == 0.4 恰好等于 → 不触发（严格 <）', () => {
   const at = cognitiveEffects(neutral({ coherence: 0.4 }))
-  assert.equal(at.force_inner_tending, false)
   assert.equal(at.flag_low_coherence, false)
   const below = cognitiveEffects(neutral({ coherence: 0.39999 }))
-  assert.equal(below.force_inner_tending, true)
   assert.equal(below.flag_low_coherence, true)
 })
 
 test('SA-79 边界：load == 0.7 恰好等于 → 不触发（严格 >）', () => {
   const at = cognitiveEffects(neutral({ load: 0.7 }))
   assert.equal(at.prefer_rest, false)
-  assert.equal(at.budget_multiplier, 1.0)
   const above = cognitiveEffects(neutral({ load: 0.70001 }))
   assert.equal(above.prefer_rest, true)
-  assert.equal(above.budget_multiplier, 0.5)
 })
 
 test('SA-80 P4-01 分离：load ∈ (0.7, 0.9] 只推休息不提前整合；== 0.9 不触发整合', () => {
@@ -96,10 +88,8 @@ test('SA-79 边界：hunger == 0.6 恰好等于 → 不触发（严格 >）', ()
 
 test('SA-80：八键齐全且无多余键', () => {
   assert.deepEqual(Object.keys(cognitiveEffects(neutral())).sort(), [
-    'budget_multiplier',
     'exploration_weight_bonus',
     'flag_low_coherence',
-    'force_inner_tending',
     'prefer_rest',
     'relationship_weight_bonus',
     'trigger_early_integration',

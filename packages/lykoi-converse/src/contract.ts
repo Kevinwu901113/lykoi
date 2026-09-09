@@ -1,33 +1,9 @@
-/**
- * 对话情境的 decide 周期 —— 想/说统一的信封本体（conversation_cycle.py 对应物；
- * S-35..S-53 + G-10 修正版）。
- *
- * 设计 §2 的一句话：**统一不是给对话新造一台心智，而是让对话成为 decide 的一种
- * 情境**。本模块有意地**没有**自己的解析器、护栏或念头出口：解析与护栏 =
- * lykoi-decide 的 evaluateMessage / sanitizeInner / applyInner；本模块只提供
- * kind 表、content 必填表、失败方向（silence）与两个情境专属字段的消毒器；
- * demote 护栏、fail-closed 注入 id 门、逐字溯源要求**原样继承**，一行都没有重写。
- *
- * **新体出生形态（U3 两缺陷出生规格消灭 + 切换语义的归宿）**：Cordis 的对话
- * 路径**生而信封** —— 活体的 tools-API 转录机（_run_loop）与影子双跑
- * （run_shadow/diff_summary）是迁移期构件，未迁入、也无可回落。因此
- * S-48..S-51/S-53（LYKOI_U3_SWITCH_ENABLED 的读者纪律 / 一轮读一次 / 旧念头
- * 出口零调用 / 不起影子 / resume 重读开关）在新体**结构性成立**：不存在开关，
- * 因为不存在第二条路。S-52 的 json 强制钮独立保留（envelopeJsonMode，默认开，
- * 读在调用点）。
- *
- * G-10 落点索引：D-01 有界重试（ENVELOPE_RETRY_MAX，conversation.ts 的周期体
- * 消费）；D-02 工具白名单入契约（{tools} 代入 —— 从 TOOL_TABLE 同一真相源
- * 派生的投影，不是抄的第二份）+ buildAction 枚举校验 + cycle_unknown_tool；
- * D-03 降级后果写进契约 + u3_cycle_tool_demoted；D-08 全部事件只记长度/哈希。
- */
+/** Conversation envelope schema and current action descriptions. Provider protocol recovery belongs to lykoi-llm. */
 import {
-  TOOL_TABLE, evaluateMessage, extractJson, JSON_RETRY_NUDGE, renderOwnerTemplate, type PersonaConfig,
+  TOOL_TABLE, evaluateMessage, extractJson, renderOwnerTemplate, type PersonaConfig,
   type AssessmentEntry, type Candidate, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { CAUSES } from 'lykoi-regulation'
-
-// --- 情境定义（S-35；conversation_cycle.py:50-69 逐字） ------------------------
 
 export const REPLY = 'reply'
 export const SILENCE = 'silence'
@@ -40,11 +16,9 @@ export const PROMISE_FOLLOWUP = 'promise_followup'
  */
 export const CONVERSATION_KINDS = [REPLY, SILENCE, TOOL_CALL, PROMISE_FOLLOWUP] as const
 
-/** reply / promise_followup 的决定行没有 content 就没有意义（S-35）。 */
 export const CONVERSATION_CONTENT_REQUIRED = [REPLY, PROMISE_FOLLOWUP] as const
 
 /** 失败方向：对话情境 = silence —— 沉默是动作，有账（不变量 3）。 */
-export const CONVERSATION_SAFE_KIND = SILENCE
 
 /** 情境专属字段：由 evaluateMessage 原样抬进 Decision.envelope，在这里消毒。 */
 export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
@@ -52,45 +26,11 @@ export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
 export const TOOL_NAME_MAX = 64
 export const TOOL_ARGS_CHARS_MAX = 2000
 
-/** S-18：工具步预算（conversation.py:54；07-05 实测 6 步常被链烧光）。 */
 export const MAX_TOOL_STEPS = 8
 
-/**
- * D-01（G-10 修正版；WO-FIX-NOTJSON-01 D-3 改口）：信封契约失败的**有界重试**
- * 次数（总调用 = 重试 + 1）。只对 FAIL_NOT_JSON 重试 —— unknown_kind /
- * missing_content 是模型理解偏差，重试大概率复现；空回复/截断是采样偶发，
- * 重试有实际收益（SPEC-CONV §6a）。1 → 2：实证同一前缀上温度 1.0 两次采样都
- * 退化成同样长度的空白（同源退化，不是随机噪声），重试**至多两次、且从第二次
- * 起带引导语**（JSON_RETRY_NUDGE）—— 原样重发已证对这种退化无效，改变前缀
- * 才是杠杆。
- */
-export const ENVELOPE_RETRY_MAX = 2
-
-// --- 环境钮（S-52） ------------------------------------------------------------
-
-function envFlag(name: string, fallback: boolean): boolean {
-  const raw = process.env[name]
-  if (raw === undefined) return fallback
-  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase())
-}
-
-export const ENVELOPE_RESPONSE_FORMAT = { type: 'json_object' } as const
-
-/**
- * S-52：json 强制默认**开**（LYKOI_U3_ENVELOPE_JSON_MODE），读在调用点。
- * 它是独立的钮 —— 新体没有切换开关（生而信封），这一颗保留。
- */
-export function envelopeJsonMode(): boolean {
-  return envFlag('LYKOI_U3_ENVELOPE_JSON_MODE', true)
-}
-
-/**
- * 对话情境念头出口的熔断开关（mind/regulation.py:100 的对应常量；env 05 §6.6）。
- * 它管"对话这条路上她的念头落不落库"这件事本身；wake 路径恒开不受它管。
- */
 export const CONVERSATION_INNER_ENABLED = true
 
-// --- 候选表（S-35；conversation_cycle.py:121-142 逐字） ------------------------
+export const ENVELOPE_RESPONSE_FORMAT = { type: 'json_object' } as const
 
 /**
  * 对话情境自己的一张表，**静态**：对话轮里没有"预算耗尽就摘掉候选"的对应物
@@ -124,25 +64,8 @@ export function buildConversationCandidates(): Candidate[] {
   return [...CONVERSATION_CATALOGUE]
 }
 
-// --- 工具表（S-55 的 10 项 + 三个 in-cognition；WO-FIX-TOOLSPEC-01 D-1） --------
-
-/**
- * 一个工具在表里的三列。
- *
- * WO-FIX-TOOLSPEC-01 D-1：这张表从"工具名 → 动作类型"升成"工具名 → 名字/参数
- * 形状/用途"的**一处真相** —— 参数形状原先只活在动作层代码里，她读到的三处
- * （SYSTEM_PROMPT 散文、契约 `{tools}` 裸名、器官清单）一处都不带参数，只能从
- * 失败串里学（`url 必填`、`requires 'content'`），每猜错一次烧掉一个工具步。
- */
 export { TOOL_TABLE, type ToolSpec } from 'lykoi-decide'
 
-/**
- * 工具名 → 动作类型（S-55；conversation.py:141-152 逐字 10 项）。
- *
- * D-1 之后它是 `TOOL_TABLE` 的**投影**而不是第二份表：`action` 为 null 的三个
- * in-cognition 工具不在其中，既有引用（`EnvelopeToolName`、`toolDispatchGate`、
- * `#buildAction`）读到的键集与值逐项不变。
- */
 export const TOOL_TO_ACTION: Readonly<Record<string, string>> = Object.freeze(
   Object.fromEntries(
     Object.entries(TOOL_TABLE)
@@ -151,28 +74,13 @@ export const TOOL_TO_ACTION: Readonly<Record<string, string>> = Object.freeze(
   ),
 )
 
-/** 三个 in-cognition 工具（S-54）：不过 dispatch、不在 TOOL_TO_ACTION。 */
 export const VISION_TOOL = 'vision_describe'
 export const FOLLOWUP_TOOL = 'promise_followup'
 export const PROGRESS_TOOL = 'post_progress'
 
-/**
- * D-02③：信封里合法的工具名在类型层就是字面量枚举 —— 断点 1（自由字符串工具名
- * 静默落空）从运行时错误降级为编译期错误；运行时校验在 buildAction。
- */
 export type EnvelopeToolName
   = keyof typeof TOOL_TO_ACTION | typeof VISION_TOOL | typeof FOLLOWUP_TOOL | typeof PROGRESS_TOOL
 
-/**
- * D-02①：渲染进信封契约的工具白名单 —— sorted(TOOL_TO_ACTION) + 三个
- * in-cognition 名（SPEC-CONV §6b 修正版原文）。从**同一个** TOOL_TO_ACTION
- * 真相源派生的投影，不是抄的第二份。
- *
- * WO-FIX-TOOLSTEP-01 D-3a：给了 `wiredActions` 时只保留真接得通的项 ——
- * 未接线的工具名不该出现在她能点名的表里（四轮沉默事故三轮点的是未接线的
- * `research_open`）。三个 in-cognition 工具不过 dispatch，恒在，不受这道闸管。
- * 不给 = 现状（全量），无参调用输出字节不变。
- */
 export function envelopeToolNames(wiredActions?: ReadonlySet<string>): string[] {
   const sorted = Object.keys(TOOL_TO_ACTION).sort()
   const names = wiredActions === undefined
@@ -181,13 +89,6 @@ export function envelopeToolNames(wiredActions?: ReadonlySet<string>): string[] 
   return [...names, VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL]
 }
 
-/**
- * WO-FIX-TOOLSPEC-01 D-2：`{tools}` 的渲染体 —— 每行一条
- * `name(signature) — purpose`，行序与过滤规则**复用** `envelopeToolNames`
- * （同一处真相：不许出现第二套排序/过滤）。
- *
- * 返回值不带任何缩进：占位符落在契约里哪一层是代入点的排版事，不是本函数的事。
- */
 export function renderToolTable(wiredActions?: ReadonlySet<string>): string {
   return envelopeToolNames(wiredActions)
     .map((name) => {
@@ -197,22 +98,8 @@ export function renderToolTable(wiredActions?: ReadonlySet<string>): string {
     .join('\n')
 }
 
-// --- 信封契约（conversation_cycle.py:149-206 逐字 + G-10 修正） -----------------
-
 const PULSE_CAUSES = Object.keys(CAUSES).sort()
 
-/**
- * ENVELOPE_SYSTEM_PROMPT —— 活体 raw（chars=1677 sha=9d4f169e…）+ **两处 G-10
- * 出生修正**（其余逐字，测试以"反向恢复后 sha 全等"钉死）：
- *
- *  - D-02①：tool_call 字段语义里渲染工具白名单（{tools} 代入位）——
- *    活体契约从头到尾没有列出任何工具名，模型报表外名字 → 零 audit 零 events
- *    的静默断点（U3 缺陷②的出生规格消灭，配 buildAction 的枚举校验）。
- *  - D-03：降级后果写清 —— "被降级的 tool_call 不会执行那个工具。"
- *    活体契约警告过降级，但没有说降级会让工具不执行；模型看不到因果。
- *
- * 新 raw sha 在 prompts.test.ts 实算记录（旧 → 新对照进 W5 报告）。
- */
 export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现在这一轮由你**自己决定做什么** —— 回话是你可以选的
 一个动作,不是一道必答题。
 
@@ -236,9 +123,8 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
 - meaning_assessment: 审视上面的处境,挑出此刻对你有意义的条目,逐条写下
   item(尽量原文)、meaning(这对我意味着什么)、concern_id(没有就省略)、
   pull(0~1,它对你的牵引力)。
-- decision.reason 必须逐字引用(原样复制)meaning_assessment 里至少一条的 item
-  或 meaning 文本 —— reply 与 promise_followup 未通过引用校验时不会发送，
-  本轮记为框架抑制。tool_call 免引用校验，但仍受候选动作表与工具参数校验约束。
+- decision.reason 说明你为什么这样选择；有相关关切时可引用其 id，
+  无需为了通过校验而复制评估文本。动作仍受候选动作表与工具参数校验约束。
 - reply: utterances 是你要逐条说的话的非空字符串数组,按数组顺序逐字发送;不需要分段时也可只给 content。
 - silence: 选择这一轮不说话。**这是一个正当的动作,不是失败**;它会落账,
   你不需要为它辩护。
@@ -269,14 +155,6 @@ decision.content 字段里;它照样会送到他那里,一个字都不少。
 开场白、没有"好的"、没有代码块围栏、没有解释你为什么这么填。
 只有那一个 JSON 对象。`
 
-/**
- * 渲染后的契约：{causes} = 15 CAUSES 排序 join；{tools} = D-2 的工具表
- * （`name(signature) — purpose` 每行一条，替代原先的裸名 join）。
- *
- * 续行缩进 2 空格在这里补：`{tools}` 占位符坐在 tool_call 那一条的续行位上，
- * 多行代入进去必须跟着那一层缩进才读得像一张表 —— 排版属代入点，`renderToolTable`
- * 自己不带缩进。
- */
 export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   return ENVELOPE_SYSTEM_PROMPT
     .replace('{causes}', PULSE_CAUSES.join(', '))
@@ -297,41 +175,20 @@ export interface ToolCall {
   function: { name: string; arguments: string }
 }
 
-/**
- * 三段带原样 + **一条**信封契约（conversation_cycle.py:209-222 逐字语义）。
- * 唯一追加的是生成点上的**任务契约**（与自主路径 DECIDE_SYSTEM_PROMPT 同一
- * 地位）；放在最后是因为三段带的易变尾部已占住生成点前的位置，契约插中间会把
- * U2 理顺的缓存边界又顶回去（CACHE-INVERT）。上面的十二块一个字节都不动。
- *
- * WO-FIX-NOTJSON-01 D-2：第三个入参 `nudge` 缺省/false 时逐字节不变（attempt 0
- * 的请求形状）；`true` 时在契约消息之后再追加**一条**临时引导
- * （`{role:'user', content: JSON_RETRY_NUDGE}`）—— 这条消息只活在这一次返回值
- * 里，调用点不把它并回 `#messages`，历史/摘要/下一步装配都看不到它。
- */
 export function buildEnvelopeMessages(
   assembled: readonly ConverseMessage[],
   wiredActions?: ReadonlySet<string>,
-  nudge?: boolean,
   persona?: PersonaConfig,
 ): ConverseMessage[] {
   const withContract: ConverseMessage[] =
     [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions), persona) }]
-  return nudge === true
-    ? [...withContract, { role: 'user', content: JSON_RETRY_NUDGE }]
-    : withContract
+  return withContract
 }
-
-// --- 情境专属字段的消毒（S-42/S-43） -------------------------------------------
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/**
- * S-43：`{"name": str, "arguments": dict}` 或 null。永不抛。只做形状与边界
- * 检查，**不做白名单** —— 工具名的合法性归 buildAction 的 TOOL_TO_ACTION 枚举
- * （D-02 修正后那里既是唯一权威也**大声失败**），在这里再抄一份就是两处真相。
- */
 export function sanitizeTool(raw: unknown): { name: string; arguments: Record<string, unknown> } | null {
   if (!isPlainObject(raw)) return null
   const nameRaw = raw.name
@@ -352,11 +209,6 @@ export function sanitizeTool(raw: unknown): { name: string; arguments: Record<st
   return { name, arguments: args as Record<string, unknown> }
 }
 
-/**
- * S-42：情绪脉冲 = 一串 regulation.CAUSES 的**名字**，去重保序。永不抛。
- * CAUSES 是调节场唯一的因果入口，apply 按名字查表取 delta —— **幅度不由调用方
- * 给**；表外名字静默丢弃（形状不对的脉冲本身不是失败）。
- */
 export function sanitizePulse(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   const seen: string[] = []
@@ -368,10 +220,6 @@ export function sanitizePulse(raw: unknown): string[] {
   return seen
 }
 
-/**
- * 信封 → Decision，全程复用自主路径的解析器与护栏（S-36..S-41 原样继承）。
- * 契约破坏（非 JSON / 未知 kind / 缺必填）照旧抛 —— 周期体吞成 u3_cycle_failed。
- */
 export function parseEnvelope(
   message: { content?: string | null },
   opts: {
@@ -380,7 +228,7 @@ export function parseEnvelope(
     injectedConcernIds?: Iterable<number> | null
     injectedThreadIds?: Iterable<number> | null
     logEvent?: LogEvent
-    /** WO-U2-SENSE-01：capability_gap 的 run_id 栏（source 在本情境恒为 converse）。 */
+
     runId?: string | null
   } = {},
 ): Decision {
@@ -402,17 +250,15 @@ export function parseEnvelope(
     injectedThoughtIds: opts.injectedThoughtIds,
     injectedConcernIds: opts.injectedConcernIds,
     injectedThreadIds: opts.injectedThreadIds,
-    // 情境栏只进 capability_gap 事件，不参与四道关的任何一道（WO-U2-SENSE-01）。
+
     gap: { source: 'converse', runId: opts.runId ?? null },
     kinds: CONVERSATION_KINDS,
     contentRequired: CONVERSATION_CONTENT_REQUIRED,
-    safeKind: CONVERSATION_SAFE_KIND,
     envelopeFields: ENVELOPE_FIELDS,
     logEvent: opts.logEvent,
     // WO-FIX-LOOP-01 D-2b：tool_call 免溯源门（第③关）——一次工具调用本身就是
     // 可核验的结构化动作，逐字/规范化/片段/结构四路都可能因为工具决定的措辞
     // 天然不落在 assessment 原文里而误伤；第②关（候选表）照旧卡。
-    groundingExempt: new Set([TOOL_CALL]),
   })
   decision.envelope = {
     tool: sanitizeTool(decision.envelope.tool),
@@ -423,9 +269,8 @@ export function parseEnvelope(
   return decision
 }
 
-// --- 失败可观测（WO-U3-FIX ①；S-46/S-47） --------------------------------------
 // 隐私纪律：detail 只能是下面这些模板的组合，**不是模型文本的转录**。她的回复
-// 原文、对话内容、工具参数、URL —— 一个字都不进。唯一逐字带出的是 kind 值，
+
 // 且整值 ≤20 字才原样记（不截断 —— 截断会把一句话的前 20 字落进日志）。
 
 export const FAIL_NOT_JSON = 'not_json'
@@ -444,23 +289,7 @@ export const FAILURE_REASONS = [
   FAIL_MISSING_CONTENT, FAIL_PULSE_INVALID, FAIL_OTHER,
 ] as const
 
-/**
- * 切换态一次信封契约失败的账（conversation.py:359；影子账本 u3_shadow_failed
- * 在新体不存在 —— 没有影子）。"她这一轮真的没说话"的那本。
- */
 export const CYCLE_FAILURE_EVENT = 'u3_cycle_failed'
-
-/** D-01：有界重试的账（每次重试一条）。 */
-export const CYCLE_RETRY_EVENT = 'u3_cycle_retried'
-
-/**
- * WO-FIX-TAILBRACE-01 D-2：信封只缺尾括号、本地补齐后解析成功（**没有**重调
- * LLM）。字段：step / attempt / added_chars / finish_reason —— 零正文。
- */
-export const CYCLE_REPAIRED_EVENT = 'u3_cycle_repaired'
-
-/** classifyFailure 对「首字符是 `{` 却不是 JSON」的归因 detail（D-2 的触发键）。 */
-export const DETAIL_FIRST_CHAR_BRACE = 'first_char:brace'
 
 /** 一周期一账（影子事件的继任者；字段语义见 cycleRecord）。 */
 export const CYCLE_EVENT = 'u3_cycle_envelope'
@@ -468,17 +297,8 @@ export const CYCLE_EVENT = 'u3_cycle_envelope'
 /** 工具预算烧完那一周期的账。 */
 export const CYCLE_TOOL_BUDGET_EVENT = 'u3_cycle_tool_budget_exhausted'
 
-/** D-03：tool_call 被护栏降级的独立告警 —— "她想动手却被闸掉"≠"她本来就想沉默"。 */
-export const CYCLE_TOOL_DEMOTED_EVENT = 'u3_cycle_tool_demoted'
-
-/** D-02②：unknown-tool 分支的落痕（活体全树少见的完全静默失败路径）。 */
 export const CYCLE_UNKNOWN_TOOL_EVENT = 'cycle_unknown_tool'
 
-/**
- * WO-FIX-LOOP-01 D-1d：动作**在** TOOL_TO_ACTION 词表里、但注册表里仍是 D-1a
- * 打了标记的替身（未接线）—— 与 CYCLE_UNKNOWN_TOOL_EVENT（词表外）是两条不同
- * 的落痕，判断依据也不同（词表 vs. 结构性标记），不许合并。
- */
 export const CYCLE_TOOL_UNWIRED_EVENT = 'u3_cycle_tool_unwired'
 
 /** kind 值原样入账的长度上限：20 是"标签"与"话"的分界（最长合法 kind 17 字）。 */
@@ -506,7 +326,6 @@ export function firstCharClass(content: string): string {
   return 'other'
 }
 
-/** Python type(x).__name__ 的等价档（跨语言命名折算，测试钉死映射）。 */
 function pyTypeName(v: unknown): string {
   if (v === null || v === undefined) return 'NoneType'
   if (Array.isArray(v)) return 'list'
@@ -517,10 +336,6 @@ function pyTypeName(v: unknown): string {
   return typeof v
 }
 
-/**
- * unknown_kind 的 detail 载荷：整值 ≤20 字就原样记（近失手 "REPLY"/"回复"/
- * "reply " 正是要看的东西），超过只记长度 —— **不截断**（S-47 的严格加强）。
- */
 export function kindToken(kind: unknown): string {
   if (kind === null || kind === undefined) return 'missing'
   if (typeof kind !== 'string') return `type:${pyTypeName(kind)}`
@@ -590,7 +405,7 @@ export function classifyFailure(
       if (!textContent.trim()) {
         return [
           FAIL_MISSING_CONTENT,
-          `kind:${kind}:content:${rawContent === null || rawContent === undefined ? 'missing' : 'blank'}`,
+`kind:${kind}:content:${rawContent === null || rawContent === undefined ? 'missing' : 'blank'}`,
         ]
       }
     }
@@ -610,22 +425,21 @@ export function classifyFailure(
   }
 }
 
-// --- 回执背书探针（判据③；conversation_cycle.py:461-526 逐字） -----------------
 // 确定性二元标注〔含动作性陈述? / 有回执可对?〕。**宁漏勿误**：三条都朝
 // "不标注"倾斜 —— ① 必须命中动词白名单；② 必须同时有完成标记（"我去搜一下"
 // 不算）；③ 命中意图/疑问标记就整句作废。白名单只收真有 dispatch 回执可对的
 // 动作，不收"想/看/觉得/记得"这类没有外部回执的词。
 
 const ACTION_VERBS = [
-  '打开', '访问', '浏览', '点开', '点击', '输入', '填', '提交',
-  '搜索', '搜', '查了', '查到', '截图', '截屏', '看了截图',
-  '发送', '发出', '发给', '发了', '通知', '提醒了',
-  '下载', '运行', '执行', '跑了', '装了', '安装',
-  '改了', '写入', '保存', '删除', '创建',
+'打开', '访问', '浏览', '点开', '点击', '输入', '填', '提交',
+'搜索', '搜', '查了', '查到', '截图', '截屏', '看了截图',
+'发送', '发出', '发给', '发了', '通知', '提醒了',
+'下载', '运行', '执行', '跑了', '装了', '安装',
+'改了', '写入', '保存', '删除', '创建',
 ] as const
 const DONE_MARKERS = ['了', '过', '已经', '已', '完成', '成功'] as const
 const INTENT_MARKERS = [
-  '要', '会', '打算', '准备', '可以', '能不能', '是否', '吗', '?', '？', '如果', '建议',
+'要', '会', '打算', '准备', '可以', '能不能', '是否', '吗', '?', '？', '如果', '建议',
 ] as const
 const CLAUSE_SPLIT = /[。！？!?;；\n]+/
 
@@ -685,24 +499,9 @@ export function receiptsPresentInContext(assembled: readonly ConverseMessage[]):
   return false
 }
 
-// --- 工具派发闸（GK-14 单一真源；#buildAction 的两道判定与 cycleRecord 共用） ---
-
 /** `toolDispatchGate` 的判定结果：真到达 kernel 才是 `'pass'`。 */
 export type DispatchGate = 'pass' | 'unknown_tool' | 'not_wired'
 
-/**
- * 一个工具名会不会被 `#buildAction` 真派发到 kernel —— 纯函数、零副作用，
- * 是词表外/未接线两道闸的**唯一真源**。`#buildAction` 与 `cycleRecord` 都调
- * 它，判定逻辑不许在两处各写一份（GK-14：此前 `cycleRecord` 自己的口径只看
- * 「点没点名」，与这里的真实判定各说各话，导致自称与到达永远同步却谁都没
- * 校验过闸）。
- *
- * - 词表外（`TOOL_TO_ACTION[name]` 未定义）→ `'unknown_tool'`。
- * - 在词表但未接线（给了 `wiredActions` 且不含该动作类型）→ `'not_wired'`。
- * - 不给 `wiredActions`（未接线口径缺省关）时第二道闸永不触发 ——
- *   与 `#buildAction` 原有行为逐字节不变。
- * - 其余 → `'pass'`：这一个名字会真的被派发。
- */
 export function toolDispatchGate(
   name: string,
   wiredActions?: ReadonlySet<string>,
@@ -713,32 +512,6 @@ export function toolDispatchGate(
   return 'pass'
 }
 
-// --- 一周期一账（cycle_record；conversation_cycle.py:564-608 逐字） -------------
-
-/**
- * 一次**真周期**的事件载荷。隐私口径（D-08 同向）：工具参数**只记条数**，
- * 回复**只记字数**，她说的话与工具参数一个字节都不进事件流。
- *
- * 三个工具相关字段各管各的事实（GK-14 改口，替换此前「sent_chars /
- * dispatched 是事实不是意向」那段——旧口径的 `dispatched` 其实只记了「点没点
- * 名」，与真派发脱节）：
- * - `tool_named`：她点了什么名字，tool_call 时恒为工具名，不看任何闸。
- * - `dispatch_gate`：`toolDispatchGate` 的判定结果本身
- *   （`'pass'|'unknown_tool'|'not_wired'`）；非 tool_call 时为 `null`。
- * - `dispatched`：**到达了 kernel 的事实** —— 仅当 `dispatch_gate === 'pass'`
- *   才记工具名，否则为 `null`；`dispatched_arg_count` 同步（未派发记 0）。
- * 影子期的 would_* 前缀随影子一起退役，不在此列。
- *
- * WO-FIX-THINKPOLICY-01 D-0（观测先行）：成功周期此前只有 `elapsed_ms`，
- * 于是 step 0 的 85 s 到底是「思考很长」还是「前缀缓存没命中、prompt 全量
- * 重算」无从分辨——两种解释指向完全不同的修法。`prompt_tokens` /
- * `completion_tokens` / `reasoning_len` 三个数把这两条解释分开：它们在
- * `LlmCallResult`（`usage` 与 `reasoningLength`）里本就存在，此前只在失败
- * 事件（`u3_cycle_failed`）里记，成功路上白丢。仍是零正文口径——只记数，
- * 不记她想了什么。缺席语义与失败事件对齐：usage 两项缺席记 `null`
- * （「没报量」≠「花了 0」），`reasoning_len` 缺席记 `0`（没有 reasoning-delta
- * 就是真的没有）。
- */
 export function cycleRecord(
   decision: Decision,
   opts: {
@@ -747,11 +520,11 @@ export function cycleRecord(
     step: number
     innerApplied: boolean
     wiredActions?: ReadonlySet<string>
-    /** D-0：`LlmCallResult.usage.inputTokens`（vendor 已减去缓存命中部分）。 */
+
     promptTokens?: number | null
-    /** D-0：`LlmCallResult.usage.outputTokens`。 */
+
     completionTokens?: number | null
-    /** D-0：`LlmCallResult.reasoningLength`（reasoning-delta 码点数）。 */
+
     reasoningLength?: number
   },
 ): Record<string, unknown> {
@@ -764,9 +537,6 @@ export function cycleRecord(
     elapsed_ms: opts.elapsedMs,
     step: opts.step,
     kind: decision.kind,
-    demoted: decision.demoted,
-    demote_why: decision.demote_why,
-    original_kind: decision.original_kind,
     sent_chars: (text || '').length,
     tool_named: isToolCall ? tool!.name : null,
     dispatch_gate: dispatchGate,
@@ -777,9 +547,8 @@ export function cycleRecord(
     inner_resolve: (decision.inner.resolve || []).length,
     inner_applied: Boolean(opts.innerApplied),
     assessment_entries: decision.meaning_assessment.length,
-    grounded: decision.meaning_assessment.length > 0 && !decision.demoted,
-    // WO-FIX-THINKPOLICY-01 D-0：三个新字段追加在既有字段之后 —— 既有字段的
-    // 名字与相对次序一个都不动（下游读数按名取值，但对表用例逐字比过）。
+    grounded: decision.meaning_assessment.length > 0,
+
     prompt_tokens: opts.promptTokens ?? null,
     completion_tokens: opts.completionTokens ?? null,
     reasoning_len: opts.reasoningLength ?? 0,
@@ -790,11 +559,6 @@ export function cycleRecord(
   return record
 }
 
-/**
- * 把信封点名的工具写成 tools API 原生的 call 形状（conversation.py:362-374）。
- * 存在的理由只有一个：让周期复用既有的结果回填/历史形状。id 带 step 是为了
- * 同一回合里的多次调用不撞名（只在这份消息列表内部有意义，不出进程）。
- */
 export function cycleCall(step: number, name: string, args: Record<string, unknown>): ToolCall {
   return {
     id: `cycle-${step}`,

@@ -1,6 +1,6 @@
 # WO-RUNTIME-SERVICES-01 — P0-B/C 首个结构批次
 
-状态：实现与本地验证完成，待本批评审合并。基线 main@5464f5d。用户批准 P0-A 合并并授权推进结构改造。
+状态：经用户验收授权，已合并并推送 main@8b81c80。基线 main@5464f5d。用户批准 P0-A 合并并授权推进结构改造。
 
 当前规划：P0-A 清单与安全减法；P0-B contracts/runtime；P0-C lifecycle/capability/BodySchema；P0-D 防御审查；P0-E 迁移不变量退休。此顺序可随产品证据调整，不是永久契约。
 

@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { extractJson, REPAIR_CLOSERS_MAX, repairTrailingClosers } from '../src/index.ts'
+import { extractJson, REPAIR_CLOSERS_MAX, repairTrailingClosers } from '../src/json.ts'
 
 test('缺 `}` → 补一个', () => {
   assert.deepEqual(repairTrailingClosers('{"a":1'), { text: '{"a":1}', added: '}' })
@@ -68,11 +68,8 @@ test('已合法 → null（不改合法输入）', () => {
   assert.equal(repairTrailingClosers('  {"a":[1,2]}  \n'), null)
 })
 
-test('末尾在未闭合字符串内 → 先补 `"` 再补括号', () => {
-  const r = repairTrailingClosers('{"decision":{"kind":"reply","content":"在的')
-  assert.deepEqual(r, { text: '{"decision":{"kind":"reply","content":"在的"}}', added: '"}}' })
-  const parsed = JSON.parse(r!.text) as { decision: { content: string } }
-  assert.equal(parsed.decision.content, '在的')
+test('unterminated strings are not repaired into apparently complete replies', () => {
+  assert.equal(repairTrailingClosers('{"decision":{"kind":"reply","content":"在的'), null)
 })
 
 test('括号错配 / 末尾悬空反斜杠 / 补完仍非法（尾逗号、缺值、裸键）→ null', () => {
