@@ -15,7 +15,7 @@ import {
   THOUGHT_LAPSE_SALIENCE,
   THOUGHT_OPEN_CAP,
 } from 'lykoi-regulation'
-import { parseStateTimestamp, ReadOnlyMemory } from '../src/index.ts'
+import { ReadOnlyMemory } from '../src/index.ts'
 import { formatPyIso, ReadWriteMemory } from '../src/rw.ts'
 import { makeWritableFixture, PY_ISO_RE, rawOpen, tmp } from './fixture.ts'
 
@@ -341,7 +341,6 @@ test('autonomy_runs：start/finish/getAutonomyRuns（计数走 DDL 缺省 0；�
   assert.equal(rw.getAutonomyRuns(1).length, 1)
   rw.close(); raw.close()
 })
-
 
 test('共享读模型：RO/RW 返回同一状态和字段形状，后续写入可见', (t) => {
   const path = makeWritableFixture()

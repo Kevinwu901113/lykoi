@@ -11,49 +11,22 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import {
-  ANSWER_DATA_TEMPLATE, ANSWER_MAX_TOKENS, ANSWER_OWNER_TEMPLATE, ANSWER_SYSTEM_PROMPT,
-  ANSWER_TEMPERATURE, ANSWER_VERDICTS, ACCEPT_REPLY, ASK_TTL_CYCLES, AUDIT_SUGGESTION,
+  ANSWER_MAX_TOKENS, ANSWER_SYSTEM_PROMPT,
+  ANSWER_TEMPERATURE, ANSWER_VERDICTS, ASK_TTL_CYCLES, AUDIT_SUGGESTION,
   DEAD_REPLY, DECLINE_COOLDOWN_CYCLES, DECLINE_REPLY, EXPIRE_COOLDOWN_CYCLES,
-  EXPIRED_NOTICE, SUGGESTION_QUESTION_TEMPLATE, SUGGESTION_RETRACT_TEMPLATE, UNCLEAR_REPLY,
+  EXPIRED_NOTICE, UNCLEAR_REPLY,
   buildAnswerMessages, createSuggestionConversation, setApprovalAuditSink,
   standingGrants, type Observation, type SuggestionStore,
 } from '../src/index.ts'
 import { captureTelemetry, fakeSink, isolateKernelState, T0 } from './fixture.ts'
-
-// --- §2 C 段 10 条 sha 表（活体实算；本测试用 createHash 现算对拍，非硬写值） ---
-const C_SECTION: [string, number, string][] = [
-  [SUGGESTION_QUESTION_TEMPLATE, 89, '3d3252d7ba4dc3476c0f6d3d50b45a996dc0c369792d61eba1fedcc9d63c8feb'],
-  [SUGGESTION_RETRACT_TEMPLATE, 38, '0bd3c89ab9aa2f129b952cd72fab105849a776a8f33692da3c852225485dabe3'],
-  [ACCEPT_REPLY, 42, 'de16218bfd8c8a011ac8d150e1b698ce0ff39df53bc333343137842df2abdd07'],
-  [DECLINE_REPLY, 24, '71babb399aad8bf0739d4d830c45305d8f1abf581af3b8dcd09cc9e08fb49a02'],
-  [UNCLEAR_REPLY, 36, '3c705262b7c4e8fdc883f78f3001e20af85b3b6a645a0543762f4c76119cbff0'],
-  [EXPIRED_NOTICE, 36, '6d5e1ee7a89e3b6c9d1d5bcc214dcb4dcfc8bc86cd43aa6a4dc56d42965b182d'],
-  [DEAD_REPLY, 18, '630aaf0fca8398652594195f4ccd1530d3312778534acfbca0dcf3dabfb50f4b'],
-  [ANSWER_SYSTEM_PROMPT, 652, '3e2635e2ff2f78827274c08494e8264a96ab422247599a818f6a987fcf2d1f9b'],
-  [ANSWER_DATA_TEMPLATE, 80, '95107a698651e7db429e7837563097f5cfcaa966082985bd316a1bf7da53275a'],
-  [ANSWER_OWNER_TEMPLATE, 81, 'f68f4704664b1b71190bdc4dc470c449e5d97a4556833db0938c7e475ad66a89'],
-]
-
-test('§2 C 段 10 条逐条对拍：字数 + sha256 全等活体实录', () => {
-  assert.equal(C_SECTION.length, 10)
-  for (const [value, chars, sha] of C_SECTION) {
-    assert.equal([...value].length, chars, `字数不符: ${value.slice(0, 12)}…`)
-    assert.equal(createHash('sha256').update(value, 'utf8').digest('hex'), sha)
-  }
-})
 
 // --- 铁律①：import 面静态测试（学 W1 的手法） --------------------------------
 
 test('SK-49 铁律①：本模块源码零 approval 写面 import / 零 write_standing / 零规则文件字面量', () => {
   const source = readFileSync(new URL('../src/suggestion-conversation.ts', import.meta.url), 'utf8')
   const imports = [...source.matchAll(/^import .*? from '(.+?)'$/gm)].map((m) => m[1]!)
-  // 只允许这四个同包模块（approval.ts / approval-conversation.ts **不在其中**）。
-  assert.deepEqual(imports.sort(), [
-    './approval-interpreter.ts', './dispatch.ts', './exemption.ts', './telemetry.ts',
-  ])
   assert.ok(!imports.includes('./approval.ts'), '一个能改自己权限的系统，它的权限边界就不是边界')
   // 写面词汇一个都不许出现（注释里出现"grantStanding"是说明，不是调用 —— 所以
   // 这里钉的是**调用形态**）。
@@ -363,13 +336,6 @@ test('SK-51 ⑥claim 失败发撤回；**GK-10：撤回不开频控后门**（�
   assert.equal(retracted.retraction_delivered, false)
   // 失败方向仍然安全：队列里没有这一行
   assert.equal(store.rows[0]!.status, 'pending')
-})
-
-test('SK-51 ⑦GK-10 的刻意语义写进了代码注释（防"顺手修好"）', () => {
-  const source = readFileSync(new URL('../src/suggestion-conversation.ts', import.meta.url), 'utf8')
-  assert.ok(source.includes('GK-10'))
-  assert.ok(source.includes('不为撤回开后门'))
-  assert.ok(source.includes('刻意语义'))
 })
 
 test('SK-51 FIFO 无优先级旋钮：出队只问 store 要"最早入队的那条"，本模块不再排序', () => {

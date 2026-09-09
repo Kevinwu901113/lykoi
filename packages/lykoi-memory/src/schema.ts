@@ -1,29 +1,3 @@
-/**
- * lykoi-memory/schema — state 库 schema 的单一出处（DDL + 中性基线行生成器）。
- *
- * 此前这份 DDL 只住在 `testing.ts` 里，文件头写明「只被测试树 import」，
- * 于是全新部署没有造库入口（`docs/deploy.md` §13 缺口 1）。本模块把 DDL 从
- * 测试夹具里提出来，测试树与生产创建入口（`init-state.ts`）共用同一份。
- *
- * 保真度来源：DDL 逐字取自 WO-M0-STATE-CONTRACT §1（触发器消息是契约的一部分，
- * 不得改字 —— R-06）。末尾「生产 schema 补齐面」一节是 AUDIT-FIX-2026-09-02
- * 的对拍结果：拿 schema 15 的真实 state 副本施加
- * `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`
- * 之后逐对象比对，夹具缺的 9 张表 / 1 个索引 / 7 个触发器从生产库 `sqlite_master`
- * 原样取回。比对结论：其余对象的表名、列（列序/类型/NOT NULL/DEFAULT/PK）、
- * 索引、触发器与生产库全同，`PRAGMA user_version` 两侧同为 0（版本记法只在
- * `mind_schema` 表里，不在 pragma 上）。
- *
- * 本模块**不含任何她的数据**：只有 DDL 与中性基线行（regulation_field 四行
- * baseline、integration_state 单行、learning_layer_state 两键、mind_schema 台账）。
- * 身份行（users / contexts / identity_bindings）不在这里播种 —— 那是部署期的
- * 显式登记动作，见 `init-state.ts`。
- */
-
-/**
- * 表 / 索引 / 触发器的完整生产 schema，零行。
- * 表序沿 WO-M0-STATE-CONTRACT §1.2 的移植面，其后接补齐面。
- */
 export const STATE_SCHEMA_DDL = `
     CREATE TABLE IF NOT EXISTS mind_schema (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
 
@@ -457,14 +431,12 @@ export const STATE_SCHEMA_DDL = `
        BEGIN SELECT RAISE(ABORT, 'environment Core delivery is append-only'); END;
 `
 
-/** mind_schema 台账的一行：版本号 + 施加时刻（迁移机口径，见下）。 */
 export interface MindSchemaLedgerRow {
   version: number
-  /** migrations.py:1148 口径：`strftime('%Y-%m-%dT%H:%M:%fZ')` = 毫秒 + Z 后缀。 */
+
   appliedAt: string
 }
 
-/** 中性基线行的时间戳注入面（C-12：台账口径与业务行口径不同，不得混用）。 */
 export interface StateBaselineSpec {
   /** mind_schema 台账；`MAX(version)` 即开库门读的那个数。 */
   schemaLedger: readonly MindSchemaLedgerRow[]
@@ -474,17 +446,6 @@ export interface StateBaselineSpec {
   learningSetAt: string
 }
 
-/**
- * 中性基线行的 DDL 片段：mind_schema 台账、regulation_field 四行 baseline、
- * integration_state 单行、learning_layer_state 两键。
- *
- * 只有中性行 —— 身份行（users / contexts / identity_bindings）不在此列。
- * 两个 learning_layer_state 键按 C-15 硬幂等语义播种（`INSERT OR IGNORE`：
- * 水位线重放不得抬高）。
- *
- * 时间戳一律由调用方注入（测试时钟纪律）：测试夹具传固定日期，生产创建入口传
- * `--now`。字符串直接拼进 SQL，因此只接受本模块自己的时间戳形状 —— 见下方校验。
- */
 export function stateBaselineDdl(spec: StateBaselineSpec): string {
   for (const row of spec.schemaLedger) {
     if (!Number.isInteger(row.version) || row.version < 0) {

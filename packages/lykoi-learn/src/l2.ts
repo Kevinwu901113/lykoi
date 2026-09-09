@@ -1,37 +1,11 @@
-/**
- * lykoi-learn/l2 — 整合（mind/integrator.py 对应物；SA-89..108；她的睡眠）。
- *
- * 完整 Phase-3 周期：消化 experiences → 四种叙事操作（吸收/重解释/修订/悬置）→
- * 取舍（release / new concerns）→ 重写 narrative（连续性/忠实性门 + 有界重试一次）
- * → 念头清算 → reset cycle。防御式解析——任何畸形节降级为 no-op + 事件；
- * 管线里没有任何东西向 wake 循环抛（SA-137 同族契约）。
- *
- * **G-4 触发锚 = 墙钟**（DA-03 定案）：scheduled 路读
- * `integration_state.last_integration_at` 距今 >= INTEGRATION_EVERY_HOURS（24h），
- * 取代活体的 `wakes_since >= 24` 计数锚（wakes_since 自 W4 起是账面列）。
- * 锚缺席（从未整合过）→ 视为到期——同 G-8(a) 对 None 的读法："那不是脏值,
- * 那是还没定过"；反向读法（缺锚→永不到期）是死锁：锚只在真整合后前进。
- * **SA-130 例外条款不适用于本层**：那条例外（影子期结算按周期序号）是 L4 的
- * ——integrator 没有影子期，它的触发锚整体迁墙钟，无保留。
- * 零操作周期不前进锚（SA-101 的墙钟形态）：resetIntegrationCycle 只在
- * accepted_any 时调用，锚不动 → 下一拍 scheduled 仍开——212 次空转陷阱的
- * 反面在墙钟锚下自然成立。
- */
 import { cognitiveEffects } from 'lykoi-regulation'
 import {
   cpSlice, errStr, extractJsonOrNull, isInt, parseWeight, pyIso, pyStrOrEmpty,
   type ChatMessage, type CompletionFn, type LogEvent, type PersonaLike, type RawRow,
 } from './shared.ts'
 
-// --- 节律与容量 --------------------------------------------------------------
-
-/** G-4：integrator 的墙钟锚（活体 INTEGRATION_EVERY_WAKES=24 拍 ≈ 24h 的墙钟形态）。 */
 export const INTEGRATION_EVERY_HOURS = 24
-/**
- * SA-93：容量 K=30 / 积压压力阈值 3K=90（integrator.py:45-59；2026-08-11 实测账：
- * 水位线之上起步 0 条，K 面对纯流入 ≈3 条/天，历史高活跃日 ≈40 条/天，K=30
- * 一晚吃 30、次日补上不形成结构性积压。目标是"不积压"，不是"每晚都清空"）。
- */
+
 export const INTEGRATION_CAPACITY_K = 30
 export const BACKLOG_PRESSURE_THRESHOLD = 3 * INTEGRATION_CAPACITY_K
 
@@ -41,8 +15,6 @@ export const THOUGHT_OPS = ['settle', 'archive'] as const
 export const THREAD_KINDS = ['open_question', 'commitment', 'suspended_tension', 'arc'] as const
 
 export type TriggerReason = 'no_pending' | 'scheduled' | 'early' | 'not_yet'
-
-// --- fidelity check（integrator.py:70-99；SA-103 逐字词表） -------------------
 
 const REL_MARKERS = ['伴侣', '对象', '男朋友', '女朋友', '恋人', 'partner', 'boyfriend', 'girlfriend'] as const
 // P5-06: 只用完整分离短语。"不再/结束了/和别人/不爱"是日常高频词组 —
@@ -54,10 +26,6 @@ const IDENTITY_DENIALS = ['不是 lykoi', '不叫 lykoi', '不再是 lykoi', 'no
   '另一个 ai', 'another ai'] as const
 const NAME_STOPWORDS = new Set(['I', 'A', 'An', 'My', 'The', 'And', 'But', 'She', 'He', 'It'])
 
-/**
- * SA-103：与内核矛盾即 true——身份否认、关系终结、伴侣名不符。保守；这是 LLM
- * 自身忠实性纪律**之下**的确定性地板。
- */
 export function violatesFidelity(persona: PersonaLike, content: string): boolean {
   const low = content.toLowerCase()
   if (IDENTITY_DENIALS.some((d) => low.includes(d))) return true
@@ -71,11 +39,6 @@ export function violatesFidelity(persona: PersonaLike, content: string): boolean
   return false
 }
 
-/**
- * SA-102【等价】连续性门（integrator.py:102-116）：旧文全部 4 字（码点）窗口作
- * anchors，新 content+"\n"+summary 命中任一非空白 anchor 即通过；首版免检。
- * backstop，不是完美过滤——LLM 也被告知了规则。
- */
 export function narrativeContinuityOk(old: string | null, newContent: string, newSummary: string): boolean {
   if (old === null || !old.trim()) return true
   const cps = [...old]
@@ -130,14 +93,6 @@ export interface IntegratorStore {
   resetIntegrationCycle(opts: { now: Date }): void
 }
 
-/**
- * SA-89/90 触发闸（integrator.py:119-143；scheduled 锚按 G-4 迁墙钟）。纯查询。
- * **pending > 0 前置不可谈判**（红线 #1）：空整合会为零工作发 integration_completed
- * (+0.15 coherence)。口径 = intake（SA-90，与取料同口径——若读旧
- * countPendingExperiences，只有感知流入的夜晚被判 no_pending 而永不整合）。
- * early 与节律是 OR 不是 AND，且 early 路径**不查墙钟锚**（活体不查 wakes_since
- * 的对应物）。
- */
 export function shouldIntegrate(store: IntegratorStore, now: Date): { should: boolean; reason: TriggerReason } {
   const pending = store.countIntakePending()
   if (pending === 0) return { should: false, reason: 'no_pending' }
@@ -159,13 +114,6 @@ function hoursSince(ts: string, now: Date): number {
   return (now.getTime() - new Date(ts).getTime()) / 3_600_000
 }
 
-// --- prompt ------------------------------------------------------------------
-
-/**
- * SA-94：逐字迁（mind/integrator.py:148-190）。chars=1862，
- * sha256=b130d6473ff9c2e8983f06cced5ca97ae837644886f5db2f6f38ddf31132193c
- * （prompt.test.ts 常驻对拍）。
- */
 export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她的睡眠)。下面是你过去一段时间积压的经验、当前关切、当前叙事、念头流。
 你的任务是把经验消化进自我叙事,并对关切/念头做相应操作。
 
@@ -209,7 +157,6 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
 - 凭空人格跳变。
 - 输出 JSON 之外的任何文字。`
 
-/** 第二条 system（身份守卫，integrator.py:277-278 逐字拼接形态；fixture sha=ce69ae2a…）。 */
 export function integrationIdentityGuard(persona: PersonaLike): string {
   return `你的内核身份: ${persona.identity.name}; 你的伴侣: ${persona.relationship.partner}. `
     + '整合输出绝不能与之矛盾。'
@@ -217,12 +164,6 @@ export function integrationIdentityGuard(persona: PersonaLike): string {
 
 const STATUS_RANK: Record<string, number> = { active: 0, dimming: 1, dormant: 2 }
 
-/**
- * SA-95（integrator.py:228-238 逐字）：信封里的关切按 status-rank（active >
- * dimming > dormant）→ weight DESC → id ASC。一条刚铸出的低权重地板关切
- * (active) 必须浮到陈旧高权重 dormant 行之上。**只重排，不丢不藏**，且只作用
- * 于信封——listConcerns 对其他读者保持 weight DESC。
- */
 export function statusFirst<T extends { status: string; weight: number; id: number }>(concerns: readonly T[]): T[] {
   return [...concerns].sort((a, b) =>
     (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99)
@@ -230,12 +171,6 @@ export function statusFirst<T extends { status: string; weight: number; id: numb
     || a.id - b.id)
 }
 
-/**
- * SA-96 _concern_origin（integrator.py:196-225 逐字）：识别是 LLM 判断，但
- * **能不能落成 owner_directed 是确定性的**——必须真的挂在本轮窗口里的一条
- * conversation 原料上。Kevin 的话只可能出现在对话里；一条感知或动作记录"要求"
- * 她留意什么，是幻觉或注入。判不成就降级为 emergent，**不丢关切**。
- */
 export function concernOrigin(
   nc: { owner_directed: boolean; source_experience_id: number | null; title: string },
   conversationIds: ReadonlySet<number>,
@@ -279,7 +214,6 @@ export interface IntegrationEnvelope {
   thought_actions: { thought_id: number; operation: 'settle' | 'archive' }[]
 }
 
-/** integrator.py:299-380 逐字：任何一节畸形都降级成空。SA-97：owner_directed 只认 `=== true`。 */
 export function parseIntegrationEnvelope(raw: unknown): IntegrationEnvelope {
   const result: IntegrationEnvelope = {
     experience_actions: [], concern_releases: [], new_concerns: [],
@@ -328,9 +262,7 @@ export function parseIntegrationEnvelope(raw: unknown): IntegrationEnvelope {
       const kind = it.kind
       const title = typeof it.title === 'string' ? it.title.trim() : ''
       const description = it.description ?? ''
-      // SA-97（integrator.py:350-353 逐字）：owner_directed 只认真正的 true
-      // ——这是最高权重的来源, 宁可漏认不可错认；source_experience_id 缺失/
-      // 非 int 一律 null，由 concernOrigin 决定还能不能落成 owner_directed。
+
       const sid = it.source_experience_id
       if (kind && title) {
         result.new_concerns.push({
@@ -370,11 +302,6 @@ export function parseIntegrationEnvelope(raw: unknown): IntegrationEnvelope {
   return result
 }
 
-// --- 遥测（WO-P4R-04 observe-only；SA-107/108） -------------------------------
-// telemetry records, it does not gate（cardinal rule §0）。发射值全是计数/标签/
-// 码，**自由文本永不入遥测**（shape-not-content）。
-
-/** kill switch（关掉 → legacy 发射，认知逐字节相同——测试据此验证 no-op）。 */
 export const integrationTelemetry = { emit: true }
 
 const REJECTION_OPS = ['absorb', 'reinterpret', 'revise', 'suspend', 'settle', 'archive'] as const
@@ -389,10 +316,6 @@ export interface RejectionRecord extends Record<string, unknown> {
   section: string
 }
 
-/**
- * SA-107：把一条周期拒绝折成 content-free 的 {section, op, code}。reason 里可能
- * 嵌着异常文本（f"absorb: {exc}" / str(exc)）——一律折成通用 error 码。
- */
 export function classifyRejection(rejection: RejectionRecord): { section: unknown; op: string | null; code: string } {
   const section = rejection.section
   const reason = pyStrOrEmpty(rejection.reason).trim()
@@ -462,11 +385,6 @@ function normalizedRejections(
   return records
 }
 
-/**
- * SA-107/108 observe-only 发射：kill switch 关 → legacy 形（丢 rejected，无
- * shape/counts/stamp），认知两边逐字节相同。virtual_ts 与认知写用同一个 now
- * （压缩时制下遥测时刻与认知时刻一致）；事件自身 ts（audit 行）保持真实。
- */
 export function emitIntegrationSummary(
   summary: IntegrationSummary,
   envelope: IntegrationEnvelope,
@@ -517,7 +435,7 @@ export interface IntegrateDeps {
   completion: CompletionFn
   logEvent: LogEvent
   now: Date
-  /** integration_id 源（Python uuid4().int % 2**31；测试注定值）。 */
+
   integrationIdFn?: () => number
 }
 
@@ -525,7 +443,6 @@ const OP_PLURAL = {
   absorb: 'absorbs', reinterpret: 'reinterprets', revise: 'revises', suspend: 'suspends',
 } as const
 
-/** _classify_integration（SA-98）：仅从 ACCEPTED 操作计数派生，与关切状态无关。 */
 export function classifyIntegration(summary: IntegrationSummary): string {
   const expOps = summary.absorbs + summary.reinterprets + summary.revises + summary.suspends
   const concernOps = summary.concerns_released + summary.concerns_created
@@ -566,9 +483,7 @@ function buildPayload(deps: {
 }
 
 function buildMessages(persona: PersonaLike, payload: Record<string, unknown>): ChatMessage[] {
-  // payload 序列化：JSON.stringify 紧凑分隔符（W1 TODO#6 既定跨语言等价档——
-  // Python json.dumps(ensure_ascii=False) 的 ", "/": " 分隔符差异不入契约面；
-  // 键序 = 插入序，两边一致）。
+
   return [
     { role: 'system', content: INTEGRATION_SYSTEM_PROMPT },
     { role: 'system', content: integrationIdentityGuard(persona) },
@@ -576,7 +491,6 @@ function buildMessages(persona: PersonaLike, payload: Record<string, unknown>): 
   ]
 }
 
-/** P5-06 重试轮 user 消息（integrator.py:750-759 逐字骨架；含变长 old_content，不可哈希）。 */
 export function narrativeRetryFeedback(oldContent: string | null): string {
   return (
     '你的叙事改写被连续性/忠实性门控拒绝。本次整合的其他操作已全部生效, 不要重发。\n'
@@ -592,10 +506,6 @@ function defaultIntegrationId(): number {
   return Math.floor(Math.random() * 2 ** 31)
 }
 
-/**
- * 跑一个完整整合周期（integrator.py:537-718 七步逐序）。返回 summary。
- * **永不抛**——任何一步的失败降级为落账 no-op，周期其余部分继续。
- */
 export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSummary> {
   const { store, logEvent, now } = deps
   const integrationId = (deps.integrationIdFn ?? defaultIntegrationId)()
@@ -611,7 +521,6 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     rejected: [],
   }
 
-  // 1. 取料（WO-L2 口：原料池未消化项 且 id > 水位线；environment 不再被硬排除）。
   const pending = store.intakePending(INTEGRATION_CAPACITY_K, true)
   if (pending.length === 0) {
     logEvent('integration_skipped', { reason: 'no_pending' })
@@ -631,13 +540,11 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
   })
   const messages = buildMessages(deps.persona, payload)
 
-  // 2. 一次 LLM 调用（路由/温度/max_tokens/origin 归编排层的 completion 闭包，
-  //    SA-172）。LLM 异常按活体口径**向上冒**——吞它的是编排层的 SA-171 钩子
-  //    （autonomy_integrate_failed），不是本函数；"永不抛"指的是解析与落库面。
   const rawMessage = await deps.completion(messages)
   const parsedRaw = extractJsonOrNull(rawMessage.content ?? '')
   if (parsedRaw === null) {
     logEvent('integration_parse_failed', { run: 'integrator' })
+    summary.rejected.push({ section: 'envelope', reason: 'invalid_json' })
     return summary
   }
   const envelope = parseIntegrationEnvelope(parsedRaw)
@@ -702,14 +609,12 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     }
   }
 
-  // 6. 重写叙事（座位在念头清算之后——class 看到含念头 op 的最终计数，SA-98；
-  //    连续性基准 = current_cognitive_narrative，跳过 narrative_only，SA-104）。
   if (envelope.narrative) {
     const current = store.currentCognitiveNarrative()
     const oldContent = current ? current.content : null
     const firstNew = envelope.narrative
     if (!gateAndPersistNarrative(firstNew, deps, oldContent, summary)) {
-      // SA-105 有界重试一次：retry 只要 narrative，已生效的 ops 绝不重放（非幂等）。
+
       let retryNew: { content: string; change_summary: string } | null = null
       try {
         const retryMessages: ChatMessage[] = [
@@ -734,7 +639,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
           change_summary: cpSlice(firstNew.change_summary, 200),
         })
         summary.rejected.push({ section: 'narrative', reason: 'continuity_or_fidelity' })
-        // SA-106 终拒 → narrative_conflict：coherence 的第一条真实下行出口。
+
         store.applyRegulationCause('narrative_conflict', { now })
       }
     }
@@ -746,9 +651,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     summary.experiences_integrated = integratedNow.length
     // 红线 #1：只在真有活时发 integration_completed。
     store.applyRegulationCause('integration_completed', { now })
-    // SA-100：integration_digested 只由 absorbs>0 触发——load 是 ABSORBING 状态
-    // 的桩，reinterpret/revise/suspend 标记经验已整合但什么都没吸收，在它们上
-    // 泄压 = 声称消化却没消化（与 C2 confabulation 同质）。
+
     if (summary.absorbs > 0) {
       store.applyRegulationCause('integration_digested', { now })
     }
@@ -758,7 +661,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
   if (store.countIntakePending() > BACKLOG_PRESSURE_THRESHOLD) {
     store.applyRegulationCause('experience_backlog', { now })
   }
-  // SA-101：零操作周期不前进锚（G-4 墙钟形态；212 次空转陷阱），空转不算一次整合。
+
   const acceptedAny = integratedNow.length > 0
     || summary.concerns_released > 0 || summary.concerns_created > 0
     || summary.thoughts_settled > 0 || summary.thoughts_archived > 0
@@ -770,7 +673,6 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
   return summary
 }
 
-/** 连续性/忠实性门 + 落库（integrator.py:721-747）。true = 门过（store 仍可能拒 strict-empty——那是计数判定，重写文字改不了它，所以 gate-pass 总是终结重试循环）。 */
 function gateAndPersistNarrative(
   neu: { content: string; change_summary: string },
   deps: IntegrateDeps,
@@ -781,9 +683,7 @@ function gateAndPersistNarrative(
     && !violatesFidelity(deps.persona, neu.content))) {
     return false
   }
-  // WO-P4R-C2：申报结构计数，让 STORE 物理拒绝 strict-empty / absorb-lie
-  // （物理层优先——不是 integrator 的约定）。change_summary 原样传递；
-  // 谎言闸是纯计数，从不读散文。
+
   const expOps = summary.absorbs + summary.reinterprets + summary.revises + summary.suspends
   const acceptedOps = expOps + summary.concerns_released + summary.concerns_created
     + summary.thoughts_settled + summary.thoughts_archived
@@ -799,7 +699,6 @@ function gateAndPersistNarrative(
   return true
 }
 
-/** 四操作逐支（integrator.py:762-841 逐字语义）。true = 本周期把该经验标为已整合。 */
 function applyExperienceOp(
   action: ExperienceAction,
   store: IntegratorStore,
@@ -890,9 +789,6 @@ function applyExperienceOp(
   return false
 }
 
-/**
- * 闸 + 周期（挂接位；wake 的 SA-171 钩子调它）。返回 summary 或 null（闸没开）。
- */
 export async function maybeRunIntegration(deps: IntegrateDeps): Promise<IntegrationSummary | null> {
   const gate = shouldIntegrate(deps.store, deps.now)
   if (!gate.should) return null

@@ -1,21 +1,3 @@
-/**
- * restart 线索的**生产采集器**（M2 遗留归位表 #8；SK-163 语义的新体对应物）。
- *
- * 活体（cognition/restart.py + WO-CA-BASELINE-1 §1.1）在启动序里做三件事：
- * `git rev-parse HEAD` 取代码 HEAD、从 systemd 取上次退出到这次启动之间的
- * downtime、`record_deploy_event(unit=…)` 记一条部署事件。`restart.ts` 本体
- * （W5）已经把这三样做成**显式入参** `RestartClues`，本模块就是把入参填上的
- * 那一半 —— 分开是因为采集必然要碰进程外的东西（子进程、systemd），而
- * `recordRestartEvent` 必须保持可测的纯度。
- *
- * **SA-164 是本模块的全部纪律：读不到的线索省略，绝不编造。**
- * 每个采集器各自 try/catch，失败一律回 `null`，并落一条遥测说明**是哪一样
- * 读不到**。三样全读不到也不是错误 —— 她照样醒来，只是这次醒来知道得少一点。
- * 「大约停了 3 小时」如果是猜的，那比不说更糟：她会把一个假事实写进自己的历史。
- *
- * 零真网：`git` 与 `systemctl` 都是本机子进程；本模块不发任何网络请求。
- * 命令执行面做成注入位（`RunCommand`），测试全程零子进程。
- */
 import { execFileSync } from 'node:child_process'
 import { formatDowntime, type RestartClues } from './restart.ts'
 
@@ -65,25 +47,6 @@ export function collectHead(opts: CollectOptions): string | null {
   }
 }
 
-/**
- * 停机时长（人话）。
- *
- * 取 systemd 的 `InactiveEnterTimestamp`（上一次这个单元停下来的时刻），
- * 与 `now` 求差，再走 `formatDowntime` 的四档渲染（≥1 天只报天数 —— 长睡眠
- * 在她眼里的粒度，SA-163）。
- *
- * 三种情况一律回 null（**绝不编造**）：单元名没给、systemctl 读不到、
- * 时间戳是 `n/a`（单元从没停过 = 这是第一次启动，没有"停了多久"可言）或
- * 解析不出来；差值为负（钟被调过）同样回 null，因为一个负的停机时长是假的。
- */
-/**
- * WO-FIX-LOOP-01 D-4：systemctl 的 `--value` 输出在没有 `--timestamp=utc` 时走
- * 本地时区（`Date.parse` 对 `Tue 2026-09-02 08:00:00 CST` 这类本地化格式并不
- * 可靠——不同 Node/ICU build 的宽容度不一样，读错时区会把一个假的停机时长
- * 当真的记下）。加了这个旗标后输出恒为 UTC，形状钉死为
- * `[Dow ]YYYY-MM-DD HH:MM:SS UTC`，只用这一种形状原样解析，形状不对 →
- * unparsable_timestamp（不做第二套宽容匹配）。
- */
 const UTC_TIMESTAMP_RE = /^(?:[A-Za-z]{3} )?(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/
 
 export function collectDowntime(opts: CollectOptions): string | null {
@@ -142,17 +105,6 @@ export function collectRestartClues(opts: CollectOptions): RestartClues {
   }
 }
 
-/**
- * 部署事件（`record_deploy_event(unit=…)` 的新体对应物，WO-CA-BASELINE-1 §1.1 第 3 步）。
- *
- * 活体把它记进运行时登记处；新体它是**一条遥测行**（`deploy_event`），经
- * `auditLogEvent` 落进同一个 audit.jsonl。刻意不进 immutable 治理账：这不是
- * 「她做了什么」，是「这台机器被部署成了什么样」—— 是运维事实，不是她的行为。
- *
- * 与 restart 事件的分工：`recordRestartEvent` 写进**她的 history**（她读得到、
- * 会想起来）；`recordDeployEvent` 只进审计（运维读，她不读）。同一次启动两条
- * 账，各归各的读者。
- */
 export function recordDeployEvent(opts: CollectOptions & { clues?: RestartClues }): void {
   const clues = opts.clues ?? collectRestartClues(opts)
   opts.logEvent?.('deploy_event', {

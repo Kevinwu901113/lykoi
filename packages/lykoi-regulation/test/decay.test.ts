@@ -1,4 +1,4 @@
-/** SA-77/78：衰减双算法数值样例 + 不可合并性。 */
+/** 衰减的目标值与时间边界。 */
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -67,7 +67,7 @@ test('SA-78：beats <= 0 是 no-op 不返还（attention can only be paid forwar
   assert.equal(decayCharge(0.5, -4), 0.5) // 负拍不得把 charge 加回去
 })
 
-test('SA-78：decay_charge 与 decay_value 是两个函数（不可合并的可见断言）', () => {
+test('charge 衰减到零，coherence 回归基线', () => {
   // regress 语义会把值拉向 baseline；charge 衰减永远单调向 0 —— 两者对同输入给不同答案。
   assert.notEqual(decayCharge(0.0, 1), decayValue('coherence', 0.0, 1))
   assert.equal(decayCharge(0.0, 1), 0.0)

@@ -1,59 +1,7 @@
-/**
- * 器官清单（cognition/organs.py 移植；SA-160/161；G-7 的注入体）。
- *
- * 她每一轮都被告知自己是谁、想着什么、现在几点，却从来没有被告知**她长着什么**。
- * 本模块把答案从代码与登记处派生成一段只读文本。三条来源全部是代码/登记处派生，
- * 没有一条是人写的清单（D5 定界）：身份绑定（identity_bindings + users）、
- * 设备/通道（同一张表的 channel 维度）、动作能力（KNOWN_ACTIONS + is_hard_gated）。
- *
- * **四条禁止（SA-161，移植必须同样成立）**：
- *  1. 不写 channel_key —— 那是 Telegram 的 chat id，一个寻址标识，对"我长着
- *     什么"零信息量；把寻址标识放进每轮上下文只会让它更容易被某段不可信输入
- *     （白皮书 24 章）引用。她要发消息走 owner_channel_key 的读点，不是从
- *     prompt 里抄一个 id。本渲染器的输入行类型上就没有 channel_key 字段。
- *  2. secrets 永不进 —— 不读 os.environ、不读 *.env、不读 approval_rules.json、
- *     不碰 standing_grants；清单里连"密钥""token""api key"这些键名都不出现。
- *     本模块是纯函数，物理上没有 I/O 面。
- *  3. 不读活规则 —— "今天这条被 always_allow 了"是策略事实不是器官事实；
- *     isHardGated 必须来自不可变治理核的判定（fail closed 成 "ask" → 全表硬门，
- *     方向永远是往少了说）。
- *  4. 时效与健康不进清单 —— 通道最后一次收到事件、浏览器起没起来：易变量混进
- *     静态清单会每轮改字节、打碎前缀缓存。
- *
- * W2 形态：纯渲染器 + 数据输入接口位。W5 收口：OrganInventoryCache =
- * build_organ_block 对应物（SA-160：进程级缓存、空清单 → null、invalidate
- * 零读、每次构建落 organ_inventory_built、读不到登记处落
- * organ_inventory_bindings_failed 而不毁一轮对话）；身份/设备轴接真源 =
- * lykoi-memory/rw 的 identityBindingInventory（identity_binding_inventory
- * 对应物，channel_key 在返回形状上物理不存在）；动作轴的权威源是 kernel
- * dispatch 的 KNOWN_ACTIONS + 不可变治理核的 is_hard_gated —— M2 本波用空动作面
- * 替身占位。那个替身 M3-W4 改名为 `testDoubleActionCatalog`，只剩测试夹具一个
- * 身份（W1 TODO#5 清理）。
- *
- * **WO-FIX-LOOP-01 改口**：生产两处（wake/converse）已换
- * `wiredActionCatalog(resources)`（`lykoi-kernel/dispatch.ts`，D-1a/D-1b）——
- * 只列**真接得通**的动作子集，不再是 `kernelActionCatalog` 的 18 项全表。
- * `kernelActionCatalog` 本身保留（合法动作全集语境下的旧引用与测试仍用它），
- * 但不再是清单渲染的输入。
- *
- * **M3-W4 补记（GK-11/DK-15）**：动作轴的权威源自此还有第三层 —— 图式注册表
- * （`lykoi-kernel/schema-registry.ts`）说「哪个器官此刻真的在位」，
- * `KNOWN_ACTIONS` 只说「这个动作类型合法」。本渲染器不变；接线方把
- * `catalog:` 换成 `registryActionCatalog(...)`（而非 `wiredActionCatalog`）
- * 仍归 M5（设计小节 docs/m3_schema_registry.md §6/§7）——两条机制不是同一件事，
- * 本单只做前者（D-5 边界）。
- */
-
 import { renderOwnerTemplate, type PersonaConfig } from './persona.ts'
 
 export const BLOCK_HEADER = '[器官清单(只读)]'
 
-/**
- * 动作前缀 → 给她看的人话（organs.py:53-60 逐字）。清单按前缀分组，因为
- * "我有没有浏览器"是器官级问题，browser.navigate / browser.click 是同一个
- * 器官的不同用法。未登记的前缀不丢弃 —— groupLabel 兜底返回 prefix 本身，
- * 新器官接进来时清单自己会长。
- */
 export const PREFIX_LABELS: Readonly<Record<string, string>> = {
   browser: '浏览器(她自己的, 带登录态)',
   research_browser: '一次性调研浏览器(无登录态, 用完即毁)',
@@ -63,7 +11,6 @@ export const PREFIX_LABELS: Readonly<Record<string, string>> = {
   autonomy: '自主路径的出口',
 }
 
-/** 角色 → 人话（organs.py:62-67 逐字；users.role 取值域由 migrations CHECK 钉死）。 */
 export const ROLE_LABELS: Readonly<Record<string, string>> = {
   owner_primary: '所有者, 也是你的主用户',
   group_member: '群聊成员',
@@ -94,7 +41,6 @@ function groupLabel(prefix: string): string {
   return PREFIX_LABELS[prefix] ?? prefix
 }
 
-/** 身份绑定 + 设备/通道。两者同源同一张表，所以一起算、分开写（organs.py:77-108）。 */
 function bindingsSection(rows: readonly OrganBindingRow[]): string[] {
   if (rows.length === 0) return []
   const lines = ['身份绑定:']
@@ -116,10 +62,6 @@ function bindingsSection(rows: readonly OrganBindingRow[]): string[] {
   return lines
 }
 
-/**
- * 动作能力表（organs.py:111-134）。两个事实都取自代码而不是可变规则文件：
- * 她能派发哪些动作、哪些永远绕不过 Kevin。
- */
 function actionsSection(input: OrganInventoryInput): string[] {
   const groups = new Map<string, string[]>()
   for (const actionType of [...input.knownActions].sort()) {
@@ -138,10 +80,6 @@ function actionsSection(input: OrganInventoryInput): string[] {
   return lines
 }
 
-/**
- * 派生一次清单文本；空清单返回空串（判据⑧a：空态不注入）。
- * 纯函数式的"读三处、拼一段"，不写任何状态（organs.py:137-159 逐字对应）。
- */
 export function renderOrganInventory(input: OrganInventoryInput): string {
   const sections: string[][] = []
   const bindings = bindingsSection(input.bindings)
@@ -158,44 +96,20 @@ export function renderOrganInventory(input: OrganInventoryInput): string {
   )
 }
 
-/** 空清单 → null（SA-160 的注入判定形态）。 */
 export function organBlockFromInventory(input: OrganInventoryInput): string | null {
   return renderOrganInventory(input) || null
 }
 
-// ============================== 进程级缓存（SA-160；W5 收口） ==============================
-
-/** 动作能力轴的来源面（kernel KNOWN_ACTIONS + 不可变治理核 is_hard_gated）。 */
 export interface OrganActionCatalog {
   knownActions: readonly string[]
   isHardGated(actionType: string): boolean
 }
 
-/**
- * **测试替身**（M3-W4 / W1 TODO#5 清理）。原名 `unwiredActionCatalog`：M2 那会儿
- * 它是生产接线位的占位物，"unwired" 说的是当时的**生产事实**。M3-W1 起
- * `lykoi-wake` 与 `lykoi-converse` 两处生产消费者都换成了真 catalog
- * （kernel `KNOWN_ACTIONS` + 治理核 `isHardGated`），这个名字于是开始说谎 ——
- * 它不再描述任何生产状态，只是测试里那个"空动作面"的夹具。
- *
- * 改名而不是删除：它承载一条仍然要被测的语义 —— 零可派发动作时动作段整段不
- * 出现（器官清单如实说"接得通的没有"），且 `isHardGated` 恒真 = 治理核 fail
- * closed 成 "ask" 的同向（方向永远是往少了说）。名字里带 `testDouble` 是为了
- * 下一个读到它的人不会再把它当成一个待接线的生产位。
- *
- * 生产接线位现在只有一个：`kernelActionCatalog`（真身）。
- */
 export const testDoubleActionCatalog: OrganActionCatalog = {
   knownActions: [],
   isHardGated: () => true,
 }
 
-/**
- * build_organ_block / invalidate 对应物（organs.py:162-186 逐字语义；SA-160）：
- * 进程级缓存的清单块。静态：三条来源都只在部署/绑定/整合这种边界上变，所以
- * 每进程算一次就够 —— 它待在稳定前缀里，每轮重算等于每轮赌一次字节相同。
- * 整合边界刷新（S-27）走 invalidate()：释放缓存本身不做任何读。
- */
 export class OrganInventoryCache {
   #persona: PersonaConfig | undefined
   #bindings: () => readonly OrganBindingRow[]
@@ -224,7 +138,7 @@ export class OrganInventoryCache {
       try {
         bindings = this.#bindings()
       } catch (exc) {
-        // 读不到登记处不该毁掉一轮对话（organs.py:87-89）：身份段整段省略。
+
         this.#logEvent?.('organ_inventory_bindings_failed', {
           error_type: exc instanceof Error ? exc.name : 'Error',
         })
@@ -242,7 +156,6 @@ export class OrganInventoryCache {
     return this.#cached
   }
 
-  /** 丢掉缓存，下次调用重新派生。释放缓存本身零读（SA-160）。 */
   invalidate(): void {
     this.#cached = null
     this.#built = false

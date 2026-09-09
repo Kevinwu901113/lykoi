@@ -1,21 +1,3 @@
-/**
- * SSRF / URL 判定器（WO-M5-ORGAN-BROWSER D-5 第一道，白皮书 §24）。
- *
- * **纯函数模块**：除了注入进来的解析器，本文件没有任何 I/O、没有 env、没有全局
- * 状态。解析器经构造函数注入（`new SsrfGuard({ resolve })`），生产构造用
- * `nodeLookupResolver()`（真 `dns.lookup(host,{all:true})`），测试注入自己的表。
- * **配置面（yml / host.json）没有任何一条路径能换掉它** —— 换判定器只能改源码，
- * 于是它跟着 manifest 一起被 root 签。
- *
- * fail closed 的方向在本文件里只有一个：**判不准就拒**。URL 解析不出来拒、
- * 解析器抛拒、解析出零个地址拒、地址串解析不成 IP 也拒。
- *
- * 判定不只在顶层导航：`context.route('**')` 对每个子请求与每一跳重定向调同一个
- * `check()`（driver.ts），不过就 abort。配了代理照样先判 —— 代理不是豁免。
- */
-
-// ============================== 拒绝原因 ==============================
-
 export const SSRF_REASONS = Object.freeze({
   /** URL 根本解析不出来。 */
   malformedUrl: 'malformed_url',

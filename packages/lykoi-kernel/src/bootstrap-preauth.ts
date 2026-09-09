@@ -1,49 +1,5 @@
 #!/usr/bin/env node
-/**
- * GK-9 **部署期入口**：安装 approval_model_v1 §2b 的所有者初始预授权。
- *
- *     node packages/lykoi-kernel/src/bootstrap-preauth.ts \
- *       --state-db /home/lykoi/state/memory.db \
- *       --rules    /home/lykoi/state/approval_rules.json \
- *       --standing /home/lykoi/state/standing_grants.json
- *     …… 加 --dry-run 只体检不写（「确认」路径的预检）
- *
- * **它解的是 S1B 死锁**（m4_handoff 前置 #1）：`messenger.send` 默认 "ask"，
- * 她要问 Kevin 一个问题，问句本身要走 messenger.send —— 没有那条授权行，问句
- * 自己撞在门上，于是她永远问不出那个问题，Kevin 永远看不到那条待批。
- *
- * ## 为什么这个入口住在 kernel 而不是门里（GK-9 给了两个选项）
- *
- * 蓝图 W1③ 允许「gate CLI 子命令 或 独立小脚本」。取后者，住在 kernel：
- *
- *  1. **判官与被判者分离**（rules-schema.ts 顶注 / rules-schema-twin.test.ts）：
- *     门的源文件只许 import `node:*`、本包、以及 `lykoi-kernel/policy-core` 与
- *     `/path-guard` 两个治理核。预授权要的是 `bootstrapOwnerPreauthorization`
- *     —— 审批**业务面**。为它放宽门的 import 白名单 = 让判官依赖被判的那棵树。
- *  2. **签发授权的那支笔必须自己也在哈希钉面内**：本文件在 `lykoi-kernel`，
- *     属 GK-13 root 属主域（属主+权限+哈希三重）。同一个脚本若住在未钉面上，
- *     改一行 userId 就能凭空铸出一条 `messenger.send@user:<任意人>`。
- *  3. 零新依赖：owner 行用 `node:sqlite` 只读直查（delegation.ts 已有同款读
- *     法），**不 import 任何业务包** —— CF-B1「kernel 反向 import 一次都不许」
- *     原封不动。
- *
- * **刻意不从 `index.ts` 导出**：这是部署期一次性动作，不挂启动（SK-26 顶注
- * 「不挂启动」）。运行时代码 import 不到它，就不可能有人把它接进启动路径。
- *
- * ## 零新 env 面
- *
- * 本文件只碰 `LYKOI_APPROVAL_RULES` / `LYKOI_STANDING_GRANTS` 两个**已在
- * GK-6 钉面上**的名字（`--rules` / `--standing` 就是把 CLI 值放进它们，
- * approval.ts 的惰性读路径随之生效）。不新增任何治理 env —— 门的检查项③
- * 方向是「扫到的 ⊆ 钉住的」，新增一个未钉的读点会当场把启动闸打红。
- *
- * ## 失败方向
- *
- * 规则文件读不动 / schema 不合 → **一个字节都不写就退出（exit 2）**。这不是
- * 洁癖：`_load` 对畸形文件 fail closed 回空默认，紧接着的 `_persist` 会把那份
- * 空默认连同新授权行写回去 —— 活体搬过来的 `always_deny` 全没了。收紧面被
- * 静默清空比死锁坏得多，所以体检不过就不许开工。
- */
+
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
@@ -53,14 +9,6 @@ import {
 } from './approval.ts'
 import { logEvent, setKernelLogEvent } from './telemetry.ts'
 
-// --- owner 行读点 -------------------------------------------------------------
-
-/**
- * owner_primary 的一行。与 `lykoi-memory` rw 层 `ownerPrimaryUserId()` 同义
- * （schema WO-P2-01 的部分唯一索引保证至多一行）—— 这里刻意**重写而不是
- * import**：kernel 是零业务依赖的库模块。同义性由
- * `test/bootstrap-preauth.test.ts` 拿 `createStateFixture` 真库对拍钉死。
- */
 export const OWNER_PRIMARY_SQL
   = "SELECT id FROM users WHERE role = 'owner_primary' AND status = 'active' LIMIT 1"
 
@@ -81,20 +29,13 @@ export function ownerPrimaryUserId(stateDb: string): string | null {
 export interface RulesPreflight {
   path: string
   exists: boolean
-  /** 空 = 新体读者认这份文件。非空 = 不许开工。 */
+
   problems: string[]
   alwaysAllow: string[]
   /** 文件字节的 sha256（不存在 → null）。幂等由它逐字节判。 */
   sha256: string | null
 }
 
-/**
- * 读一份现存 `approval_rules.json` 并判它与**新体读者**是否格式兼容。
- *
- * 判据就是 `approval.validateRules` 本身 —— 即运行时真正会跑的那一份，不是
- * 另写一套近似规则。schema 合格 = `_load` 会原样收下（而不是 fail closed 回
- * 空默认）= 活体那份可以「原样搬」。
- */
 export function preflightRules(path: string = rulesPath()): RulesPreflight {
   if (!existsSync(path)) {
     return { path, exists: false, problems: [], alwaysAllow: [], sha256: null }
@@ -192,7 +133,6 @@ export function runOwnerPreauth(opts: { stateDb: string; dryRun?: boolean; now?:
   report.granted = outcome.granted
   report.already = outcome.already
 
-  // 验收断言（GK-9）：**跑完后授权真的在册**。不信任返回值，重新读文件。
   const after = preflightRules()
   report.sha_after = after.sha256
   report.changed = before.sha256 !== after.sha256

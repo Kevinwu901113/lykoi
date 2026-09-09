@@ -1,53 +1,3 @@
-/**
- * `capability_gap` —— 一等审计事件（WO-U2-SENSE-01）。
- *
- * 来源：Capability Forge 方案评估（governance/docs/
- * capability_forge_assessment_2026-09-01.md）认定的三条净新贡献之一 ——
- * 「她想调却没有的能力，先诚实答复、后留痕」。落位节把它并进本单；Forge 本体
- * （Builder / Candidate Artifact / 价值阈值 / resolution 优先）**不在本单**，
- * 裁定 D-FORGE-1（启用权归治理侧）与 D-FORGE-2（永不成为第二委托口）是上位约束。
- *
- * ## 它是什么 / 不是什么
- *
- * 新体今天有四个结构位点会拒绝「她选了一个此刻不被承认的动作」，四条拒绝各有
- * 各的局部账（`unknown decision kind` 抛错 / `decision_ungrounded` 降级 /
- * `cycle_unknown_tool` 回填 error / `unknown_decision_kind` 记 failed）。四条账
- * 互不相识，没有一条能回答「她这一周想做而做不到的是哪些事、各几次」。本事件
- * 就是那个收口：**同一个名字、同一组字段、跨两条生产路径可计数**。
- *
- * 它**不是**一个判定。三条纪律：
- *
- *  1. **零控制流**。发射点全部是既有拒绝语句的**旁边**，不在它前面也不代替它；
- *     四处原拒绝语义逐字节不变。`emitCapabilityGap` 无返回值且永不抛 —— 事件写
- *     失败不毁一轮（与 `organ_inventory_bindings_failed` 先例同向：遥测永不是
- *     控制流，SK-08）。
- *  2. **只落结构字段**（D-08 / D-01 失败事件元数据口径）。`wanted` 过
- *     `capabilityToken` 的标签闸 —— 整值 ≤20 字才原样记，超过只记长度、
- *     **不截断**（口径逐字取自 `lykoi-converse/contract.ts` 的 `kindToken`：
- *     截断会把一句话的前 20 字落进日志）。用户消息、工具参数、URL、reason 正文
- *     一个字都不进。
- *  3. **不发明判定点**。`not_registered`（图式注册表的「在位」判定，GK-11）
- *     刻意**没有**发射点：新体今天没有任何生产路径会拿她选的动作去问
- *     `BodySchemaRegistry`（`registryActionCatalog` 尚未接线，归 M5 编排），
- *     凭空造一个判定点等于凭空造一条语义。等注册表真的接进 catalog 那一刻，
- *     发射点跟着长出来，reason 常量在这里已经预留。
- *
- *     **WO-FIX-LOOP-01 补记**：`not_registered` 仍然无发射点——上面这条纪律
- *     不因本单而改变。本单新增的 `not_wired` 是另一个判定：「这个动作在
- *     `KNOWN_ACTIONS` 词汇表里、也在 `wiredActionCatalog` 的可派发全集里，
- *     但资源注册表里对应的 handler 是 `lykoi-kernel` 的替身」——判定源是
- *     kernel D-1a 打的结构性标记（`isUnwiredHandler`），**不是**异常文案匹配，
- *     发射点在 converse 的 `#buildAction`（D-1d）。`not_registered` 问的是
- *     "图式里有没有这个器官"，`not_wired` 问的是"这个器官的资源真身接了没"——
- *     两个不同的判定源，字面值刻意不同形，别合并。
- */
-
-/**
- * 事件名。`emitCapabilityGap` 里刻意写**字面量**而不是引这个常量：完整性门
- * 的遥测词汇扫描（`lykoi-gate/src/vocabulary.ts` 的 `EMISSION_RE`）只认
- * `logEvent('…'` 形态的字面量，用常量会让这个名字在门那一侧隐形。两者不许分叉
- * 由测试钉死（`capability-gap.test.ts` 第一条）。
- */
 export const CAPABILITY_GAP_EVENT = 'capability_gap'
 
 /** 名字不在动作/工具词汇表（converse：`TOOL_TO_ACTION` 未命中）。 */
@@ -58,16 +8,9 @@ export const GAP_UNKNOWN_KIND = 'unknown_kind'
 export const GAP_KIND_NOT_IN_CANDIDATES = 'kind_not_in_candidates'
 /** kind 合法且在候选表，但执行点没有它的分支（reflow：`unknown_decision_kind`）。 */
 export const GAP_NO_EXECUTION_BRANCH = 'no_execution_branch'
-/**
- * 器官没在图式注册表里登记（GK-11 的「在位」判定）。**今天没有发射点** ——
- * 见文件头纪律 3。常量在此是为了 reason 值域从一开始就是一张表而不是散字符串。
- */
+
 export const GAP_NOT_REGISTERED = 'not_registered'
-/**
- * 在 `KNOWN_ACTIONS` 词汇表里、也在可派发全集里，但资源注册表里对应 handler
- * 是 kernel 的替身（D-1a 的 `isUnwiredHandler` 标记）——WO-FIX-LOOP-01 D-1e。
- * 发射点：converse `#buildAction`（D-1d）。判定源永远是结构标记，不是异常文案。
- */
+
 export const GAP_NOT_WIRED = 'not_wired'
 
 export const GAP_REASONS = [
@@ -81,7 +24,6 @@ export const GAP_REASONS = [
 
 export type CapabilityGapReason = (typeof GAP_REASONS)[number]
 
-/** 两条生产路径（G-7 的两个消费者：独处的她与聊天的她）。 */
 export type CapabilityGapSource = 'wake' | 'converse'
 
 /**

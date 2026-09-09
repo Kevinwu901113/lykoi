@@ -26,7 +26,7 @@ import {
   getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
   APPROVAL_RUN_PREFIX,
-  INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
+  setApprovalAuditSink,
   setApprovalInterpretLlm, setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent,
   setNotificationOutboxDelivery,
   setNotificationOutboxSink,
@@ -152,7 +152,7 @@ declare module'@deepseek-ai/cordis' {
 // 不声明 tools（本来也没声明）。v4 验证：思考×json 四组合各两次，八次全部
 
 // 提示词块与 dsh-llm 完全无关。
-//
+
 // 模块级导出（而非留在 `apply()` 内的闭包）纯为可测性：provider 显式传参、
 // 不捕获 `config`，方便 test/wire.test.ts 直接单测 id→name 回退与 DSML 剥净
 // 两条防御分支——真实调用路径（下面 `apply()` 里的 `llm`）与测试走的是
@@ -283,7 +283,7 @@ export function apply(ctx: Context, config: Config) {
     clues,
     logEvent,
   })
-  // `record_deploy_event(unit=…)` 的新体对应物：运维事实进审计，不进她的 history。
+
   recordDeployEvent({
     repoRoot: config.restartRepoRoot || process.cwd(),
     unit: config.restartUnit || undefined,
@@ -347,12 +347,6 @@ export function apply(ctx: Context, config: Config) {
       i += 1
     }
 
-    // W2 的实况仍然成立：dsh-llm 0.1.1-rc.2 的 `GenerateOptions` 恰 12 字段、
-    // 没有 response_format。但 CF-B6 vendor 的 DeepSeek adapter **自己拼 HTTP
-    // payload**（`requestWithMessages`），所以这一位由我们自家译码
-    // （vendor 改动点 7/7）＋ lykoi-llm 注册层透传（`LykoiGenerateOptions`）。
-    // 钮 = `envelopeJsonMode()`（默认开，读在调用点），钮关时**这个键根本不
-
     const result = await ctx.lykoiLlm.call({
       provider: config.route,
       model: config.model,
@@ -387,7 +381,6 @@ export function apply(ctx: Context, config: Config) {
   }
 
   // ⑦ vision 的真调用形状（cognition/llm_router.describe_image）。
-  //
 
   // 回路）。所以装配面这一位有三态，而这里按态分叉：
   //   - `disabled`     → 决定不开：**零真模型调用**，describeImage 直接抛
@@ -436,8 +429,7 @@ export function apply(ctx: Context, config: Config) {
 
     // False)` 的结构化子集 —— `_pending_contact_ts` 的读面），markReplied 同批。
     notifications: { getNotifications: () => getNotifications(false) as { ts?: string | null; origin?: string | null }[] },
-    // SK-58：首写获胜幂等；已滚出有界队列的 id 静默 no-op。**唯一写入点**在
-    // conversationTurnReflow 的 contact_answered 那一支（reflow 侧已就位）。
+
     markReplied: (notificationId, historyId, now) => {
       kernelMarkReplied(notificationId, historyId, now)
     },
@@ -448,7 +440,6 @@ export function apply(ctx: Context, config: Config) {
     },
     // chat_outbox.append 接真（进度出站队列 —— 消费者是设备层的投递线）。
     postProgress: (content) => { appendOutbox(content, 'followup', { logEvent }) },
-    // ⑦ vision seam 接真形状（真模型那一跳仍是注入的 completion；本波零真网 →
 
     describeImage: createDescribeImage({ completion: visionCompletion }),
 
@@ -463,8 +454,6 @@ export function apply(ctx: Context, config: Config) {
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
 
-  // ①六元组与 approval_question/answer_routed/execution 走**同一个** immutable
-  //   sink（lykoi-audit）—— 不是第二个 sink，只是第二个调用方（SK-35）。
   setApprovalAuditSink(ctx.audit)
 
   //   判读跑在既有 MAIN 路由的配置上）。归因新增的是 **run 维度**——
@@ -483,8 +472,7 @@ export function apply(ctx: Context, config: Config) {
       systemParts.push(messages[i]!.content)
       i += 1
     }
-    // runId = `approval-interpret-<action_type>`（kernel 侧拼；SK-36 的 run 维度）。
-    // 事件里的 action_type 从它还原 —— 不新增 seam 参数。
+
     const actionType = opts.runId.startsWith(`${APPROVAL_RUN_PREFIX}-`)
       ? opts.runId.slice(APPROVAL_RUN_PREFIX.length + 1)
       : opts.runId
@@ -515,12 +503,6 @@ export function apply(ctx: Context, config: Config) {
   //   messenger.send 出去（E1 章在 kernel 的 _send 漏斗里盖）。
   const approval = createApprovalConversation({ dispatch: kernelDispatch })
 
-  // 铁律的第①层在**结构**上成立：kernel/suggestion-conversation.ts 一行
-  // approval 写面 import 都没有（import 面静态测试钉死）。这里只递它三样东西：
-  // 同一个 dispatch（问句/答复/撤回都以她自己的 messenger.send 出去，E1 章在
-  // `_send` 漏斗里盖）、队列面（rule_suggestions 单写者是 rw）、以及
-  // `stagedInstructions`（住在 lykoi-learn —— kernel 是 CF-B1 非插件库模块，
-  // 反向 import 一次都不许，所以注入）。
   const suggestion = createSuggestionConversation({
     dispatch: kernelDispatch,
     store,

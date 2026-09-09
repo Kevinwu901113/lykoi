@@ -1,4 +1,4 @@
-import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/cordis'
 /** Contracts shared by Runtime, governance and plugins. No implementation imports. */
 export type ResourceHandler = (params: Record<string, unknown>) => Promise<unknown>
 export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, ResourceHandler>>>>
@@ -47,7 +47,6 @@ export interface ReadOnlyActionCatalog {
 
 /** 注销器：`register()` 的返回值本身。 */
 export type OrganDisposer = () => void
-
 
 export interface CapabilityRegistration {
   organId: string

@@ -1,34 +1,8 @@
-/**
- * 传输层纪律（resources/telegram_transport.py 逐字对拍；SK-81）。
- *
- * 一句话版本：**一条出站消息只有两种结局 —— 有 message_id（送达），或在未送达
- * 账本（`./outbox`）里。没有第三种。** 下面每一条机制都长在 `Transport` seam
- * 以下，所以每个调用方（chat 回复代发 / `messenger.send` 动作 / S3 审批问答 /
- * L5 建议问答 / 出站投递线）不改一行就全都继承。
- *
- * **token 纪律**（活体点名的最硬失败模式）：bot token 只用于拼请求 URL，**永不**
- * 插进日志行、异常消息或返回载荷 —— 下面每条错误路径给出的都是**类别**
- * （异常类名 / HTTP 状态），绝不是 `String(exc)` 或请求 URL，因为 HTTP 客户端的
- * 异常会把完整请求 URL（含 token）嵌进它的字符串形态。`trustEnv=false`：环境里
- * 的 HTTP(S)_PROXY 绝不许悄悄改道一条 URL 里带着 token 的请求。
- *
- * **HTTP 那一跳仍是注入 seam**（`HttpPost`）：本文件没有缺省实现，一条可达真网
- * 的代码路径都没有。M4 前置 #8 起真身住在 `./http`（`createFetchHttpPost`），
- * 且**只在生产装配面被选中**（`./production` 的 apply）——测试永远注 fake。
- *
- * **零 env 读取**（M4 前置 #8 逐字）：本文件一个 `process.env` 都没有。代理这
- * 一位只能由装配面显式递进来；`LYKOI_TELEGRAM_PROXY` 的 unset 检查在 GK-6 门里。
- */
 import { appendUndelivered, type UndeliveredRecord } from './outbox.ts'
 
 export const API_BASE = 'https://api.telegram.org'
 export const TOKEN_ENV_VAR = 'LYKOI_TELEGRAM_BOT_TOKEN'
-/**
- * 出站代理的 env 名。**本包永不读它**（M4 前置 #8：transport 零 env 读取）——
- * 名字留在源码里是有作用的：GK-6 的钉面是**扫出来的**（`scanEnvReads` 扫每个包
- * 的 src 里的 `LYKOI_` 字面量），所以这一行正是让门把它钉成 `unset` 类的那条
- * 依据。设了它就是一条外泄通道（URL 里带着 token），生产必须未设。
- */
+
 export const PROXY_ENV_VAR = 'LYKOI_TELEGRAM_PROXY'
 
 /**
@@ -38,22 +12,6 @@ export const PROXY_ENV_VAR = 'LYKOI_TELEGRAM_PROXY'
  */
 export const MAX_RATE_LIMIT_RETRIES = 3
 
-// --- WO-U0 ①：sendMessage 重试语义 -------------------------------------------
-// 背景（2026-08-12）：chat_reply 已记账，sendMessage 却 ConnectError 丢件 ——
-// 她以为自己说了，他从没收到，谁都无从得知。
-//
-// 失败分两类，分类**唯一的用途是记录，不是决定要不要重试**：
-//   * 确定未发出（Connect/ConnectTimeout/Proxy —— TCP/代理这一层就没连上，请求
-//     根本没到 Telegram）：重发绝无重复之虞。
-//   * 歧义（ReadTimeout / RemoteProtocol / 其它半途死：请求发出去了，回应没读
-//     回来 —— Telegram 可能已经处理并投递了）：重发**可能**产生一条重复。
-//
-// 取舍钉死在这里：**丢话之害 > 偶发重复之害**。一条重复消息 Kevin 一眼就能识别
-// 并忽略，一条丢掉的话没有任何人能事后发现。所以歧义类**也重试**，只是事件里
-// 标 `ambiguous=true`，让事后对账知道那条重复是从哪来的。
-//
-// 退避 2/5/15/30s、至多 4 次重试，总睡眠 52s ≤ 60s 的总窗 —— 一次对话回复能容忍
-// 的时延上限；超过这个窗口，与其继续悄悄重试，不如落成②的"未送达"记录。
 export const SEND_RETRY_BACKOFF_S: readonly number[] = [2.0, 5.0, 15.0, 30.0]
 /**
  * 连不上 = 请求确定没到 Telegram。其余一律按歧义处理（宁可把一次确定失败误标成
@@ -66,15 +24,6 @@ export const DEFINITE_FAILURE_ERRORS: readonly string[] = [
 /** getUpdates 错误降噪：同类错误连击只记首条 + 每第 10 条（都带 streak 计数）。 */
 export const POLL_ERROR_LOG_EVERY = 10
 
-/**
- * 一次 getUpdates 失败（WO-FIX-POLLBACKOFF-01 D-1）。**设备层的长轮询循环靠它
- * 认出"这一轮不是空批，是失败"**，从而进 catch 走那条 1→60s 的指数退避 ——
- * 在它之前失败被转成空批，三层各自以为退避归别人管，结果一层都没退。
- *
- * **token 纪律**（本文件文件头那条）在这里同样是硬的：只带 `category`
- * （`pollUpdates` 的 `error` 字面值）与可选的数字 `status`，`message` 是
- * 固定模板 —— 绝不带 URL、token、原始异常文本。
- */
 export class TelegramPollError extends Error {
   /** `network_error` / `api_error` / `bad_response` / `rate_limited`。 */
   readonly category: string
@@ -92,9 +41,6 @@ export class TelegramPollError extends Error {
 /** 未送达记录里正文只留摘要（前 200 字）；事件里只留字数。 */
 export const TEXT_SUMMARY_CHARS = 200
 
-// --- WO-U1 ①：未送达 → 经验 --------------------------------------------------
-// 标签与档次钉在这里，便于日后按判据版本回查：换标签会改变这条经验进 working
-// 还是 archive。
 export const UNDELIVERED_EXPERIENCE_SOURCE = 'conversation'
 export const UNDELIVERED_SALIENCE = 0.6
 
@@ -147,7 +93,7 @@ export function recordUndelivered(opts: {
   const record = appendUndelivered({
     ts: (opts.now ?? new Date()).toISOString(),
     context_id: String(opts.contextId),
-    // Python `text[:200]` 是码点切片。
+
     text_summary: [...text].slice(0, TEXT_SUMMARY_CHARS).join(''),
     chars: text.length,
     error: opts.error,
@@ -170,23 +116,6 @@ export function recordUndelivered(opts: {
   return record
 }
 
-/**
- * WO-U1 ①：未送达不只是运维的账，也是**她的**一件事。
- *
- * U0 让这件事有账可查，但账本是给运维读的；她读不到，就等于没发生 —— 8-12 那批
- * 冤案的最后一环。这里把同一件事落成一条经验，于是它进消化预算、进整合管线，
- * 长期成为"我说过的话有时会掉在半路"这种可学习的经验。
- *
- * `source="conversation"`：experience_class 的判据是"这条记录里有没有外部世界
- * 注入的新信息"，而 WORKING_SOURCES 只认 conversation / environment。这条记录
- * 正是外部世界（传输层）对她一次开口给出的回音，并且它属于她与 Kevin 的交互本身
- * ——所以 conversation 是唯一贴切又必然进 working 池的既有标签。**不新造 source。**
- * salience 0.6 取中档（与 reflow 的 SILENCE_SALIENCE 同档）。
- *
- * 写入路径遵守**单写者纪律**：经注入的 reflow 入口，不直接碰 store。
- * **失败被吞但不静默**：记一条 telemetry —— 未送达的账本记录已经落定，不能因为
- * 经验写不进去而把一次投递失败升级成异常。
- */
 function _recordUndeliveredExperience(record: UndeliveredRecord): void {
   const content
     = `我想对 ${_experienceOwner} 说的话没能送出去(${record.error}，未送达记录 #${record.id}）：`
@@ -207,30 +136,12 @@ function _recordUndeliveredExperience(record: UndeliveredRecord): void {
   }
 }
 
-// ============================================================================
-// WO-UTTER-01：出站长文按通道上限切分（上限归通道，不进契约不进提示词）
-// ============================================================================
-
-/**
- * WO-UTTER-01 D-1：Telegram Bot API `sendMessage` 的 text 上限。Telegram 按 UTF-16
- * code unit 计，正是 JS 的 `text.length`。这是**通道事实**：大脑不知道它，
- * `contract.ts` / `prompts.ts` 里没有它，超长的话在这一层切，不在上游劝短。
- */
 export const TELEGRAM_TEXT_MAX = 4096
 
 const WHITESPACE = /\s/
 const isHighSurrogate = (unit: number): boolean => unit >= 0xd800 && unit <= 0xdbff
 const isLowSurrogate = (unit: number): boolean => unit >= 0xdc00 && unit <= 0xdfff
 
-/**
- * WO-UTTER-01 D-2：把正文切成若干段，每段 `.length ≤ max`。**逐字**：各段拼回
- * 恒等于原文——不加省略号、不加编号、不 trim、不改任何字符。
- *
- * 每一轮在前 `max` 个 code unit 的窗口里找切点，优先级：最后一个 `\n\n` →
- * 最后一个 `\n` → 最后一个空白 → 硬切。切点落在分隔符**之后**（分隔符归前一段），
- * 所以拼回逐字。硬切不落在 UTF-16 代理对中间（`max ≥ 2` 时总能退一格）。
- * 不超长 → 原文一段（空串也是一段，`['']`）。
- */
 export function splitForTelegram(text: string, max: number = TELEGRAM_TEXT_MAX): string[] {
   if (!Number.isInteger(max) || max < 1) {
     throw new RangeError('splitForTelegram: max must be a positive integer')
@@ -264,10 +175,6 @@ export function splitForTelegram(text: string, max: number = TELEGRAM_TEXT_MAX):
   parts.push(rest)
   return parts
 }
-
-// ============================================================================
-// Bot API 传输真身（HTTP 那一跳是注入 seam —— 本波零真网）
-// ============================================================================
 
 export interface HttpResponse {
   status: number
@@ -319,7 +226,7 @@ export interface NormalizedMessage {
   sender_id: string | null
   text: string
   date?: number
-  /** WO-S3：他回的是**哪一条** —— 归属消歧的锚。可选键，不引用就不出现。 */
+
   reply_to_message_id?: string
 }
 
@@ -343,8 +250,7 @@ export class BotApiTransport {
       throw new Error(`BotApiTransport requires a bot token (${TOKEN_ENV_VAR})`)
     }
     this.#token = options.token
-    // M4 前置 #8：**零 env 读取**。代理只能由装配面显式递进来（今天生产递空串
-    // = 直连；GK-6 把代理 env 钉成必须未设，所以这里读 env 等于给那道钉开后门）。
+
     this.#proxy = (options.proxy ?? '').trim()
     this.#apiBase = options.apiBase ?? API_BASE
     this.#timeoutS = options.timeoutS ?? 30.0
@@ -388,18 +294,6 @@ export class BotApiTransport {
     })
   }
 
-  /**
-   * POST 一次 Bot API 调用。成功返回解析后的 JSON body，任何失败返回结构化的
-   * `{ok: false, error: <类别>}` —— **本方法永不抛，也永不返回原始异常文本**。
-   *
-   * `retryBackoff`（WO-U0 ①）是网络故障的重试退避序列，空 = 不重试。**只有
-   * sendMessage 传它**：getUpdates 的重连节奏归设备的长轮询循环管，本单不动。
-   *
-   * 「归设备的长轮询循环管」这句在 WO-FIX-POLLBACKOFF-01 之前是空头支票：
-   * `pollUpdates` 的失败被 `./production` 转成空批，循环看不见失败，退避永不触发。
-   * D-1 起 `production.poll` 失败即抛 `TelegramPollError`，那条循环的 1→60s 指数
-   * 退避才真的接住它 —— 这句现在为真。本层仍不加任何 getUpdates 重试/退避。
-   */
   async #postApi(
     method: string,
     payload: Record<string, unknown>,
@@ -472,17 +366,6 @@ export class BotApiTransport {
     }
   }
 
-  /**
-   * `messenger.Transport.send_message` 真身。失败 = 终局，而**终局不许静默**：
-   * 这里是所有出站调用方共同的最后一道关口，所以记在这一层就等于全都记上了。
-   *
-   * WO-UTTER-01 D-2/D-3：超过 `TELEGRAM_TEXT_MAX` 的正文在这里切段、**顺序**发
-   * （段间不并发），`reply_to_message_id` 只带在第一段。全部送达 → `message_id`
-   * 取第一段的；第 k（k ≥ 1）段失败 → 停，`error:'partial_delivery'`，未送达账本
-   * 记**一条**，正文 = 尚未送出的剩余原文（账本本来只存 200 字摘要 + chars），
-   * `attempts` = 该段的。第一段就失败与从前完全一样（那不叫 partial）。
-   * `parts` 恒返回（单段 = 1），给 `telegram/sent` 审计（D-4）。
-   */
   async sendMessage(opts: {
     contextId: string
     text: string
@@ -573,16 +456,6 @@ export class BotApiTransport {
     return { messages, count: messages.length }
   }
 
-  /**
-   * 一次长轮询 `getUpdates`（offset 含义 = Bot API 自己的去重：传 offset 就 ack
-   * 了它以下的全部 update，Telegram 不再重发）。HTTP 客户端超时垫在服务端长轮询
-   * 秒数之上，好让这段等待本身永远不被误当成一次网络故障。
-   *
-   * 失败时 `status` 随 `error` 一起透出（WO-FIX-POLLBACKOFF-01 R-1a）：没有它，
-   * 平台 5xx 与限流在设备层账面上都只是一个 `api_error`，落地读数分不开。**只
-   * 透传，不解释**：`#postApi` 给什么就是什么，且只在它确实是数字时才带上 ——
-   * token 纪律不变（状态码是数字，不是文本，泄不出 URL 与 token）。
-   */
   async pollUpdates(opts: { offset: number; timeoutS?: number }): Promise<{
     updates: { update_id: unknown; message: NormalizedMessage | null }[]
     error?: string
@@ -608,10 +481,6 @@ export class BotApiTransport {
   }
 }
 
-/**
- * 一条 Telegram update 的 `message`，压平成本单其余部分要的字段；update 不带
- * message（频道帖/回调查询等，本单不管）时返回 null。
- */
 export function normalizeUpdate(rawUpdate: Record<string, unknown>): NormalizedMessage | null {
   const message = (rawUpdate.message ?? rawUpdate.edited_message) as Record<string, unknown> | undefined
   if (!message) return null
@@ -623,14 +492,13 @@ export function normalizeUpdate(rawUpdate: Record<string, unknown>): NormalizedM
   const normalized: NormalizedMessage = {
     message_id: (message.message_id ?? null) as number | string | null,
     chat_id: String(chatId),
-    // 预留给群聊接线（未实现）—— WO §forbidden。
+    // Preserve platform chat type for downstream routing.
     ...(chat.type === undefined ? {} : { chat_type: String(chat.type) }),
     sender_id: sender.id === undefined || sender.id === null ? null : String(sender.id),
     text: typeof message.text === 'string' ? message.text : '',
     ...(message.date === undefined ? {} : { date: Number(message.date) }),
   }
-  // WO-S3：他回的是**哪一条**，是一句「可以」如何挂到某一条悬置问句上的全部依据。
-  // 作为**可选键**加入 —— 不引用任何东西的消息保持它一直以来的归一化形状。
+
   if (quoted !== undefined && quoted !== null) normalized.reply_to_message_id = String(quoted)
   return normalized
 }

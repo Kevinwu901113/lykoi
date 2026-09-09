@@ -7,7 +7,7 @@ import test from 'node:test'
 import { INTEGRATION_EVERY_HOURS } from '../src/l2.ts'
 import {
   COOLDOWN_CYCLES, FOCUS_EVERY_HOURS, FOCUS_EVERY_INTEGRATIONS, FOCUS_INSIGHT_CATEGORY,
-  NO_PROGRESS_STREAK_LIMIT, SHADOW_PERIOD_CYCLES, maybeRunFocusCycle, parseFocusEnvelope,
+  NO_PROGRESS_STREAK_LIMIT, maybeRunFocusCycle, parseFocusEnvelope,
   runFocusCycle, selectConcern, shouldFocus,
 } from '../src/l4.ts'
 import type { FocusDeps } from '../src/l4.ts'
@@ -440,7 +440,7 @@ test('SA-145/146：触及权限边界的结论入队 permission_rule，且**照�
   }
 })
 
-test('SA-136 派生关切失败不是周期失败：active 满 12 撞帽 → 主结论照落 + 事件', async () => {
+test('派生关切失败如实报告，已落主结论仍保留', async () => {
   const { store, log } = makeStore()
   try {
     for (let i = 0; i < 12; i += 1) {
@@ -452,7 +452,8 @@ test('SA-136 派生关切失败不是周期失败：active 满 12 撞帽 → 主
     })
     const { deps } = mkDeps(store, log, hoursAfter(T0, 1), reply)
     const summary = await runFocusCycle(deps)
-    assert.equal(summary.outcome, 'advanced')
+    assert.equal(summary.outcome, 'failed')
+    assert.equal(summary.failures[0]?.operation, 'derived_concern')
     assert.ok(summary.insight_id !== null)
     assert.equal(summary.derived_concern_id, null)
     assert.equal(log.of('focus_derived_concern_rejected').length, 1)
@@ -552,3 +553,21 @@ test('编排层异常也落诚实失败周期（外层 except）：finalize 有�
     store.close()
   }
 })
+
+for (const operation of ['finalizeFocusCycle', 'resetFocusCycle'] as const) {
+  test(`focus ${operation} failure is visible and persistence is attempted once`, async () => {
+    const { store, log } = makeStore()
+    const original = store[operation].bind(store)
+    let attempts = 0
+    Object.defineProperty(store, operation, { configurable: true, value: () => { attempts++; throw new Error('disk unavailable') } })
+    try {
+      const { deps, calls } = mkDeps(store, log, T0)
+      await assert.rejects(runFocusCycle(deps), /focus cycle (finalization|reset) failed/)
+      assert.equal(attempts, 1)
+      assert.equal(calls.length, 0, 'persistence failure must not rerun cognition')
+    } finally {
+      Object.defineProperty(store, operation, { configurable: true, value: original })
+      store.close()
+    }
+  })
+}

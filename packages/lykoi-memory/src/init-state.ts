@@ -1,22 +1,3 @@
-/**
- * lykoi-memory/init-state — state 库的生产创建入口（`docs/deploy.md` §13 缺口 1/2/3）。
- *
- * 在此之前 schema 的唯一一份 DDL 住在测试夹具里，全新部署没有造库的办法：
- * 参考部署的 `memory.db` 是从上一具躯体（Python 活体）原样接管的。本入口把
- * `lykoi-memory/schema` 的同一份 DDL 用在生产上，一次建到 mind_schema 16，
- * 并可选地登记所有者行与一条 Telegram 身份绑定。
- *
- * 边界：
- * - **只造新库，绝不改既有库**。目标路径已存在即拒绝退出（不覆盖、不迁移）。
- *   把 15 库升到 16 是另一件事，走
- *   `governance/wo/WO-MEM-SOURCE-01/migrations/016_experiences_epistemic.up.sql`。
- * - **零 env 读取**（GK-6：部署事实住在 `profile/`，不新增环境变量旋钮）。
- * - 依赖面只有 Node 24 内建 `node:sqlite` / `node:fs` 与本包自身。
- * - 输出只有摘要：路径、schema 版本、落了哪些行的 id。不回显 channel_key 之类
- *   的寻址标识，也不读任何既有行的内容。
- * - 时间戳经 `--now` 注入；缺省才读墙钟（realtime-allow：这是部署期的一次性
- *   人工动作，不是被测路径）。
- */
 import { existsSync, rmSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { STATE_SCHEMA_DDL, stateBaselineDdl } from './schema.ts'
@@ -50,9 +31,9 @@ export interface InitStateReport {
   db: string
   dryRun: boolean
   mindSchemaVersion: number
-  /** 迁移台账口径（毫秒 + Z，migrations.py:1148）。 */
+
   ledgerTs: string
-  /** 业务行口径（isoformat，C-22）。 */
+
   rowTs: string
   /** 落下的 users 行 id；没落就是 null。 */
   ownerUserId: string | null
@@ -106,9 +87,7 @@ export function initState(opts: InitStateOptions): InitStateReport {
     db.exec('BEGIN IMMEDIATE')
     db.exec(STATE_SCHEMA_DDL)
     db.exec(stateBaselineDdl({
-      // 全新库一次成型：台账只记它实际所在的那一级。开库门读的是
-      // MAX(version)（STATE-CONTRACT §1.0），1..15 那些迁移本库从未施加过，
-      // 不给它们编造施加时刻。
+
       schemaLedger: [{ version: EXPECTED_MIND_SCHEMA_VERSION, appliedAt: ledgerTs }],
       regulationUpdatedAt: rowTs,
       learningSetAt: rowTs,

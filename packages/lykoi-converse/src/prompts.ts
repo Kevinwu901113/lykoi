@@ -1,18 +1,3 @@
-/**
- * 对话路径的操作纪律与装配块字面量（cognition/prompts.py + conversation.py 的
- * 提示词/模板常量；SPEC-CONV §3.2 sha 表逐条对拍，见 prompts.test.ts）。
- *
- * SYSTEM_PROMPT（活体 prompts.py:12-43 迁入，chars=891 sha=075d4282…）：她是谁
- * 在内核里（buildPersonaKernel），这里只讲怎么做事 —— 审批机制、秘密地板、
- * 失败别一句话收工。后天层（buildPersonaPrompt over insights）叠在这之后。
- *
- * 内容纪律：**逐字迁移**，一处例外 —— WO-FIX-TOOLSPEC-01 D-3 删掉了「你的环境
- * 与工具」段里逐工具的散文行、notify_owner 的两句、以及那句点名 `query` 参数的
- * 检索建议（`query` 不是任何已接线工具的参数，旧 Python 栈搜索工具遗留）。理由
- * 是两处真相：工具有哪些、收什么参数、什么时候用，从此只在 contract.ts 的
- * `TOOL_TABLE` 说一次，随每轮信封契约的 `{tools}` 渲染给她；这里再写一份散文，
- * 就是让她在两份不一致的描述之间猜。其余段落逐字未动。
- */
 import { TOOL_TO_ACTION } from './contract.ts'
 
 export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁、你和 {owner} 的关系在前文已经交代，这里只讲怎么做事）。
@@ -40,28 +25,6 @@ export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁�
 {"thoughts":[{"content":"...","kind":"intent|question|hypothesis|rumination|observation","charge_hint":0.5}],"resolve":[<只能引用上下文中你能看到的念头 id>]}
 定界符及其后内容不会进入 {owner} 看到的回复,也不会被记入对话历史。`
 
-/**
- * WO-FIX-TOOLSTEP-01 D-3b：人设提示词里的工具行按接线过滤 —— `SYSTEM_PROMPT`
- * 常量本身一字不改（sha 钉保持），这是它的纯函数投影。四轮沉默事故三轮点名
- * 的是未接线的 `research_open`；她自己对"有哪些工具"的认知不该包含她点了
- * 也会被 `toolDispatchGate` 判 `not_wired` 的名字。
- *
- * 只对以 `- ` 开头、首段形如 `name / name / …（`（全角左括号）的行动手：把
- * 首段按 ` / ` 拆出的名字逐个查 `TOOL_TO_ACTION`——**只要有一个名字不在表里**，
- * 这一行就不是本函数认得的"工具行"，原样保留（vision_describe /
- * terminal_exec / promise_followup 这类 in-cognition 或无括号的行都在此列）。
- * 全部名字都在表里的行才是真正的过滤对象：保留 `wiredActions` 里有的名字，
- * 用 ` / ` 重新拼回去；一个都不剩就整行删掉（连它的换行一起没了）。括号里的
- * 说明文字、其余所有行、空行、顺序一概不动。
- *
- * 不给 `wiredActions`，或给了但没有过滤掉任何名字（全接线）→ 返回值
- * `=== SYSTEM_PROMPT`。
- *
- * WO-FIX-TOOLSPEC-01 D-3 之后：`SYSTEM_PROMPT` 里已经没有工具枚举行了（接线过滤
- * 移到契约的 `{tools}` 那一处），所以本函数对任何入参都恒等于 `SYSTEM_PROMPT`。
- * 留着不删是因为调用点（conversation.ts 装配三段带）与"提示词按接线投影"这个
- * 缝仍在；它是否该退役由治理裁，不在本单范围。
- */
 export function renderSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   if (wiredActions === undefined) return SYSTEM_PROMPT
   const lines = SYSTEM_PROMPT.split('\n')
@@ -86,85 +49,52 @@ export function renderSystemPrompt(wiredActions?: ReadonlySet<string>): string {
   return kept.join('\n')
 }
 
-/** 摘要器 system（conversation.py:133-138 逐字，chars=142 sha=3eb2679b…）。 */
 export const SUMMARIZE_SYSTEM_PROMPT
   = '你负责把 {self} 与 {owner} 的早前对话压缩成一段摘要，作为她后续对话的记忆补充。\n'
   + '保留：{owner} 给出的重要信息和请求、{self} 做过的动作及其结果、未完成的事项与承诺、'
   + '双方表达过的重要态度。省略寒暄和无关细节。\n'
   + '用简洁的条目式中文输出，500 字以内，只输出摘要本身。'
 
-/**
- * 工具预算烧完那一周期的提示（conversation.py:1417-1420 逐字，chars=92
- * sha=575ffe30…；S-19）：按信封词汇告诉她**接力**这条出口存在。
- */
 export const CYCLE_CLOSING_NOTE
   = '[工具步数已用完] 本轮不能再 tool_call 了。基于以上工具结果直接回答(reply);'
   + '没做完就用 promise_followup 写清做到哪儿、卡在什么上,别硬编一个结论。'
 
-// ============================== 装配块字面量（§3.2 B 表） ==============================
-
-/** 转正结论小标题（conversation.py:585；含尾 \n；chars=27 sha=48ddd6b8…）。 */
 export const PROMOTED_INSIGHTS_HEADER = '你自己想明白的事(专注思考里得出、已经站住的结论):\n'
 
-/**
- * WO-PERS-OVERLAY-01（D-5）：relationship overlay 小标题（含尾 \n；chars=38
- * sha=a0553be7…）。与上一条的分工是"对谁"：上一条是她对世界的结论，这一条是她和
- * **眼前这个人**相处的方式——只有键到当前对话者的那些进得来。
- * 位置在转正结论段之后，同属人格块的慢变段位（随夜间印记重建，不进每轮易变尾部）。
- * WO-OVERLAY-WAKE-01：字面量的唯一出处移到 lykoi-decide/overlay.ts（对话与 wake
- * 共用同一段字节），这里再导出，38 字钉不动。
- */
 export { RELATIONSHIP_OVERLAY_HEADER } from 'lykoi-decide'
 
-/** BLOCK_BACKFILL header（conversation.py:611；chars=35 sha=fbd7132d…）。 */
 export const BACKFILL_HEADER = '[重启回灌：以下是重启前最近的对话记录（自旧到新），帮助你接续记忆。]'
 
-/** BLOCK_NARRATIVE header（conversation.py:968；含尾 \n；chars=19 sha=3f629124…）。 */
 export const NARRATIVE_HEADER = '[当前自我叙事(整合期演化;只读)]\n'
 
-/** BLOCK_SUMMARY 骨架（conversation.py:975；chars=11 sha=598fe686…）。 */
 export const SUMMARY_SKELETON = '[早前对话摘要]\n{}'
 
-/** BLOCK_CONCERNS header（conversation.py:1013-1015；chars=49 sha=f65c2962…）。 */
 export const CONCERNS_HEADER
   = '[活跃关切(只读)]\n'
   + '你自己惦记着的事(整合期长出来的, 不是任务清单;他没问就不必主动汇报):\n'
 
-/** BLOCK_THOUGHTS header（conversation.py:1041；chars=35 sha=e8cc247f…）。 */
 export const THOUGHTS_HEADER = '[念头(只读;可在 inner.resolve 中引用此处 id)]\n'
 
-/** BLOCK_THOUGHTS 行骨架（conversation.py:1036；chars=27 sha=a58edd00…）。 */
 export const THOUGHTS_LINE_SKELETON = 'id={} kind={} charge={}: {}'
 
-/** BLOCK_TIME 骨架（conversation.py:1051-1052；chars=20 sha=f2ed3e80…）。 */
 export const TIME_SKELETON = '[当前时间] {} 周{} (北京时间)'
 
-/** BLOCK_MEMORIES header（conversation.py:1108-1110；chars=86 sha=35f74e70…）。 */
 export const MEMORIES_HEADER
   = '[相关记忆(跨时间;只读)]\n'
   + '下面是从你**全部**经验里按这句话召回的几条 —— 可能是几个月前的、'
   + '已经消化过的。每条只有一行摘要, 不是原文;要用就自己判断可不可靠:\n'
 
-/** BLOCK_MEMORIES 行骨架（conversation.py:1126；chars=13 sha=9a37c2b5…）。 */
 export const MEMORIES_LINE_SKELETON = '- [{}] {}: {}'
 
-/** BLOCK_UNDELIVERED header（conversation.py:1164-1166；chars=68 sha=658c95ff…）。 */
 export const UNDELIVERED_HEADER
   = '[有话没送出去]\n'
   + '下面这些话我说了，但没能送到 {owner} 那里（传输故障，系统记录）。'
   + '要不要重说、怎么重说，由你自己决定：\n'
 
-/** BLOCK_UNDELIVERED 行骨架（conversation.py:1160；chars=11 sha=80e0c2ec…）。 */
 export const UNDELIVERED_LINE_SKELETON = '- [{}] 「{}」'
 
-/** ContextBudgetError 文案骨架（conversation.py:1308；chars=33 sha=584ca3b4…）。 */
 export const CONTEXT_BUDGET_SKELETON = '这一轮的内容太长（约 {} tokens，上限 {}），无法处理。'
 
-/**
- * WO-PULSE-01（D-1，断点 ①③）：BLOCK_SELF_STATE 骨架 —— 本单唯一新增的提示词面。
- * `{}` 填一行一变量的 `<变量名>: <0.000>`（REGISTRY 键序），只在至少一个变量偏离
- * 基线 ≥ SELF_STATE_DEVIATION_MIN 时出块。不渲染 cognitiveEffects（wake 的语义）。
- */
 export const SELF_STATE_TEMPLATE
   = '[自我状态(调节场;只读;只在明显偏离基线时出现)]\n'
   + '{}'

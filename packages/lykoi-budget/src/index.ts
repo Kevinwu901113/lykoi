@@ -1,16 +1,3 @@
-/**
- * lykoi-budget — 治理地基②：费用硬顶。
- *
- * 蓝图（docs/m1_blueprint.md 包布局）：route 会计 + run 归因 + 前置闸；
- * 每次 LLM 调用必经；超顶拒调并落审计；按 UTC 日滚动，per-route + 总量两层。
- *
- * - `budget.charge({route, runId, promptTokens, completionTokens})` 记账：
- *   按 route 累计到当日（UTC）桶，落 audit 行，账本持久化（原子写：临时文件+rename，
- *   手法对齐 WO-M0-STATE-CONTRACT R-12：同目录临时文件 + fsync + rename）。
- * - `budget.gate(route)` 前置闸：当日用量已达 per-route 或总量硬顶即抛
- *   BudgetExceeded（拒调本身也落审计）。
- * - 账本损坏当空，但仍受当日硬顶保护（损坏不解除任何闸）。
- */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import type { AuditService } from 'lykoi-audit'
@@ -238,10 +225,6 @@ export class BudgetAccountant implements BudgetService {
     })
   }
 
-  /**
-   * 原子写（进程内串行）：同目录临时文件 → 写全量 JSON → fsync → rename。
-   * 手法对齐 R-12（临时文件不 fsync 就 rename 会在断电时留下空账本）。
-   */
   #persist(): Promise<void> {
     const prev = this.#persistTail
     const job = (async () => {

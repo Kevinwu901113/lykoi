@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { GAP_NOT_WIRED } from 'lykoi-decide'
 import {
-  composeSurfaceReply, CYCLE_CLOSING_NOTE, CYCLE_TOOL_UNWIRED_EVENT, MAX_TOOL_STEPS,
+  composeSurfaceReply, CYCLE_CLOSING_NOTE, MAX_TOOL_STEPS,
 } from '../src/index.ts'
 import {
   envelope, eventNames, lastEvent, makeConversation, T0,

@@ -1,13 +1,3 @@
-/**
- * lykoi-llm/mock — M1 波次 1 的 mock adapter。
- *
- * 形态照抄 WO-M0-DSH-STUDY §3.1（dsh-llm-deepseek）：插件不提供服务，
- * 而是向 ctx.llm（LlmRuntime）注册 provider 路由；重复注册由 runtime 抛
- * DUPLICATE_ADAPTER；注册随 fiber 注销（registerAdapter 文档承诺）。
- *
- * 波次 2 由 CF-B6 vendored 的 lykoi-llm-deepseek（剥头版）替换本路由。
- * 用量固定可配 → profile 红测的算术是确定性的。
- */
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
@@ -32,12 +22,6 @@ export class MockAdapter extends LlmAdapter {
     this.#options = options
   }
 
-  /**
-   * D-1（WO-FIX-TOOLSTEP-01）：真身 adapter 在 resolveModel 里报告
-   * `reasoning.efforts` 含 'off'，call() 才允许传 `reasoningEffort:'off'`
-   * （dsh-llm 的 resolveCallWithInfo 会拒未声明的档位）。mock 照样声明，
-   * 否则任何经过工具步（step>=1）的红测都会在这里假摔。
-   */
   resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({
       provider,

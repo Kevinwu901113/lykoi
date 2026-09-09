@@ -1,21 +1,3 @@
-/**
- * WO-CONTINUATION-01：promise_followup 的消费者。
- *
- * 她在回合里答应"稍后做"（`Conversation.takeFollowupRequest`），A1 之前那句话
- * 落到 `turn/terminal.followup_registered=true` 就没有下文了。这里把它接上：
- *
- *   回合终局（handleTurn.finally）→ register（pending 行，due_at=now）→ kick
- *   cheap tick（600 s）/ kick → scan → claim（CAS）→ 后台回合 → 收账 → 终局事件
- *
- * 边界（order.md §2）：
- *   D-3 一次扫描最多 CONTINUATION_SCAN_LIMIT 条，进程内互斥，撞上就标记重扫；
- *   D-5 终局三态一次性，完成/失败/过期都有 `continuation/terminal` 正本；
- *   D-6 续跑里再答应"稍后做"不再登记（chained_request 只记旗子，链不长）；
- *   D-7 失败与过期给 owner 一条确定性系统回执（不回灌经历）。
- *
- * 时钟经 deps.now 注入（CLAUDE.md 测试时钟纪律）。审计行零正文（D-08）：只有
- * 字数、代号、id。goal 原文只住在 pending_continuations（state 库 = 她的记忆）。
- */
 import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
 import type { Conversation, CycleResult } from './conversation.ts'

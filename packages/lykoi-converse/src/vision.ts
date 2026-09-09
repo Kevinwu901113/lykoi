@@ -1,15 +1,3 @@
-/**
- * vision seam（cognition/llm_router.describe_image:239-259 逐字对拍；M3-W3 ⑦）。
- *
- * 把一张 `browser.screenshot` 变成她（主模型）能推理的文字 —— 这是她"看见"屏幕的
- * 方式。本模块只造**调用形状**：读文件 → base64 → 一条带 image_url 的 user 消息 →
- * VISION 路由。真模型那一跳是注入的 `completion`（本波零真网：测试注 fake，生产
- * 接线随 M4 的路由配置）。
- *
- * 分层保持 S-56 不变：**只有可信生产者发出的 attachment id 才 resolve** ——
- * 猜的 id、裸路径永远到不了 `open()`/网络。那一层闸在 Conversation 里，本模块拿到
- * 的已经是一个解析过的路径。
- */
 import { readFileSync } from 'node:fs'
 
 // --- M4 定案：vision 路由位显式 disabled ---------------------------------------
@@ -61,8 +49,6 @@ export class VisionDisabledError extends Error {
   }
 }
 
-/** `question` 缺席时的缺省提示词（llm_router.py:246-248 逐字）。 */
-// （类型 `VisionCompletion` 定义在下方；守卫工厂紧随其后。）
 export const VISION_DEFAULT_PROMPT
   = '请详细描述这张截图里的内容：页面标题、主要文字、以及可点击/可输入的元素。'
 
@@ -98,16 +84,11 @@ export function createVisionCompletion(deps: {
   }
 }
 
-/** `.jpg`/`.jpeg` → image/jpeg，其余一律 image/png（conversation.py:1678 逐字）。 */
 export function visionMediaType(path: string): string {
   const lower = path.toLowerCase()
   return (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg' : 'image/png'
 }
 
-/**
- * 那一条消息（llm_router.py:249-257 逐字）：单条 user，content 两段 —— 先文字
- * 提示，后 `data:<media>;base64,<b64>` 的 image_url。
- */
 export function buildVisionMessages(
   imageB64: string,
   question: string | null,

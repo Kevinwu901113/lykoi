@@ -1,18 +1,3 @@
-/**
- * 器官驱动层（WO-M5-ORGAN-BROWSER D-2/D-3/D-4/D-5/D-6）。
- *
- * 两层刻意分开：
- *  - `BrowserBackend` / `BackendContext` / `BackendPage` —— **纯抽象**，描述
- *    "一个浏览器能做的四件事"（导航、读 URL/标题、取正文、截图）。
- *  - `BrowserOrganDriver` —— **全部策略住在这里**：SSRF 判定（顶层 + 每个子
- *    请求）、跳转出域中止、下载取消、不可信包装、文本上限、超时与自愈、截图落盘。
- *
- * 分开的理由不是好看：策略是本单的安全面，它必须在**没有 Chrome 的机器上**也能
- * 被红测钉住。假 backend 实现同一组接口，redirect / download / isolation 三个
- * 测试于是不需要真浏览器。
- *
- * `PlaywrightBackend` 是唯一碰 playwright-core 的地方（文件末尾）。
- */
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { registeredDomain } from 'lykoi-kernel'
@@ -34,13 +19,6 @@ export interface BackendPage {
   close(): Promise<void>
 }
 
-/**
- * 请求层判定看到的一次请求（子请求或重定向的某一跳）。
- *
- * `isNavigation` / `redirectedFrom` 是复核修订（2026-09-02 R-2）加的：只看 url 判不出
- * "这是不是一次跳转出域"，而出域必须在**请求发出之前**拦，不能等导航完成再看 final_url
- * —— 那时目标页已经被持久 profile 加载过一次，cookie 已经发出去、页面 JS 已经跑过了。
- */
 export interface RequestInfo {
   url: string
   /** 顶层/框架导航请求（`request.isNavigationRequest()`）。 */
@@ -183,16 +161,9 @@ export class BrowserOrganDriver {
   #now: () => Date
   #persistentContext: BackendContext | null = null
   #persistentPage: BackendPage | null = null
-  /**
-   * 本次 navigate / research 请求的那个 URL（R-2）。请求过滤器要拿它跟每一跳
-   * 重定向的目标比 eTLD+1 —— 过滤器是在上下文装配时装一次的，之后每次动作只换
-   * 这个字段。宿主串行（协议纪律），所以"当前一次"永远只有一次，不会串。
-   */
+
   #requestedUrl = ''
-  /**
-   * 请求层拦下的出域跳转（R-2）。过滤器只能 abort，说不出话；它把两端域名记在
-   * 这里，动作方法在 goto 之后（成功或失败都）读它，把结果落成 redirect_off_domain。
-   */
+
   #blockedRedirect: { from: string; to: string } | null = null
 
   constructor(opts: BrowserOrganDriverOptions) {
@@ -217,38 +188,7 @@ export class BrowserOrganDriver {
         })
         return false
       }
-      // D-4（R-2 复核修订）：跳转出域本该在**请求层**拦，不等导航完成。
-      //
-      // 想法：只在 goto 之后看 final_url 的话，跳转目标已经被这个持久 profile 完整
-      // 加载过一次 —— cookie 发出去了，页面 JS 跑过了，"不读文本"只挡住她的眼睛，
-      // 挡不住浏览器的动作。审批门批的是一个域，被 302 带去的那个域没被批过，
-      // 请求本身就不该出去。
-      //
-      // 只拦重定向来的导航请求：第一跳（redirectedFrom === null）是她自己要去的
-      // 那个地址，已经过审批与 SSRF 判定。子请求（图片/CSS/XHR）跨域是网页常态，
-      // 不在这条之内。iframe 的导航跳转也算导航请求，一并拦掉 —— v1 只读，宁严。
-      //
-      // ⚠ 实证否定（2026-09-02 复核修订，playwright-core 1.60.0 + Chrome 152
-      //   headless=new，见 test/smoke.test.ts 步骤 ⑥⑦）：
-      //   **Chromium 上 `context.route('**')` 不为重定向的那一跳回调。**
-      //   一次 `A -302-> B` 只产生一次 route 回调（A，redirectedFrom=null）；B 只在
-      //   只读的 `context.on('request')` 上冒出来（redirectedFrom=A），那里 abort
-      //   不了。子请求（fetch / image / xhr）**会**回调，重定向 hop **不会** ——
-      //   连子请求自己的 302 目标也不会。
-      //
-      //   后果，写清楚免得日后误读这段代码：
-      //   1. 下面这个分支在真 Chrome 上**永不触发**；出域实际仍由第二道
-      //      （navigate / researchReadText 里的 final_url 检查）拦下。
-      //   2. D-5① "每一跳重定向同样判定" 对**子请求**成立，对**重定向 hop 不成立**
-      //      —— 302 到私网地址那一跳绕过了 SSRF 判定器（smoke ⑦ 钉住了这个事实）。
-      //      她读不到响应，但那个请求确实发出去了。
-      //
-      //   分支保留不删：它零成本，且是 backend 契约的一部分（假 backend 会回调，
-      //   驱动层的行为因此可测）；Playwright / Chromium 哪天改成逐跳回调，它立刻生效，
-      //   smoke ⑥⑦ 的倒挂断言会同时变红提醒。
-      //   真要现在堵上，唯一路子是 `route.fetch({maxRedirects:0})` + `route.fulfill`
-      //   自己跟重定向链 —— 那把整条导航从 Chrome 的网络栈搬到 Playwright 驱动进程
-      //   （代理、TLS、cookie 语义全部换一套），属于重架构，归 M5 总盘另立单。
+
       if (info.isNavigation && info.redirectedFrom !== null
         && isOffDomain(this.#requestedUrl, info.url)) {
         const from = domainOf(this.#requestedUrl)
@@ -292,10 +232,6 @@ export class BrowserOrganDriver {
     }
   }
 
-  /**
-   * 取走请求层拦下的那条出域记录（R-2），有就折成 OpResult。
-   * 取走即清空：下一次动作从零开始，不许把上一次的拦截算到这一次头上。
-   */
   #takeBlockedRedirect(): OpResult | null {
     const blocked = this.#blockedRedirect
     if (blocked === null) return null
@@ -520,10 +456,10 @@ export class BrowserOrganDriver {
 }
 
 // ============================== Playwright 真身 ==============================
-//
+
 // 本节是**整个包里唯一** import playwright-core 的地方。上面的策略层对它一无所知，
 // 所以 redirect / download / isolation 三个红测跑在没有 Chrome 的机器上也是真测试。
-//
+
 // 依赖纪律（派工单 §1）：只装 `playwright-core`（零传递依赖、无 postinstall、
 // 不下载浏览器），驱动的是系统那一份 Google Chrome（`executablePath`）。
 // `playwright` 全家桶靠 postinstall 拉浏览器，与 `npm ci --ignore-scripts` 的
@@ -642,8 +578,7 @@ class PlaywrightContext implements BackendContext {
         allowed = await filter({
           url: request.url(),
           isNavigation: request.isNavigationRequest(),
-          // 重定向链的上一跳。Chromium 上每一跳都是独立的一次 route 回调，
-          // 跳转来的那一跳这里非 null（R-2 的判定就挂在这个位上）。
+
           redirectedFrom: request.redirectedFrom()?.url() ?? null,
         })
       } catch {

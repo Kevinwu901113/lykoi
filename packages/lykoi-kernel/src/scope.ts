@@ -1,29 +1,3 @@
-/**
- * 授权范围键（kernel/scope.py 逐字对拍；WO-P2-S2 / approval_model_v1 §2；SK-69）。
- *
- * "批准一次，到底记住了什么？"常设授权从不挂在裸动作**类型**上 —— 那会把一句
- * "可以"变成"以后给任何人发消息"。它挂在**scope key** 上：动作触及对象的最窄
- * 标识。`scopeKey` 是那张映射唯一的家。
- *
- * 完整映射（含退化兜底）：
- *
- *  | action type                       | scope key                                  |
- *  |-----------------------------------|--------------------------------------------|
- *  | messenger.send                    | 收件人身份 — (channel, context_id) 在       |
- *  |                                   | identity_bindings 有绑定时 `user:<user_id>`,|
- *  |                                   | 否则 `channel:<channel>:<context_id>`       |
- *  | browser.navigate                  | 目标 URL 的 `domain:<eTLD+1>`               |
- *  | research_browser.open             | 目标 URL 的 `domain:<eTLD+1>`               |
- *  | terminal.exec / delegation.dispatch | null — 硬门，永不可 scope                 |
- *  | 其余有副作用者                     | `type:<action_type>`（退化键）              |
- *
- * 三条纪律（approval_model_v1 §2；此处与 kernel/approval 共同强制）：
- *  1. **默认最窄** —— 歧义向更窄的键解析：eTLD+1 切分器拿不准时多留一层标签
- *     （更窄的域），未绑定收件人停在 per-channel 键，绝不塌进更粗的桶。
- *  2. **只能收紧不能放宽** —— approval.check 只在不可变核已把决定交给 live
- *     文件的位置咨询 scoped grant；它永远抬不动 hard "ask" 或能力 "deny"。
- *  3. **可撤销** —— 每个键是普通字符串、一授权一行；见 approval.revokeStanding。
- */
 import { logEvent } from './telemetry.ts'
 
 /** scope key 取目标 URL 注册域的动作类型。 */
@@ -32,15 +6,6 @@ export const DOMAIN_SCOPED: ReadonlySet<string> = new Set([
   'research_browser.open',
 ])
 
-// 永不可携带常设授权的动作类型。与不可变核经 approval.isHardGated 保持同拍 ——
-// 本集合只是那个事实的 *scope* 侧（没有键可记），不是第二个策略源。
-//
-// WO-GW-01 ④ 加入 delegation.dispatch：与 terminal.exec 同源但更硬 —— 工单明写
-// "她发起委托必须过审批，**无免询路径**"。默认分级已是 ask，但退化键
-// `type:delegation.dispatch` 会让 grantStanding 写下常设授权 —— 那就是一条免询
-// 路径。列入不可 scope 后 resolveScopeKey 返回 null，于是 grantStanding 拒绝
-// 出具、scoped 匹配永远落空。真正不可变的那一层是 policy core 的
-// HARD_ASK_TYPES（活体取证已含 delegation.dispatch —— SK-68 免询封堵三件套）。
 export const UNSCOPABLE: ReadonlySet<string> = new Set([
   'terminal.exec',
   'delegation.dispatch',
@@ -127,12 +92,6 @@ function domainKey(params: Record<string, unknown>): string | null {
   return domain ? `domain:${domain}` : null
 }
 
-/**
- * identity_bindings 读点的注入位（Python 侧是 mind.store 的模块级 import；新体
- * kernel 是零依赖库模块，读点由接线方注入 —— lykoi-wake / lykoi-converse 的
- * apply 把 rw 层的 identityBindingUserId 递进来）。未注入 = 无绑定可查 →
- * 收窄到 channel 键（方向 = 不放宽）。
- */
 export type IdentityBindingLookup = (channel: string, channelKey: string) => string | null
 
 let _bindingLookup: IdentityBindingLookup | null = null

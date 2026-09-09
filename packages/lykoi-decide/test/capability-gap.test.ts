@@ -90,15 +90,15 @@ test('fail-safe：事件写失败不毁一轮（logEvent 抛 → emit 不抛；�
   ))
 })
 
-test('位点①（kind 词表判定）：未知 kind → capability_gap；**抛错语义逐字节不变**', () => {
+test('位点①（kind 词表判定）：未知 kind 明确抛错并记录 capability_gap', () => {
   const { logEvent, events } = recorder()
   assert.throws(
     () => evaluateMessage(
       msg({ decision: { kind: 'send_email', content: 'x' } }), CANDS,
       { logEvent, gap: { source: 'wake', runId: 'run-1' } },
     ),
-    /unknown decision kind: 'send_email'/,
-    '原拒绝（抛错 + 消息逐字）不许被留痕改写',
+    /unknown decision kind:.*send_email/,
+    '记录能力缺口不能代替拒绝未知动作',
   )
   assert.deepEqual(gaps(events), [{
     wanted: 'send_email', source: 'wake', run_id: 'run-1', reason: 'unknown_kind',

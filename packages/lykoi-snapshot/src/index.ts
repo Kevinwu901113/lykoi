@@ -23,7 +23,7 @@ import {
   type RegulationValues,
   type RegulationVariableName,
 } from 'lykoi-regulation'
-import { median, pyRound } from './num.ts'
+import { median, roundDecimal } from './num.ts'
 
 export * from './num.ts'
 export * from './restart.ts'
@@ -260,19 +260,18 @@ function environment(
 
   const exploreLast = store.lastCauseEventTs(['explore_completed'])
   return {
-    距上次与所有者互动小时: hoursSince !== null ? pyRound(hoursSince, 2) : null,
+    距上次与所有者互动小时: hoursSince !== null ? roundDecimal(hoursSince, 2) : null,
     同时段历史: {
       近14天此时段有互动的天数: sameWindowDays(stamps, now),
       观察天数: RHYTHM_WINDOW_DAYS,
-      典型互动间隔小时: pyRound(medianGapHours(stamps), 1),
+      典型互动间隔小时: roundDecimal(medianGapHours(stamps), 1),
     },
     等待批准的动作数: deps.approvalPendingCount(),
     探索: {
       上次完成explore: exploreLast,
-      断粮小时: exploreLast ? pyRound(hoursBetween(exploreLast, now), 1) : null,
+      断粮小时: exploreLast ? roundDecimal(hoursBetween(exploreLast, now), 1) : null,
     },
     预算: {
-
 
       // decide 层直读该读数、不再另乘（见 lykoi-decide build_candidates 注释）。
       本小时剩余行动数: Math.max(
@@ -316,7 +315,7 @@ function regulationBlock(
   for (const name of Object.keys(REGISTRY) as RegulationVariableName[]) {
     const events = store.recentRegulationEvents(name, SNAPSHOT_REGULATION_EVENTS)
     block[name] = {
-      value: pyRound(values[name], 3),
+      value: roundDecimal(values[name], 3),
       recent_causes: events.map((e) => ({ cause: e.cause, delta: e.delta, ts: e.ts })),
     }
   }
@@ -334,7 +333,7 @@ function concernBlock(store: SnapshotStore, now: Date): ConcernView[] {
       description: clip(row.description, DESCRIPTION_CLIP),
       weight: row.weight,
       last_lit_at: row.lastLitAt,
-      days_since_lit: pyRound(hoursBetween(litRef, now) / 24.0, 2),
+      days_since_lit: roundDecimal(hoursBetween(litRef, now) / 24.0, 2),
     }
   })
 }
@@ -355,7 +354,7 @@ function narrativeBlock(store: SnapshotStore, now: Date): NarrativeView {
       kind: t.kind,
       content: clip(t.content, EXPERIENCE_CLIP),
       status: t.status,
-      days_stale: pyRound(hoursBetween(t.updatedAt, now) / 24.0, 2),
+      days_stale: roundDecimal(hoursBetween(t.updatedAt, now) / 24.0, 2),
     })),
   }
 }
@@ -379,10 +378,10 @@ function thoughtsBlock(store: SnapshotStore, now: Date): ThoughtView[] {
     id: r.id,
     content: clip(r.content, EXPERIENCE_CLIP),
     kind: r.kind,
-    charge: pyRound(r.charge, 3),
+    charge: roundDecimal(r.charge, 3),
     status: r.status,
     related_concern_id: r.relatedConcernId,
-    age_hours: pyRound(hoursBetween(r.ts, now), 2),
+    age_hours: roundDecimal(hoursBetween(r.ts, now), 2),
   }))
 }
 
@@ -445,7 +444,6 @@ export function read(store: SnapshotStore, deps: SnapshotDeps, now: Date): Snaps
     上一拍: previousBeat(store),
   }
 
-  // 本波 deps 可恒返 null）。
   const restart = deps.unprocessedRestartEvent(store.autonomyState()?.lastWakeAt ?? null)
   if (restart && Object.keys(restart).length > 0) {
     snap.刚刚醒来 = renderRestartNotice(restart)

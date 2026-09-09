@@ -1,18 +1,3 @@
-/**
- * 宿主守护进程（WO-M5-ORGAN-BROWSER D-1/D-6/D-7）。
- *
- * 它跑在**另一个 OS 用户**（`lykoi-browser`）的**另一个 systemd 单元**里，持有
- * Chrome 与持久 profile，只经 `/run/lykoi-browser/host.sock`（0660，组 lykoi）
- * 听大脑说话。**大脑侧永不 spawn Chrome** —— 这是白皮书 §17.3 的隔离等价边界在
- * 本单的物理落法：她的手长在另一个身份上，那个身份读不到 `/home/lykoi/state`，
- * 也读不到禁区里的任何一份密钥。
- *
- * 三条纪律：
- *  - **零 env**：配置只从 `--config <path>` 指的那份 JSON 来（GK-6 的
- *    `scanEnvReads` 扫 packages 下每个包的 src，本文件里 `process.env` 一次都不出现）。
- *  - **串行**：同一时刻只处理一个请求，第二个立即回 `busy`。
- *  - **超时即自愈**：超时返回 `timeout` 并把页/上下文关掉，不留僵尸。
- */
 import { chmodSync, existsSync, unlinkSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from 'node:http'
