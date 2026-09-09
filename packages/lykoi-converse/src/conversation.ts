@@ -330,6 +330,7 @@ export interface ConverseDeps {
    * 调用点零改动）。
    */
   wiredActions?: ReadonlySet<string>
+  capabilityRevision?: () => number
 }
 
 // --- 小工具 --------------------------------------------------------------------
@@ -445,6 +446,7 @@ export class Conversation {
 
   #deps: ConverseDeps
   #messages: ConverseMessage[]
+  #capabilityRevision = -1
   #prefixEpoch: string | null
   #organsBlock: string | null
   #concerns: ConverseMessage | null
@@ -861,6 +863,12 @@ export class Conversation {
   }
 
   #assemble(): ConverseMessage[] {
+    const revision = this.#deps.capabilityRevision?.()
+    if (revision !== undefined && revision !== this.#capabilityRevision) {
+      this.#capabilityRevision = revision
+      this.#deps.organs.invalidate()
+      this.#organsBlock = this.#deps.organs.block()
+    }
     const selfState = this.#selfState()
     const assembled = this.#stablePrefix().map(([, message]) => message)
     assembled.push(...this.#messages.slice(1))

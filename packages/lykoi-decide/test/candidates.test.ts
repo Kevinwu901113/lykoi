@@ -188,14 +188,19 @@ test('D-1c：不传 opts.wired → 行为逐字节不变（三分支均照旧允
   assert.ok(buildCandidates(snap(base)).some((c) => c.kind === 'explore'))
 })
 
-test('D-1c：wired 不含 research_browser.read_text → 正常分支不再候选 explore', () => {
+test('外部动作仅在当前 Runtime 注册时成为候选，内部认知不受影响', () => {
   const wired = new Set(['messenger.send', 'notify.owner'])
   const cands = buildCandidates(snap(), { wired })
   assert.ok(!cands.some((c) => c.kind === 'explore'))
-  // 其余候选不受影响
   assert.deepEqual(cands.map((c) => c.kind), [
-    'record_note', 'queue_notification', 'initiate_chat', 'tend_inner', 'rest', 'contemplate',
+    'record_note', 'tend_inner', 'rest', 'contemplate',
   ])
+  wired.add('autonomy.queue_notification')
+  wired.add('autonomy.initiate_chat')
+  assert.ok(buildCandidates(snap(), { wired }).some(c => c.kind === 'queue_notification'))
+  assert.ok(buildCandidates(snap(), { wired }).some(c => c.kind === 'initiate_chat'))
+  wired.delete('autonomy.initiate_chat')
+  assert.ok(!buildCandidates(snap(), { wired }).some(c => c.kind === 'initiate_chat'))
 })
 
 test('D-1c：wired 不含 read_text → prefer_rest 分支的饥饿棘轮出口也被摘掉（不许摆假泄压口）', () => {

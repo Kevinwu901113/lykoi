@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * 插件面接线测试：heart/beat 事件 → 一拍；lykoiLlm 词汇映射（system 槽收拢
  * 前导 system 段）；logEvent → audit（W2 TODO#4）；rw 句柄随 fiber 开合
@@ -42,6 +43,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
   store.close() // 插件自己持有 rw 句柄（W1 TODO#9）
 
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   ctx.provide('audit', audit)
 
@@ -147,6 +149,7 @@ test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化�
   store.close()
 
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   ctx.provide('audit', audit)
   let pendingBeats = 1

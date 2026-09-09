@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * WO-LLM-FINISH-01 调用点落点实证（converse 侧）。
  *
@@ -90,6 +91,7 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
   createStateFixture(dbPath)
   seedBinding(dbPath)
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)

@@ -25,6 +25,10 @@
     "lykoi-kernel": "0.1.0",
     "lykoi-memory": "0.1.0",
     "undici": "8.10.0",
-    "lykoi-decide": "0.1.0"
+    "lykoi-decide": "0.1.0",
+    "lykoi-contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-runtime": "0.1.0"
   }
 }

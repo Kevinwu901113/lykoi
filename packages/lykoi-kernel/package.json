@@ -14,5 +14,8 @@
   },
   "devDependencies": {
     "lykoi-memory": "0.1.0"
+  },
+  "dependencies": {
+    "lykoi-contracts": "0.1.0"
   }
 }

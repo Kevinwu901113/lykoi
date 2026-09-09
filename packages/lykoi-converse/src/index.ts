@@ -31,7 +31,7 @@ import { LlmFinishError } from 'lykoi-llm'
 import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { TurnExecutionResult, UserTurn } from 'lykoi-ingress'
 import {
-  OutboundOrgan, OutboundUnavailableError, markUndeliveredSurfaced, outboundOrganResources,
+  OutboundOrgan, OutboundUnavailableError, markUndeliveredSurfaced,
   outboxNotificationSink, setMessengerLogEvent, setTransportLogEvent,
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
@@ -41,7 +41,7 @@ import {
 import { stagedInstructions } from 'lykoi-learn'
 import {
   createApprovalConversation, createDispatch, createSuggestionConversation,
-  wiredActionCatalog, getNotifications, markReplied as kernelMarkReplied,
+  getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
   APPROVAL_RUN_PREFIX,
   INTERPRET_MAX_TOKENS, INTERPRET_TEMPERATURE, setApprovalAuditSink,
@@ -83,7 +83,7 @@ export * from './vision.ts'
 export const name = 'lykoi-converse'
 // audit/lykoiLlm 硬依赖；telegram 经 ctx.get 可选消费（telegram 默认 disabled
 // 时本插件照常挂载、安静待命 —— dsh 形态的可选 seam）。
-export const inject = ['audit', 'ingress', 'lykoiLlm']
+export const inject = ['audit', 'ingress', 'lykoiLlm', 'lykoiRuntime']
 
 export interface Config {
   /** state 副本路径（golden devstate 永远只读 —— 生产接治理侧发的可写副本）。 */
@@ -356,18 +356,16 @@ export function apply(ctx: Context, config: Config) {
     logEvent,
   })
 
-  // WO-FIX-LOOP-01 D-1b：只调一次 outboundOrganResources()，同一实例既喂
-  // dispatch 又喂器官清单的动作轴——两处不再各摸各的资源注册表。
-  const resources = outboundOrganResources()
-  const wiredCatalog = wiredActionCatalog(resources)
+  // Dispatch and capability rendering share the same live Runtime view.
+  const resources = ctx.lykoiRuntime.resources
+  const wiredCatalog = ctx.lykoiRuntime.catalog
   const organs = new OrganInventoryCache({
     persona,
     bindings: () => store.identityBindingInventory(),
-    // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
-    // 是 `kernelActionCatalog` 的 18 项全表。
     catalog: wiredCatalog,
     logEvent,
   })
+  ctx.effect(() => ctx.lykoiRuntime.onChange(() => organs.invalidate()), 'capability view')
 
   // M3-W1 接线：真 kernel dispatch。origin 由接线方盖章（converse=interactive，
   // S-55：origin 永不由模型给）；immutable sink = lykoi-audit（审计门 fail
@@ -524,9 +522,9 @@ export function apply(ctx: Context, config: Config) {
     // ⑤ interactive_lock：S-17 的两次 markActive 接真锁（wake 侧读同一个）。
     markActive: () => { markInteractiveActive() },
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
-    // WO-FIX-LOOP-01 D-1d 传参：`#buildAction` 拿它挡未接线动作——不给 → 行为
-    // 逐字节不变。
-    wiredActions: new Set(wiredCatalog.knownActions),
+    // The action gate reads current Runtime registration on each dispatch.
+    wiredActions: ctx.lykoiRuntime.actions,
+    capabilityRevision: () => ctx.lykoiRuntime.revision,
     // D-01 第三旋钮：一个周期（信封调用 + 工具派发全程）的整体上限。装配面不给
     // 时 Schema 缺省 = D01_DEFAULTS.cycleTimeoutS（源码单一出处）。
     cycleTimeoutS: config.cycleTimeoutS,

@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * persona 配置面（D-FIX-1，WO-M4-FIX-WAKE）：装配面只给**路径**，先天内核从
  * owner 域 TOML 装载 —— 与 lykoi-converse 同形同源。
@@ -28,6 +29,7 @@ const PERSONA_TOML = TEST_PERSONA_TOML
 /** 一套够 apply 跑起来的最小服务面（inject = heart / lykoiLlm / audit）。 */
 function stubbedContext(): Context {
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   ctx.provide('audit', { async record() {} } satisfies Pick<AuditService, 'record'>)
   ctx.provide('heart', {
     get pending() {

@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /** 交付③测试：S-01..S-11 语义，全部用内存 fake transport 驱动（零真网）。 */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -89,6 +90,7 @@ async function setup(options: {
   const cursorPath = options.cursorPath ?? join(dir, 'cursor.json')
   const archivePath = options.archivePath ?? join(dir, 'inbound.json')
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   const bindings = options.bindings ?? {
@@ -209,6 +211,7 @@ test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', asyn
   const blocker = join(dir, 'cursor-parent-is-file')
   writeFileSync(blocker, 'occupied')
   const firstCtx = new Context()
+  firstCtx.provide('lykoiRuntime', new CapabilityRuntime())
   const firstTransport = new MemoryTelegramTransport()
   firstCtx.provide('audit', audit)
   firstCtx.provide('ingress', firstIngress)
@@ -226,6 +229,7 @@ test('T6：durable 后 cursor 前崩溃，重放只保留一个 part/turn', asyn
 
   const secondIngress = new DurableIngress({ dbPath, audit, autoStart: false })
   const secondCtx = new Context()
+  secondCtx.provide('lykoiRuntime', new CapabilityRuntime())
   const secondTransport = new MemoryTelegramTransport()
   secondCtx.provide('audit', audit)
   secondCtx.provide('ingress', secondIngress)
@@ -253,6 +257,7 @@ test('T8：A cognition 阻塞时，真实 adapter 仍接纳 B/C 并推进 cursor
   const audit = fakeAudit()
   const ingress = new DurableIngress({ dbPath, audit, autoStart: false })
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
   ctx.provide('ingress', ingress)
@@ -492,6 +497,7 @@ test('生产传输：无 token 即拒起（凭据走 env 引用，配置里永�
   // 插件面：env 引用缺席 → 装载失败（无 token 即拒起）
   delete process.env.LYKOI_TEST_TG_TOKEN
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   await assert.rejects(
     () => Promise.resolve(ctx.plugin(productionPlugin, { tokenEnv: 'LYKOI_TEST_TG_TOKEN', proxy: '' })),
   )

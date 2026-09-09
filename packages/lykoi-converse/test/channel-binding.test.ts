@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
@@ -16,6 +17,7 @@ test('多通道 owner 的 canonical binding 不得落到不同通道的单传输
     .run('user_001', 'matrix', '1001', 'owner', '2026-09-07T00:00:00+00:00')
   db.close()
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   ctx.provide('messenger', { channel: 'telegram' } as Context['messenger'])
   assert.throws(() => apply(ctx, { dbPath } as Config), /owner binding channel does not match/)
 })

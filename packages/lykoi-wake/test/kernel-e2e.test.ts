@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * M3-W1/W3 接线 e2e（出口判据）：自主拍 explore / initiate_chat / queue_notification
  * 三路经**真 kernel 门**落 audit —— wake 插件的 DispatchFn 是 createDispatch
@@ -26,7 +27,7 @@ import type { HeartService } from 'lykoi-heart'
 import type { LykoiLlmService } from 'lykoi-llm'
 import { DatabaseSync } from 'node:sqlite'
 import { isolateOutboundState } from 'lykoi-adapter-telegram/testing'
-import { readOutboxAfter } from 'lykoi-adapter-telegram'
+import { queueNotification, initiateChat, readOutboxAfter } from 'lykoi-adapter-telegram'
 import { getNotifications } from 'lykoi-kernel'
 import * as wake from '../src/index.ts'
 import type { WakeService } from '../src/index.ts'
@@ -55,13 +56,19 @@ function fakeAudit(): AuditService & { events: AuditEvent[] } {
   }
 }
 
-test('三路自主动作经真门：action_dispatch(allow)+action_result 对、origin=autonomous、runId 贯穿', async () => {
+test('三路自主动作经真门：action_dispatch(allow)+action_result 对、origin=autonomous、runId 贯穿', async (t) => {
   isolateKernelFiles()
   const { store, path } = makeStore()
   store.createConcern('interest', '词源学', { weight: 0.5, origin: 'seed', now: new Date() })
   store.close() // 插件自己持有 rw 句柄
 
   const ctx = new Context()
+  const runtime = new CapabilityRuntime()
+  ctx.provide('lykoiRuntime', runtime)
+  runtime.register({ organId: 'outbound-fixture', handlers: {
+    'autonomy.queue_notification': queueNotification, 'autonomy.initiate_chat': initiateChat,
+  }, sideEffects: [] })
+  t.after(() => runtime.dispose())
   const audit = fakeAudit()
   ctx.provide('audit', audit)
 
@@ -113,6 +120,7 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
     model: 'mock-model',
     checkIntervalMs: 3_600_000,
   })
+  t.after(() => fiber.dispose())
   const service = ctx.get('wake') as WakeService
 
   const outcomes = []

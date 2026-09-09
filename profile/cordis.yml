@@ -11,6 +11,8 @@
 # 两份都在 GK-13 的 **root 属主域**（完整性门 hash 钉住）：装配面说 audit sink
 # 落在哪、哪些器官启用，那是治理决定，不是随手改的配置。改完要 root 重签：
 #   sudo node packages/lykoi-gate/src/cli.ts --write-manifest
+- id: runtime
+  name: lykoi-runtime
 - id: timer
   name: '@deepseek-ai/cordis-plugin-timer'
 - id: audit

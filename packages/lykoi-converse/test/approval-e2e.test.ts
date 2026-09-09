@@ -18,7 +18,7 @@
  *     → consume 原子点 → pre_approved 重派 → terminal.exec 真跑
  *     → 回执四分支之 EXEC_OK
  *
- * 唯一的替身是 `terminal.exec` 器官本身（M5 才到，经 `registerOrganHandler` 注入）
+ * 唯一的替身是 `terminal.exec` 器官本身（M5 才到，经 `Runtime.register` 注入）
  * 与 LLM/网络。被实弹打穿的是**门与器官的全部治理面**（kernel dispatch / 三层门 /
  * 审批对话机 / 解释器 / immutable audit / 设备层出站），那一段一个替身都没有。
  *
@@ -41,7 +41,7 @@ import { createStateFixture } from 'lykoi-memory/testing'
 import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
-import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
+import { CapabilityRuntime } from 'lykoi-runtime'
 import { bootstrapOwnerPreauthorization } from 'lykoi-kernel'
 import { TOOL_TO_ACTION } from '../src/contract.ts'
 import { ImmediateTestIngress } from './turn-fixture.ts'
@@ -81,16 +81,16 @@ function fakeMemory(): LykoiMemoryService {
 }
 
 /**
- * 唯一的替身：`terminal.exec`（执行器官归 M5）。经 `registerOrganHandler` 从 M5
+ * 唯一的替身：`terminal.exec`（执行器官归 M5）。经 `Runtime.register` 从 M5
  * 的接线位进来 —— **不扩动作面**（不在 KNOWN_ACTIONS 里的名字仍被 `_resolve`
  * 在碰资源命名空间之前拒掉）。返回它跑过的命令表。
  */
-function fakeTerminal(): { ran: string[] } {
+function fakeTerminal(runtime: CapabilityRuntime): { ran: string[] } {
   const ran: string[] = []
-  registerOrganHandler('terminal.exec', async (params) => {
+  runtime.register({ organId: 'test-organ', handlers: { ['terminal.exec']: async (params) => {
     ran.push(String(params.command))
     return { stdout: 'file-a\nfile-b\n', exit_code: 0 }
-  })
+  } }, sideEffects: [] })
   return { ran }
 }
 
@@ -99,12 +99,13 @@ function outboundTexts(transport: MemoryTelegramTransport): string[] {
   return transport.sends.map((s) => s.text)
 }
 
-async function assemble(replyText: string, lateTelegram = false) {
+async function assemble(replyText: string, lateTelegram = false, runtime = new CapabilityRuntime()) {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-approval-db-'))
   const dbPath = join(dir, 'state.db')
   createStateFixture(dbPath)
   seedBinding(dbPath)
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', runtime)
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
@@ -164,11 +165,11 @@ function toolEnvelope(name: string, args: Record<string, unknown>): string {
 }
 
 test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次入站打穿门→问句→引用「执行」→快通道→execute_once→EXEC_OK', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
-  const terminal = fakeTerminal()
-  t.after(() => clearOrganHandlers())
-  const { audit, transport, telegram, service } = await assemble(
-    toolEnvelope('terminal_exec', { command: 'ls' }),
+  const terminal = fakeTerminal(runtime)
+  t.after(() => runtime.dispose())
+  const { audit, transport, telegram, service } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
   )
   // §2b 初始预授权（approval_model_v1；GK-9：部署期 owner 侧动作，这里由测试
   // 站在 owner 侧执行）。没有它 messenger.send 默认 "ask" —— 她没有审批就回不了
@@ -275,11 +276,11 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
 })
 
 test('实弹反向（W3 设备侧）：owner 回「不要」→ denied + DENY_CONFIRM，命令一次都不跑', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
-  const terminal = fakeTerminal()
-  t.after(() => clearOrganHandlers())
-  const { transport, telegram, audit } = await assemble(
-    toolEnvelope('terminal_exec', { command: 'rm -rf /tmp/x' }),
+  const terminal = fakeTerminal(runtime)
+  t.after(() => runtime.dispose())
+  const { transport, telegram, audit } = await assemble(toolEnvelope('terminal_exec', { command: 'rm -rf /tmp/x' }), false, runtime
   )
   bootstrapOwnerPreauthorization('user_001')
   transport.queueUpdate({
@@ -327,17 +328,17 @@ function selfReportedDispatches(events: AuditEvent[]): string[] {
 }
 
 test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_dispatch 行（逐条同型同数）', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
   // WO-FIX-LOOP-01 D-1d：`terminal.exec` 在注册表里仍是 D-1a 打了标记的替身
   // （M5 才到）。以前"未接线"不影响这条用例——硬门检查在真身调用之前就发生，
   // 撞门即得 needs_approval。现在 D-1d 的新闸在**到达 kernel 之前**先拦下未
   // 接线的动作，若不给它一个真身，这个场景根本走不到审批那一步。用同一份
-  // `registerOrganHandler` 替身（本文件唯一的替身来源，见文件头）把它接上，
+  // `Runtime.register` 替身（本文件唯一的替身来源，见文件头）把它接上，
   // 场景与断言逐字节不变——这条用例本来就不测"未接线大声失败"，测的是审批门。
-  fakeTerminal()
-  t.after(() => clearOrganHandlers())
-  const { audit, transport, telegram } = await assemble(
-    toolEnvelope('terminal_exec', { command: 'ls' }),
+  fakeTerminal(runtime)
+  t.after(() => runtime.dispose())
+  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -387,8 +388,9 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
  * 下面新增的未接线场景，两条路径都不再是 GK-14 不变量的例外。
  */
 test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（词表外工具名路）', async () => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
-  const { audit, transport, telegram } = await assemble(toolEnvelope('web_search', { q: 'x' }))
+  const { audit, transport, telegram } = await assemble(toolEnvelope('web_search', { q: 'x' }), false, runtime)
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 800, chatId: '1001', senderId: '1001', text: '在吗' },
@@ -419,11 +421,11 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
  * `dispatched` 由 `toolDispatchGate` 复算，此路同样是 null，例外消失。
  */
 test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_dispatch 都没有（词表内但未接线路）', async () => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
   // 刻意不调 fakeTerminal()：terminal.exec 在 KNOWN_ACTION_LIST 里，但注册表
   // 里没有真身，wiredActionCatalog 因此不把它列进 wiredActions。
-  const { audit, transport, telegram } = await assemble(
-    toolEnvelope('terminal_exec', { command: 'ls' }),
+  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -445,8 +447,9 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
 
 
 test('真实装配：设备晚到与重启时出站器官随依赖重接', async () => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
-  const h = await assemble(envelope(), true)
+  const h = await assemble(envelope(), true, runtime)
   assert.equal(h.telegram.outboundWired(), true)
   const old = h.telegram
   await h.telegramFiber.restart()

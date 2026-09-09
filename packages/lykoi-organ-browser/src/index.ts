@@ -1,31 +1,12 @@
-/**
- * lykoi-organ-browser —— 浏览器器官的**大脑侧**（Cordis 插件，跑在 lykoi 用户
- * 进程里；WO-M5-ORGAN-BROWSER D-1/D-6/D-9）。
- *
- * 这一半不碰 Chrome，一行都不。它只做四件事：
- *  1. 把三个动作 `browser.navigate` / `browser.get_text` /
- *     `research_browser.read_text` 的真身 handler 挂上 `registerOrganHandler`；
- *  2. 向身体图式 `BodySchemaRegistry` 登记 organ `browser`（注册即感知）；
- *  3. 每个动作经本地 Unix socket 发一行 NDJSON 给宿主，等一行回来；
- *  4. 落一条 `browser_action{op, domain, status, chars, duration_ms, truncated}`
- *     审计摘要 —— **不落页面文本、不落完整 URL**（只落 eTLD+1）。
- *
- * 三条纪律，全部是"她的体验"而不是"进程的方便"：
- *  - **不抛**。宿主没起来、被拦下、超时，一律以 `{ok:false, error}` 回到她身上
- *    （红线 #5）；抛错会变成 `Observation.success=false` 的一团黑，她读不出发生
- *    了什么。
- *  - **不阻塞**。连接 2s 打不通就是 `browser_host_unreachable`，认知继续走。
- *  - **卸载即消失**。dispose 先摘图式再摘 handler，替身归位 —— 没有幻肢
- *    （`docs/m3_schema_registry.md` GK-11）。
- *
- * 零 env（GK-6）：唯一配置是 yml 给的 `socketPath`。
+/** Browser's Runtime plugin: register local-socket handlers for the lifetime of this fiber.
+ * The host owns Chrome and browser data; Runtime owns capability presence and its body schema.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { connect, type Socket } from 'node:net'
 import type { AuditService } from 'lykoi-audit'
-import { BodySchemaRegistry, KNOWN_ACTION_LIST, registeredDomain } from 'lykoi-kernel'
-import { registerOrganHandler } from 'lykoi-adapter-telegram/resources'
+import { registeredDomain } from 'lykoi-kernel'
+import type { RuntimeService } from 'lykoi-contracts'
 import {
   ACTION_TO_OP, CONNECT_TIMEOUT_MS, DEFAULT_TIMEOUTS, HOST_ERRORS, OP_TIMEOUT_KEY,
   ORGAN_ACTIONS, ORGAN_ID, RESPONSE_GRACE_MS, createLineSplitter, decodeLine, encodeLine,
@@ -214,45 +195,21 @@ export function createOrganHandler(
   }
 }
 
-/**
- * 接线：三个 handler 上身 + 身体图式登记。返回**注销器**（谁注册谁负责注销）。
- *
- * 顺序刻意：先图式后 handler，卸载时反过来 —— 任一时刻"图式里有"都蕴含
- * "handler 接得通"，反过来的那半拍才是幻肢。
- */
+/** Register handlers and their body schema as one Runtime-owned lifetime. */
 export function wireBrowserOrgan(
   client: BrowserHostClient,
   logEvent: OrganLogEvent,
-  schema: BodySchemaRegistry,
+  runtime: RuntimeService,
 ): () => void {
-  const disposeSchema = schema.register({
+  return runtime.register({
     organId: ORGAN_ID,
-    actions: [...ORGAN_ACTIONS],
-    // 大脑侧这一半没有任何副作用：Chrome、profile、截图全在宿主进程里。
+    handlers: Object.fromEntries(ORGAN_ACTIONS.map(action => [action, createOrganHandler(action, client, logEvent)])),
     sideEffects: [],
   })
-  for (const action of ORGAN_ACTIONS) {
-    registerOrganHandler(action, createOrganHandler(action, client, logEvent))
-  }
-  let disposed = false
-  return () => {
-    if (disposed) return
-    disposed = true
-    disposeSchema()
-    for (const action of ORGAN_ACTIONS) registerOrganHandler(action, null)
-  }
-}
-
-// ============================== Cordis 插件 ==============================
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    bodySchema: BodySchemaRegistry
-  }
 }
 
 export const name = 'lykoi-organ-browser'
-export const inject = ['audit']
+export const inject = ['audit', 'lykoiRuntime']
 
 export interface Config {
   /** 宿主 Unix socket（生产 `/run/lykoi-browser/host.sock`）。大脑侧只有这一项。 */
@@ -272,17 +229,7 @@ export function apply(ctx: Context, config: Config) {
   }
   const client = new BrowserHostClient({ socketPath: config.socketPath })
 
-  // 装配里还没有身体图式的生产实例（`registryActionCatalog` 零消费者，切换归
-  // M5 总盘，m4_handoff §E 明令不由本单做）——那就由这里建一个挂上去，后来者
-  // 复用同一张图式。**本单不切 catalog。**
-  let schema = ctx.get('bodySchema') as BodySchemaRegistry | undefined
-  if (schema === undefined) {
-    schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST })
-    ctx.provide('bodySchema', schema)
-  }
-
-  const unwire = wireBrowserOrgan(client, logEvent, schema)
-  ctx.effect(() => () => unwire(), 'lykoi-organ-browser handlers')
+  ctx.effect(() => wireBrowserOrgan(client, logEvent, ctx.lykoiRuntime), 'browser capabilities')
   logEvent('browser_organ_wired', {
     organ: ORGAN_ID, actions: [...ORGAN_ACTIONS], socket_path: config.socketPath,
   })

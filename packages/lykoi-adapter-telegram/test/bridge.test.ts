@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * WO-FIX-UNDELIVERED-BRIDGE-01 D-3：一次生产发送失败穿过整条桥 ——
  * 真 `BotApiTransport`（注入 HttpPost）→ `ProductionTelegramTransport` →
@@ -68,6 +69,7 @@ async function setup(transport: ProductionTelegramTransport | MemoryTelegramTran
     return `exp-${experiences.length}`
   })
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   ctx.provide('audit', audit)
   const ingress = new DurableIngress({ dbPath: ':memory:', audit, autoStart: false })

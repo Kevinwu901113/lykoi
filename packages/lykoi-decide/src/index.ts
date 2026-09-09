@@ -338,13 +338,13 @@ export function buildCandidates(
     if (proactiveLeft <= 0) allowed.delete('initiate_chat')
   }
 
-  // WO-FIX-LOOP-01 D-1c：器官清单如实——explore 唯一依赖的动作真身是
-  // research_browser.read_text（`research_open` 走这条 dispatch）；给了 `wired`
-  // 且它不在里面，三个分支（含上面的 SA-09 饥饿棘轮）一律不许候选 explore ——
-  // 泄压出口不存在时不许摆一个假的。不给 `wired`（省略该 opts）→ 本函数行为
-  // 逐字节不变，既有调用点与测试零改动。
-  if (opts?.wired && !opts.wired.has(AUTONOMY_ACTIONS.explore.action)) {
-    allowed.delete('explore')
+  // External candidates must name a currently registered capability. Internal
+  // cognition remains available independently of attached organs.
+  if (opts?.wired) {
+    for (const kind of KINDS) {
+      const action = AUTONOMY_ACTIONS[kind].action
+      if (action !== null && !opts.wired.has(action)) allowed.delete(kind)
+    }
   }
 
   // SA-14：contact_note 基串 + 条件后缀。

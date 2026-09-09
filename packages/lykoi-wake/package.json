@@ -23,6 +23,10 @@
     "lykoi-llm": "0.1.0",
     "lykoi-memory": "0.1.0",
     "lykoi-reflow": "0.1.0",
-    "lykoi-snapshot": "0.1.0"
+    "lykoi-snapshot": "0.1.0",
+    "lykoi-contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-runtime": "0.1.0"
   }
 }

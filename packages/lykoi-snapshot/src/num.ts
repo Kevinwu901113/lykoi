@@ -1,6 +1,6 @@
 /**
  * 快照与决策文本使用的数值格式工具。当前舍入结果会进入模型上下文。
- * 迁移来源见 governance/adr/runtime-slimdown-01-history.md；更换数值策略需评估上下文变化。
+ * 迁移来源见 governance/archive/runtime-slimdown-01-history.md；更换数值策略需评估上下文变化。
  */
 
 /**

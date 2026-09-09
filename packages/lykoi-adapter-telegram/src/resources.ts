@@ -86,28 +86,7 @@ export async function initiateChat(
   return { queued: true, id: msg.id }
 }
 
-/**
- * 器官接线位（M5 的 browser / terminal / research_browser / delegation 传输面从
- * 这里进来；本波的测试也用它注入受控器官）。**只是注册面，不是新的可达面** ——
- * 名字不在 `KNOWN_ACTIONS` 里的一律仍被 `_resolve` 在碰资源命名空间之前拒掉
- * （SK-01/02），所以这个 seam 一寸都没有扩动作面。
- */
-const _extraOrgans = new Map<string, ResourceHandler>()
-
-export function registerOrganHandler(actionType: string, handler: ResourceHandler | null): void {
-  if (handler === null) _extraOrgans.delete(actionType)
-  else _extraOrgans.set(actionType, handler)
-}
-
-/** 摘掉全部经 `registerOrganHandler` 接进来的器官（测试收尾用）。 */
-export function clearOrganHandlers(): void {
-  _extraOrgans.clear()
-}
-
-/**
- * W3 的器官注册表：替身底座 + 本波换装的五个 handler + 经 `registerOrganHandler`
- * 接进来的那些。（M5 再换 browser / terminal / research_browser / delegation。）
- */
+/** Build this adapter's outbound handlers. Runtime owns registration. */
 export function outboundOrganResources(): ResourceRegistry {
   const base = unwiredResources() as unknown as Record<string, Record<string, ResourceHandler>>
   const registry: Record<string, Record<string, ResourceHandler>> = {}
@@ -121,14 +100,6 @@ export function outboundOrganResources(): ResourceRegistry {
     ...registry.autonomy,
     queue_notification: queueNotification as ResourceHandler,
     initiate_chat: initiateChat as ResourceHandler,
-  }
-  for (const [actionType, handler] of _extraOrgans) {
-    const idx = actionType.indexOf('.')
-    if (idx <= 0) continue
-    const prefix = actionType.slice(0, idx)
-    const method = actionType.slice(idx + 1)
-    registry[prefix] ??= {}
-    registry[prefix]![method] = handler
   }
   return registry as ResourceRegistry
 }

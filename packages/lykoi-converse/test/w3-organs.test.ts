@@ -28,7 +28,7 @@ import {
   appendOutbox, loadOutboxCursor, saveOutboxCursor, type TelegramAdapterService,
 } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
-import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
+import { CapabilityRuntime } from 'lykoi-runtime'
 import {
   bootstrapOwnerPreauthorization, getNotification, pendingCount, sendNotification,
 } from 'lykoi-kernel'
@@ -59,11 +59,11 @@ function fakeAudit(): AuditService & { events: AuditEvent[] } {
  * （M5 才到）。以下②④两个用例本来就不测"未接线大声失败"，测的是撞审批门
  * 之后的读数面（预算边界 / pendingCount 权威源）——需要它先是**接得通**的
  * 动作才轮得到 kernel 的三层门说话、才有一条真的悬置动作可读。用同一套
- * `registerOrganHandler` 替身把它接上（这个 handler 在这两个场景里从不会真
+ * `Runtime.register` 替身把它接上（这个 handler 在这两个场景里从不会真
  * 的被调用：needs_approval 在调用它之前就把周期收场了）。
  */
-function fakeTerminal(): void {
-  registerOrganHandler('terminal.exec', async () => ({ stdout: '', exit_code: 0 }))
+function fakeTerminal(runtime: CapabilityRuntime): void {
+  runtime.register({ organId: 'test-organ', handlers: { ['terminal.exec']: async () => ({ stdout: '', exit_code: 0 }) }, sideEffects: [] })
 }
 
 function fakeMemory(): LykoiMemoryService {
@@ -81,12 +81,13 @@ function fakeMemory(): LykoiMemoryService {
   }
 }
 
-async function assemble(replyText: string) {
+async function assemble(replyText: string, runtime = new CapabilityRuntime()) {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-w3-db-'))
   const dbPath = join(dir, 'state.db')
   createStateFixture(dbPath)
   seedBinding(dbPath)
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', runtime)
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
@@ -129,8 +130,9 @@ async function assemble(replyText: string) {
 // ============================== ③ contact 链端到端 ==============================
 
 test('③ contact 链接通：真通知队列 → 一次对话轮 → contact_answered 唯一写入点', async () => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  const { audit, transport, telegram, dbPath } = await assemble(envelope({}))
+  const { audit, transport, telegram, dbPath } = await assemble(envelope({}), runtime)
   bootstrapOwnerPreauthorization('user_001')
   // 她昨晚主动呼唤过一次（真 kernel 队列，origin=autonomous）——**未答**。
   const notif = sendNotification('我刚想到一件事', {
@@ -157,8 +159,9 @@ test('③ contact 链接通：真通知队列 → 一次对话轮 → contact_an
 })
 
 test('③ markReplied 接真队列：显式引用一次呼唤 → 关联戳落在通知记录上（首写获胜）', async () => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  const { dbPath } = await assemble(envelope({}))
+  const { dbPath } = await assemble(envelope({}), runtime)
   const notif = sendNotification('主动呼唤', { origin: 'autonomous' })
   const id = Number(notif.id)
   const store = new ReadWriteMemory(dbPath)
@@ -182,8 +185,9 @@ test('③ markReplied 接真队列：显式引用一次呼唤 → 关联戳落�
 // ============================== ② S-08 第二级实弹 ==============================
 
 test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机消费，不再当成一次普通对话', async () => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  const { audit, transport, telegram, service, dbPath } = await assemble(envelope({}))
+  const { audit, transport, telegram, service, dbPath } = await assemble(envelope({}), runtime)
   bootstrapOwnerPreauthorization('user_001')
 
   // 她排了一条建议（L5 的入队面），然后在这一拍问出去。
@@ -235,8 +239,9 @@ test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机消
 // ============================== ① 投递线端到端（D-07） ==============================
 
 test('① 投递线端到端：initiate_chat（真账本原子强制）→ outbox → 游标机 → E3 → 真 transport', async () => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  const { audit, transport, telegram, service } = await assemble(envelope({}))
+  const { audit, transport, telegram, service } = await assemble(envelope({}), runtime)
   bootstrapOwnerPreauthorization('user_001')
   saveOutboxCursor(0) // 从头消费（本用例的账本是空的，这里只是让起点确定）
 
@@ -262,8 +267,9 @@ test('① 投递线端到端：initiate_chat（真账本原子强制）→ outbo
 })
 
 test('① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳朵（自成一个 try）', async () => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  const { audit, telegram, transport } = await assemble(envelope({}))
+  const { audit, telegram, transport } = await assemble(envelope({}), runtime)
   bootstrapOwnerPreauthorization('user_001')
   saveOutboxCursor(0)
   // 游标文件指向一个不可写的位置 → 出站这边炸
@@ -282,16 +288,16 @@ test('① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳
 // ============================== 出口判据②：预算边界回归 ==============================
 
 test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的问句仍被拒**，而设备层的问句照发', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  fakeTerminal()
-  t.after(() => clearOrganHandlers())
-  const { audit, transport, telegram, service } = await assemble(
-    envelope({
+  fakeTerminal(runtime)
+  t.after(() => runtime.dispose())
+  const { audit, transport, telegram, service } = await assemble(envelope({
       decision: {
         kind: 'tool_call', tool: { name: 'terminal_exec', arguments: { command: 'ls' } },
         reason: '他问我在不在',
       },
-    }),
+    }), runtime
   )
   bootstrapOwnerPreauthorization('user_001')
   // 把今天的主动开口名额烧光（活体 8-19 01:40 那 6 连拒的前置条件）。
@@ -330,16 +336,16 @@ test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的�
 // ============================== ④ D-04 横幅权威源 ==============================
 
 test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"有 N 条待批准操作"', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateAll()
-  fakeTerminal()
-  t.after(() => clearOrganHandlers())
-  const { audit, transport, telegram } = await assemble(
-    envelope({
+  fakeTerminal(runtime)
+  t.after(() => runtime.dispose())
+  const { audit, transport, telegram } = await assemble(envelope({
       decision: {
         kind: 'tool_call', tool: { name: 'terminal_exec', arguments: { command: 'ls' } },
         reason: '他问我在不在',
       },
-    }),
+    }), runtime
   )
   bootstrapOwnerPreauthorization('user_001')
   assert.equal(pendingCount(), 0)

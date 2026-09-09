@@ -11,7 +11,7 @@
  * audit。
  *
  * **GK-14 e2e（DK-07 / 蓝图定案，W2 必立）**：信封自称 dispatched ⟺ audit 有
- * action_dispatch 行 —— 正反两断言都在这里。①用真身器官（`registerOrganHandler`
+ * action_dispatch 行 —— 正反两断言都在这里。①用真身器官（`Runtime.register`
  * 注入，M5 才到）保证场景能走到审批门；②刻意保留未接线状态，验证 D-1d 的闸
  * 先于 kernel 生效。
  */
@@ -31,7 +31,7 @@ import { createStateFixture } from 'lykoi-memory/testing'
 import * as telegramAdapter from 'lykoi-adapter-telegram'
 import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
-import { clearOrganHandlers, registerOrganHandler } from 'lykoi-adapter-telegram'
+import { CapabilityRuntime } from 'lykoi-runtime'
 import { MAX_TOOL_STEPS } from '../src/index.ts'
 import * as converse from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
@@ -75,12 +75,13 @@ function fakeMemory(): LykoiMemoryService {
 }
 
 /** 全链装配（e2e.test.ts 的 assemble 同款；mock LLM 固定信封）。 */
-async function assemble(replyText: string) {
+async function assemble(replyText: string, runtime = new CapabilityRuntime()) {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-kernel-db-'))
   const dbPath = join(dir, 'state.db')
   createStateFixture(dbPath)
   seedBinding(dbPath)
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', runtime)
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)
@@ -133,11 +134,11 @@ async function assemble(replyText: string) {
  * WO-FIX-LOOP-01 D-1d：`browser.navigate` 在注册表里仍是 D-1a 打了标记的
  * 替身（M5 才到）。以下①用例本来就不测"未接线大声失败"，测的是撞审批门
  * 那一段——需要它先是**接得通**的动作才轮得到 kernel 的三层门说话。用同一套
- * `registerOrganHandler` 替身把它接上（这个 handler 在①的场景里从不会真的
+ * `Runtime.register` 替身把它接上（这个 handler 在①的场景里从不会真的
  * 被调用：needs_approval 在调用它之前就把周期收场了）。
  */
-function fakeBrowserNavigate(): void {
-  registerOrganHandler('browser.navigate', async () => ({ ok: true }))
+function fakeBrowserNavigate(runtime: CapabilityRuntime): void {
+  runtime.register({ organId: 'test-organ', handlers: { ['browser.navigate']: async () => ({ ok: true }) }, sideEffects: [] })
 }
 
 function toolEnvelope(name: string, args: Record<string, unknown>): string {
@@ -151,11 +152,11 @@ function toolEnvelope(name: string, args: Record<string, unknown>): string {
 }
 
 test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷 + 沉默收场；audit 上 ask 的 intent/result 对', async (t) => {
+  const runtime = new CapabilityRuntime()
   isolateKernelFiles()
-  fakeBrowserNavigate()
-  t.after(() => clearOrganHandlers())
-  const { audit, transport, telegram, converse: service } = await assemble(
-    toolEnvelope('browser_navigate', { url: 'https://example.com/page' }),
+  fakeBrowserNavigate(runtime)
+  t.after(() => runtime.dispose())
+  const { audit, transport, telegram, converse: service } = await assemble(toolEnvelope('browser_navigate', { url: 'https://example.com/page' }), runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -218,6 +219,7 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
  * 的"Kevin 手写 always_allow"这个动作，只是把断言换成新的、真实发生的事。
  */
 test('②live always_allow 放行也没用：D-1d 闸先到，未接线动作从不问 kernel（工具预算收场）', async () => {
+  const runtime = new CapabilityRuntime()
   const dir = isolateKernelFiles()
   // Kevin 的笔：往 live 规则写一行 always_allow（她自己没有写路径 —— 测试站在
   // owner 侧铺规则文件）。D-1d 之后，这份规则从未被咨询——动作在到达 kernel
@@ -225,8 +227,7 @@ test('②live always_allow 放行也没用：D-1d 闸先到，未接线动作从
   writeFileSync(join(dir, 'approval_rules.json'), JSON.stringify({
     always_allow: ['research_browser.read_text'], always_deny: [], ask: [],
   }))
-  const { audit, transport, telegram } = await assemble(
-    toolEnvelope('research_read_text', { url: 'https://example.com/article' }),
+  const { audit, transport, telegram } = await assemble(toolEnvelope('research_read_text', { url: 'https://example.com/article' }), runtime
   )
   transport.queueUpdate({
     updateId: 1,
