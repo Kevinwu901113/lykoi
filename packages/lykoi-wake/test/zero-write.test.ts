@@ -2,7 +2,7 @@
  * G-9（DA-10 定案）：并行推演不入 M2，但「推演零写入」断言 M2 起就立——
  * 学活体 tests/test_cb_deliberation_zero_write（§3.6）：
  * - 播种含一条 open 念头（charge 0.9）——"决定性的一条"：若推演内混进维护写，
- *   assemble 会给它再衰减一拍（UPDATE thoughts SET charge=…），正是断言要抓的写。
+ *   maintain 会给它再衰减一拍（UPDATE thoughts SET charge=…），正是断言要抓的写。
  * - 推演 = read → buildCandidates → buildMessages → evaluateMessage，全库逻辑
  *   摘要前后逐字节不变（SA-47）。
  * - 对照组（SA-48）：同一状态上再跑一次 maintain，摘要**必须**变——没有它，
@@ -14,7 +14,7 @@ import {
   JSON_RETRY_NUDGE, buildCandidates, buildMessages, evaluateMessage, extractJson,
   type SnapshotLike,
 } from 'lykoi-decide'
-import { assemble, maintain, read } from 'lykoi-snapshot'
+import { maintain, read } from 'lykoi-snapshot'
 import {
   T0, contemplateReply, fakeLlm, logicalDigest, makeStore, stubMessageDeps, stubSnapshotDeps,
 } from './fixture.ts'
@@ -34,7 +34,7 @@ test('推演零写入（SA-47）+ 对照组（SA-48）：read→candidates→mes
     chargeHint: 0.9, now: new Date(T0.getTime() - 1_800_000),
   })
   // 步 0 对应：维护期先走一遍（之后的推演必须纯读）。
-  assemble(store, deps, T0)
+  maintain(store, deps, T0)
 
   const before = logicalDigest(path)
   const later = new Date(T0.getTime() + 60_000)
@@ -63,7 +63,7 @@ test('同一时刻两次 read 逐字段相同 + 均零写（分发给 N 个分�
   const { store, path } = makeStore()
   const deps = stubSnapshotDeps()
   store.createConcern('interest', '词源学', { weight: 0.5, origin: 'seed', now: T0 })
-  assemble(store, deps, T0)
+  maintain(store, deps, T0)
   const before = logicalDigest(path)
   const at = new Date(T0.getTime() + 30_000)
   const a = read(store, deps, at)
@@ -95,7 +95,7 @@ test('推演零写（D-2 补）：含 LLM 调用与 not_json 重试整段仍零�
   store.createThought('还没想完的一条', 'intent', 'wake', {
     chargeHint: 0.9, now: new Date(T0.getTime() - 1_800_000),
   })
-  assemble(store, deps, T0)
+  maintain(store, deps, T0)
 
   const before = logicalDigest(path)
   const later = new Date(T0.getTime() + 60_000)

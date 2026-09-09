@@ -1,19 +1,12 @@
 /**
- * 数值口径工具（W2）：Python 舍入与 statistics.median 的忠实对应物。
- *
- * 快照里的每个 round(...) 都是她看见的字节的一部分（SA-38/39 的数值面），
- * 所以不能用 JS 的 toFixed/Math.round 近似 —— 两者在精确平局（tie）上的
- * 行为与 Python round() 不同（Python = 对精确二进制值做十进制 round-half-even，
- * CPython double_round via _Py_dg_dtoa）。
+ * 快照与决策文本使用的数值格式工具。当前舍入结果会进入模型上下文。
+ * 迁移来源见 governance/adr/runtime-slimdown-01-history.md；更换数值策略需评估上下文变化。
  */
 
 /**
- * Python 3 `round(value, ndigits)` 的对应物：把 double 的**精确**十进制展开
- * 在 ndigits 位处舍入，恰在半点时取偶（banker's rounding），再正确解析回 double。
- *
- * 精确域说明：|value| ≥ 2^-48 时 `toFixed(100)` 即精确展开（double 的小数位数
- * ≤ 100）；更小的值在本包的用途（ndigits ≤ 3）下结果恒为 ±0，不受影响。
- * golden 对拍见 test/num.test.ts（值由 CPython 逐位生成）。
+ * 按 double 的精确十进制展开舍入，恰在半点时取偶。
+ * 在现有用途（ndigits ≤ 3）下，绝对值 ≥ 2^-48 可用 toFixed(100) 精确展开；
+ * 更小值舍入为正负零。历史数值样例仍保留在 test/num.test.ts。
  */
 export function pyRound(value: number, ndigits: number): number {
   if (!Number.isFinite(value)) return value
@@ -52,7 +45,7 @@ export function pyRound(value: number, ndigits: number): number {
   return neg ? -parsed : parsed
 }
 
-/** Python `statistics.median` 对应物：升序后奇数取中位、偶数取中间两数均值。 */
+/** 中位数：奇数取中间值，偶数取中间两数均值；不修改输入数组。 */
 export function median(values: readonly number[]): number {
   if (values.length === 0) {
     throw new TypeError('median: no data')
@@ -63,13 +56,8 @@ export function median(values: readonly number[]): number {
   return (sorted[mid - 1]! + sorted[mid]!) / 2
 }
 
-/** Python `f"{x:+.2f}"` 的对应物（CAUSES 插值链的渲染面，SA-13）。 */
+/** 带正负号的两位小数，用于候选动作的调节效果说明。 */
 export function plusFixed2(x: number): string {
   const sign = x < 0 || Object.is(x, -0) ? '-' : '+'
   return sign + Math.abs(x).toFixed(2)
-}
-
-/** Python `len(str)` / 切片按码点（CJK 之外含增补面字符时与 UTF-16 单元不同）。 */
-export function codePoints(text: string): string[] {
-  return [...text]
 }

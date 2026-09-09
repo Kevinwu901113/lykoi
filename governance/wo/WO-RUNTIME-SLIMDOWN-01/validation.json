@@ -1,0 +1,351 @@
+{
+  "base": "cd5bfad",
+  "node": "v26.4.0",
+  "baseline": "Full suite under sandbox; 14 listen EPERM failures in two packages. Both packages rerun on unchanged main outside sandbox: 75/75 passed.",
+  "final": "Full suite outside sandbox, exit 0; typecheck exit 0. No test cases removed or added.",
+  "runs": {
+    "baseline-test": {
+      "log": "/private/tmp/runtime-slimdown-baseline-test.log",
+      "sha256": "97cc82702b3332d270f80a6b9873138d6d74db0bbe6b67872fb434360c7010f6",
+      "packages": [
+        {
+          "package": "lykoi-adapter-telegram",
+          "tests": 102,
+          "pass": 102,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-audit",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-budget",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-converse",
+          "tests": 202,
+          "pass": 201,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1
+        },
+        {
+          "package": "lykoi-decide",
+          "tests": 123,
+          "pass": 123,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-gate",
+          "tests": 76,
+          "pass": 76,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-heart",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-ingress",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-kernel",
+          "tests": 209,
+          "pass": 209,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-learn",
+          "tests": 87,
+          "pass": 86,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1
+        },
+        {
+          "package": "lykoi-llm",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-llm-deepseek",
+          "tests": 8,
+          "pass": 0,
+          "fail": 8,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-memory",
+          "tests": 128,
+          "pass": 119,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 9
+        },
+        {
+          "package": "lykoi-organ-browser",
+          "tests": 67,
+          "pass": 61,
+          "fail": 6,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-reflow",
+          "tests": 37,
+          "pass": 37,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-regulation",
+          "tests": 45,
+          "pass": 45,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-snapshot",
+          "tests": 52,
+          "pass": 52,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-wake",
+          "tests": 38,
+          "pass": 38,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        }
+      ],
+      "totals": {
+        "tests": 1226,
+        "pass": 1201,
+        "fail": 14,
+        "cancelled": 0,
+        "skipped": 11
+      }
+    },
+    "baseline-network-test": {
+      "log": "/private/tmp/runtime-slimdown-baseline-network-test.log",
+      "sha256": "8ee2d5032f66a36b6d4a196dbfbf3538a1eac523dbdce278b07bcec4337a4512",
+      "packages": [
+        {
+          "package": "lykoi-llm-deepseek",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-organ-browser",
+          "tests": 67,
+          "pass": 67,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        }
+      ],
+      "totals": {
+        "tests": 75,
+        "pass": 75,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      }
+    },
+    "final-test": {
+      "log": "/private/tmp/runtime-slimdown-final-test.log",
+      "sha256": "d253fe3ebe27cbe8c6a566a36ea272d1afe300a881efa9c8c02c6cbb3ef4aca9",
+      "packages": [
+        {
+          "package": "lykoi-adapter-telegram",
+          "tests": 102,
+          "pass": 102,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-audit",
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-budget",
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-converse",
+          "tests": 202,
+          "pass": 201,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1
+        },
+        {
+          "package": "lykoi-decide",
+          "tests": 123,
+          "pass": 123,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-gate",
+          "tests": 76,
+          "pass": 76,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-heart",
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-ingress",
+          "tests": 18,
+          "pass": 18,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-kernel",
+          "tests": 209,
+          "pass": 209,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-learn",
+          "tests": 87,
+          "pass": 86,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 1
+        },
+        {
+          "package": "lykoi-llm",
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-llm-deepseek",
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-memory",
+          "tests": 128,
+          "pass": 119,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 9
+        },
+        {
+          "package": "lykoi-organ-browser",
+          "tests": 67,
+          "pass": 67,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-reflow",
+          "tests": 37,
+          "pass": 37,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-regulation",
+          "tests": 45,
+          "pass": 45,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-snapshot",
+          "tests": 52,
+          "pass": 52,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        },
+        {
+          "package": "lykoi-wake",
+          "tests": 38,
+          "pass": 38,
+          "fail": 0,
+          "cancelled": 0,
+          "skipped": 0
+        }
+      ],
+      "totals": {
+        "tests": 1226,
+        "pass": 1215,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 11
+      }
+    }
+  }
+}
