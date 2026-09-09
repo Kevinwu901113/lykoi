@@ -38,7 +38,7 @@ export const NARRATIVE_CLIP = 400
 export const DESCRIPTION_CLIP = 100
 export const EXPERIENCE_CLIP = 200
 
-/** 快照呈现的小时行动上限；environment 按调节系数折算剩余额度。实际执行仍经过派发权限与预算检查。 */
+/** 快照呈现的小时行动上限；environment 从实际上限扣除已使用次数。实际执行仍经过派发权限与预算检查。 */
 export const HOURLY_ACTION_CAP = 20
 
 export const OVERDUE_PENALTY_MIN_INTERVAL_H = 24.0
@@ -420,7 +420,7 @@ export function renderRestartNotice(event: RestartEvent | null | undefined): str
 }
 
 /**
- * 感知期维护：老化关切 → 补充关切地板 → 超龄惩罚 → 念头衰减。
+ * 感知期维护：老化关切 → 超龄惩罚 → 念头衰减。
  * 维护先于读取，确保衰减生成的经验进入本轮快照；返回注入时刻供读侧复用。
  * 关切地板及调节行为的去留在防御审查阶段处理。
  */

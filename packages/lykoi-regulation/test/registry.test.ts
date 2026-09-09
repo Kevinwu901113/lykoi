@@ -88,7 +88,7 @@ test('SA-81 功能性证明：出口永不点火必报 "outlet never fires (因�
   registry.phantom = {
     baseline: 0.5,
     decayKind: 'regress',
-    outletEffects: ['prefer_rest'],
+    outletEffects: ['trigger_early_integration'],
     outletDoc: '（测试用）',
   }
   const causes = {

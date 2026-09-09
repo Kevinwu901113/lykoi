@@ -138,7 +138,7 @@ test('外部动作仅在当前 Runtime 注册时成为候选，内部认知不�
   assert.ok(!buildCandidates(snap(), { wired }).some(c => c.kind === 'initiate_chat'))
 })
 
-test('D-1c：wired 不含 read_text → prefer_rest 分支的饥饿棘轮出口也被摘掉（不许摆假泄压口）', () => {
+test('高 load 和探索饥饿不绕过缺失能力的限制', () => {
   const wired = new Set(['messenger.send'])
   const base = { load: 0.8, hunger: 0.7, hourly: 2, explore: { 断粮小时: 30 } }
   // 不传 wired：三条件全立，棘轮应当把 explore 放回来（基线行为）

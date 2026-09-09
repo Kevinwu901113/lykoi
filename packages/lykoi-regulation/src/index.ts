@@ -25,8 +25,8 @@ export const REGISTRY: Readonly<Record<RegulationVariableName, RegulationVariabl
   load: {
     baseline: 0.2,
     decayKind: 'regress',
-    outletEffects: ['prefer_rest', 'trigger_early_integration'],
-    outletDoc: '高于 0.7:提示高负荷与休息偏好;高于 0.9:触发提前整合',
+    outletEffects: ['trigger_early_integration'],
+    outletDoc: '高于 0.9:触发提前整合',
   },
   relational_tension: {
     baseline: 0.3,
@@ -123,8 +123,7 @@ export const QUESTION_OVERDUE_HOURS = 48
 /** 当前认知效果的触发阈值。 */
 export const THRESHOLDS = {
   coherence_low: 0.4,
-  load_high: 0.7,
-  load_high_integration: 0.9, // P4-01: 与 load_high 分离
+  load_high_integration: 0.9,
   tension_high: 0.6,
   hunger_high: 0.6,
 } as const
@@ -137,7 +136,6 @@ export type RegulationValues = Readonly<Record<RegulationVariableName, number>>
 /** 认知效果字段；消费方读取这些字段决定当前行为。 */
 export interface CognitiveEffects {
   flag_low_coherence: boolean
-  prefer_rest: boolean
   trigger_early_integration: boolean
   relationship_weight_bonus: number
   unlock_proactive_contact: boolean
@@ -146,17 +144,15 @@ export interface CognitiveEffects {
 
 /**
  * 低 coherence 使用严格小于，其余阈值使用严格大于，等于阈值不触发。
- * load 在 (0.7, 0.9] 触发休息偏好，高于 0.9 才同时触发提前整合。
+ * load 高于 0.9 触发提前整合；其原始读数供模型解释。
  */
 export function cognitiveEffects(values: RegulationValues): CognitiveEffects {
   const lowCoherence = values.coherence < THRESHOLDS.coherence_low //          严格小于
-  const highLoad = values.load > THRESHOLDS.load_high //                       严格大于
   const highLoadIntegration = values.load > THRESHOLDS.load_high_integration
   const highTension = values.relational_tension > THRESHOLDS.tension_high
   const highHunger = values.exploration_hunger > THRESHOLDS.hunger_high
   return {
     flag_low_coherence: lowCoherence,
-    prefer_rest: highLoad,
     trigger_early_integration: highLoadIntegration,
     relationship_weight_bonus: highTension ? RELATIONSHIP_WEIGHT_BONUS : 0.0,
     unlock_proactive_contact: highTension,

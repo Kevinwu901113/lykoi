@@ -43,7 +43,7 @@ import {
   VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
 } from './vision.ts'
 import { ContinuationRunner, type ContinuationsService } from './continuation.ts'
-import { failureReason } from './failure.ts'
+import { failureReason, isTransientInterpretFailure } from './failure.ts'
 import { type ConverseMessage } from './contract.ts'
 import { D01_DEFAULTS, runInterpretWithDeadline, RunAbortedError } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
@@ -491,6 +491,7 @@ export function apply(ctx: Context, config: Config) {
     const result = await runInterpretWithDeadline(actionType, {
       timeoutS: config.interpretTimeoutS,
       retries: config.interpretRetries,
+      shouldRetry: isTransientInterpretFailure,
       logEvent,
     }, (signal) => ctx.lykoiLlm.call({
       provider: config.route,

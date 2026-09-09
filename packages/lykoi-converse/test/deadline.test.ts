@@ -1,3 +1,5 @@
+import { LlmFinishError, LlmJsonError } from 'lykoi-llm'
+import { isTransientInterpretFailure } from '../src/failure.ts'
 /**
  * D-01 超时预算红测（M4-W1 交付①）。
  *
@@ -149,16 +151,16 @@ test('判读：传输抛（非超时）同样有界重试，reason=error 且 err
   const { events, log } = collector()
   let attempts = 0
   await assert.rejects(
-    runInterpretWithDeadline('browser.open', { timeoutS: 5, retries: 1, logEvent: log }, async () => {
+    runInterpretWithDeadline('browser.open', { timeoutS: 5, retries: 1, logEvent: log, shouldRetry: isTransientInterpretFailure }, async () => {
       attempts += 1
-      throw new TypeError('provider 502')
+      throw new LlmFinishError({ reason: { kind: 'error', failure: { code: 'HTTP_ERROR', status: 502, message: 'unavailable' } }, route: 'mock', textLength: 0, reasoningLength: 0 })
     }),
-    TypeError,
+    LlmFinishError,
   )
   assert.equal(attempts, 2)
   const failed = lastEvent(events, INTERPRET_FAILURE_EVENT)
   assert.equal(failed?.reason, 'error')
-  assert.equal(failed?.error_type, 'TypeError')
+  assert.equal(failed?.error_type, 'LlmFinishError')
 })
 
 test('判读：第二次成功就是成功（重试留痕，不落失败事件）；一次过则安静', async () => {
@@ -263,4 +265,23 @@ test('三旋钮单一出处：源码常量 = Schema 缺省 = 生产 profile 的�
   assert.match(prod, new RegExp(`^\\s+cycleTimeoutS: ${D01_DEFAULTS.cycleTimeoutS}$`, 'm'))
   // 位不再是占位符（「只留位不填数」的时代结束于 M4-W1）。
   assert.equal(prod.includes('<M4 填>'), false)
+})
+
+test('interpret retry policy excludes protocol exhaustion, cancellation, permanent failures and coding errors', async () => {
+  const finish = (kind: 'error' | 'aborted', code: string, status?: number) => new LlmFinishError({
+    reason: { kind, failure: { code, status, message: 'fixture' } }, route: 'mock', textLength: 0, reasoningLength: 0,
+  })
+  for (const error of [new LlmJsonError(), finish('error', 'EMPTY_RESPONSE'), finish('aborted', 'ABORTED'),
+    finish('error', 'HTTP_ERROR', 401), finish('error', 'NO_ADAPTER'), new TypeError('bug')]) {
+    const { events, log } = collector()
+    let attempts = 0
+    await assert.rejects(runInterpretWithDeadline('terminal.exec', {
+      timeoutS: 5, retries: 1, shouldRetry: isTransientInterpretFailure, logEvent: log,
+    }, async () => { attempts++; throw error }), e => e === error)
+    assert.equal(attempts, 1)
+    assert.equal(eventNames(events).includes(INTERPRET_RETRY_EVENT), false)
+    assert.equal(lastEvent(events, INTERPRET_FAILURE_EVENT)?.attempts, 1)
+  }
+  assert.equal(isTransientInterpretFailure(finish('error', 'HTTP_ERROR', 429)), true)
+  assert.equal(isTransientInterpretFailure(finish('error', 'HTTP_ERROR', 503)), true)
 })

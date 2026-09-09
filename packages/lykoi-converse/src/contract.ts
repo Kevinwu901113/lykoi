@@ -18,7 +18,6 @@ export const CONVERSATION_KINDS = [REPLY, SILENCE, TOOL_CALL, PROMISE_FOLLOWUP] 
 
 export const CONVERSATION_CONTENT_REQUIRED = [REPLY, PROMISE_FOLLOWUP] as const
 
-/** 失败方向：对话情境 = silence —— 沉默是动作，有账（不变量 3）。 */
 
 /** 情境专属字段：由 evaluateMessage 原样抬进 Decision.envelope，在这里消毒。 */
 export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
