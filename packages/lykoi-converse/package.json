@@ -24,10 +24,12 @@
     "lykoi-memory": "0.1.0",
     "lykoi-reflow": "0.1.0",
     "lykoi-regulation": "0.1.0",
-    "lykoi-snapshot": "0.1.0"
+    "lykoi-snapshot": "0.1.0",
+    "lykoi-contracts": "0.1.0"
   },
   "devDependencies": {
     "lykoi-budget": "0.1.0",
-    "lykoi-llm-deepseek": "0.1.0"
+    "lykoi-llm-deepseek": "0.1.0",
+    "lykoi-runtime": "0.1.0"
   }
 }

@@ -2,7 +2,7 @@
  * 调节状态的纯计算：不做 I/O、不读时钟，持久化由状态层负责。
  * 变量定义包含更新原因、衰减方式和认知出口，registryProblems 检查三者连通。
  * 当前阈值和效果属于可评估的认知策略，历史编号不构成永久架构限制。
- * 迁移说明见 governance/adr/runtime-slimdown-01-history.md。
+ * 迁移说明见 governance/archive/runtime-slimdown-01-history.md。
  */
 
 // ============================== 四变量（SA-76） ==============================

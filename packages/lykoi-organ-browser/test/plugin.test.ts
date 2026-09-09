@@ -10,9 +10,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
-import { createDispatch, isUnwiredHandler, wiredActionCatalog, BodySchemaRegistry, KNOWN_ACTION_LIST }
+import { createDispatch, isUnwiredHandler, wiredActionCatalog, KNOWN_ACTION_LIST }
   from 'lykoi-kernel'
-import { clearOrganHandlers, outboundOrganResources } from 'lykoi-adapter-telegram/resources'
+import { CapabilityRuntime } from 'lykoi-runtime'
 import type { Server } from 'node:net'
 import { createHostServer, type HostDriverLike } from '../src/host.ts'
 import { ACTION_TO_OP, HOST_ERRORS, ORGAN_ACTIONS, ORGAN_ID } from '../src/protocol.ts'
@@ -70,17 +70,17 @@ async function startHost(driver: HostDriverLike): Promise<{ path: string; close:
 }
 
 test('D-1/D-9：三动作注册往返 —— 注册后 wired 含三项，注销后替身回位（无幻肢）', async () => {
-  const before = outboundOrganResources()
+  const runtime = new CapabilityRuntime()
+  const before = runtime.resources
   for (const action of ORGAN_ACTIONS) {
     const [prefix, method] = action.split('.', 2) as [string, string]
     assert.equal(isUnwiredHandler(before[prefix]![method]!), true, `${action} 起点应是替身`)
   }
 
-  const schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST })
   const client = new BrowserHostClient({ socketPath: join(TMP, 'nobody.sock') })
-  const unwire = wireBrowserOrgan(client, () => {}, schema)
+  const unwire = wireBrowserOrgan(client, () => {}, runtime)
 
-  const wired = wiredActionCatalog(outboundOrganResources()).knownActions
+  const wired = wiredActionCatalog(runtime.resources).knownActions
   for (const action of ORGAN_ACTIONS) {
     assert.ok(wired.includes(action), `${action} 应在 wired 清单里`)
   }
@@ -91,30 +91,31 @@ test('D-1/D-9：三动作注册往返 —— 注册后 wired 含三项，注销�
     'research_browser.open', 'research_browser.extract_links', 'research_browser.screenshot']) {
     assert.equal(wired.includes(still), false, `${still} 不该在 v1 接线`)
   }
-  assert.deepEqual(schema.organIds(), [ORGAN_ID])
-  assert.deepEqual(schema.snapshot().actions, [...ORGAN_ACTIONS].sort())
+  assert.deepEqual(runtime.bodySchema.snapshot().organs.map(organ => organ.organId), [ORGAN_ID])
+  assert.deepEqual(runtime.bodySchema.snapshot().actions, [...ORGAN_ACTIONS].sort())
 
   unwire()
 
-  assert.deepEqual(schema.organIds(), [])
-  const after = wiredActionCatalog(outboundOrganResources()).knownActions
+  assert.deepEqual(runtime.bodySchema.snapshot().organs.map(organ => organ.organId), [])
+  const after = wiredActionCatalog(runtime.resources).knownActions
   for (const action of ORGAN_ACTIONS) {
     assert.equal(after.includes(action), false, `${action} 注销后不该还在清单里`)
   }
-  clearOrganHandlers()
+  runtime.dispose()
 })
 
 test('D-1：注销器幂等（cordis 异常路径上可能调两次）', () => {
-  const schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST })
+  const runtime = new CapabilityRuntime()
   const client = new BrowserHostClient({ socketPath: join(TMP, 'nobody.sock') })
-  const unwire = wireBrowserOrgan(client, () => {}, schema)
+  const unwire = wireBrowserOrgan(client, () => {}, runtime)
   unwire()
   unwire()
-  assert.deepEqual(schema.organIds(), [])
-  clearOrganHandlers()
+  assert.deepEqual(runtime.bodySchema.snapshot().organs.map(organ => organ.organId), [])
+  runtime.dispose()
 })
 
 test('D-1：宿主不可达 → browser_host_unreachable，且远早于 2.5s（不抛、不阻塞）', async () => {
+  const runtime = new CapabilityRuntime()
   const events: { name: string; fields: Record<string, unknown> }[] = []
   const client = new BrowserHostClient({ socketPath: join(TMP, '不存在.sock') })
   const handler = createOrganHandler('browser.navigate', client,
@@ -129,6 +130,7 @@ test('D-1：宿主不可达 → browser_host_unreachable，且远早于 2.5s（�
 })
 
 test('D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排队', async () => {
+  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver({ delayMs: 200 }))
   const client = new BrowserHostClient({ socketPath: host.path })
   const first = client.call('navigate', { url: 'https://good.example/a' })
@@ -142,6 +144,7 @@ test('D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排�
 })
 
 test('D-1：health 通 + 三个动作经真宿主往返（假 driver）', async () => {
+  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver())
   const client = new BrowserHostClient({ socketPath: host.path })
   assert.equal((await client.call('health')).ok, true)
@@ -161,6 +164,7 @@ test('D-1：health 通 + 三个动作经真宿主往返（假 driver）', async 
 })
 
 test('D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就被拦（不打扰宿主）', async () => {
+  const runtime = new CapabilityRuntime()
   const client = new BrowserHostClient({ socketPath: join(TMP, 'nobody.sock') })
   for (const action of ['browser.navigate', 'research_browser.read_text'] as const) {
     const handler = createOrganHandler(action, client, () => {})
@@ -176,6 +180,7 @@ test('D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就�
 })
 
 test('WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.success 为 false，detail 仍在 data 里', async () => {
+  const runtime = new CapabilityRuntime()
   // 器官整条链路（假 driver → 真宿主 → 真 client → 真 handler → 真 dispatch）：
   // 器官不抛而返回 {ok:false,...}，内核得听见它说的失败（否则超时记 success:true，
   // 白皮书 37.8 的回执背书在超时上失效）。
@@ -190,13 +195,12 @@ test('WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.succe
     },
   }
   const host = await startHost(timingOut)
-  const schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST })
   const client = new BrowserHostClient({ socketPath: host.path })
-  const unwire = wireBrowserOrgan(client, () => {}, schema)
+  const unwire = wireBrowserOrgan(client, () => {}, runtime)
   try {
     const dispatch = createDispatch({
       sink: { async record() {} },
-      resources: outboundOrganResources(),
+      resources: runtime.resources,
     })
     const observation = await dispatch(
       { type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
@@ -208,12 +212,13 @@ test('WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.succe
     assert.equal(observation.data.detail, '45s 未回')
   } finally {
     unwire()
-    clearOrganHandlers()
+    runtime.dispose()
     await host.close()
   }
 })
 
 test('D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL', async () => {
+  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver())
   const client = new BrowserHostClient({ socketPath: host.path })
   const events: { name: string; fields: Record<string, unknown> }[] = []
@@ -235,6 +240,7 @@ test('D-6：browser_action 摘要只有六个字段，不含正文、不含完�
 })
 
 test('D-6：auditDomain 只到 eTLD+1，畸形 URL 落 unknown', () => {
+  const runtime = new CapabilityRuntime()
   assert.equal(auditDomain('https://www.good.example/x'), 'good.example')
   assert.equal(auditDomain('https://a.b.good.co.uk/x'), 'good.co.uk')
   assert.equal(auditDomain('不是个 URL'), 'unknown')
@@ -244,6 +250,7 @@ test('D-6：auditDomain 只到 eTLD+1，畸形 URL 落 unknown', () => {
 // ============ D-2：三个动作的返回形状（表里那三行就是契约） ============
 
 test('D-2：navigate / get_text / research_read_text 的 data 键集逐字对表', async () => {
+  const runtime = new CapabilityRuntime()
   const backend = new FakeBackend({
     'https://good.example/a': { title: 'T', body: '正文' },
     'https://good.example/doc': { title: 'D', body: '外部正文' },
@@ -266,6 +273,46 @@ test('D-2：navigate / get_text / research_read_text 的 data 键集逐字对表
 })
 
 test('D-2：其余六项刻意不接 —— research_browser.open 在 op 表里也没有对应项', () => {
+  const runtime = new CapabilityRuntime()
   assert.deepEqual(Object.keys(ACTION_TO_OP).sort(), [...ORGAN_ACTIONS].sort())
   assert.equal(Object.hasOwn(ACTION_TO_OP, 'research_browser.open'), false)
+})
+
+// This loads the real Cordis plugin against a local host; Telegram is absent.
+test('real Browser plugin can load after consumer, unload, and reload without stale dispatch or inventory', async (t) => {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const runtimePlugin = await import('lykoi-runtime')
+  const browserPlugin = await import('../src/index.ts')
+  const { OrganInventoryCache } = await import('lykoi-decide')
+  const ctx = new Context()
+  const events: Record<string, unknown>[] = []
+  ctx.provide('audit', { async record(event) { events.push(event) } })
+  const infrastructure = await ctx.plugin(runtimePlugin)
+  t.after(() => infrastructure.dispose())
+  const runtime = ctx.lykoiRuntime
+  const cache = new OrganInventoryCache({ bindings: () => [], catalog: runtime.catalog })
+  const stopListening = runtime.onChange(() => cache.invalidate())
+  t.after(stopListening)
+  assert.equal(cache.block(), null)
+  const host = await startHost(fakeDriver())
+  t.after(host.close)
+  const dispatch = createDispatch({ sink: { async record() {} }, resources: runtime.resources })
+  const fiber = await ctx.plugin(browserPlugin, { socketPath: host.path })
+  t.after(() => fiber.dispose())
+  assert.match(cache.block()!, /research_browser.read_text/)
+  const captured = runtime.resources.research_browser!.read_text!
+  const observation = await dispatch({ type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
+    { context: { origin: 'autonomous' } })
+  assert.equal(observation.success, true)
+  assert.ok(events.some(event => event.type === 'browser_action'))
+  await fiber.dispose()
+  assert.equal(cache.block(), null)
+  assert.deepEqual(runtime.bodySchema.snapshot().actions, [])
+  await assert.rejects(captured({ url: 'https://good.example/doc' }), /retired/)
+  const stopped = await dispatch({ type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
+    { context: { origin: 'autonomous' } })
+  assert.equal(stopped.success, false)
+  const reloaded = await ctx.plugin(browserPlugin, { socketPath: host.path })
+  t.after(() => reloaded.dispose())
+  assert.match(cache.block()!, /research_browser.read_text/)
 })

@@ -62,10 +62,10 @@ import { DEFAULT_BASELINE_MIN } from 'lykoi-heart'
 import {
   createDispatch, isActive as chatIsActive,
   notificationsRemainingToday, pendingCount, proactiveRemainingToday,
-  setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent, wiredActionCatalog,
+  setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent,
 } from 'lykoi-kernel'
 import {
-  outboundOrganResources, setMessengerLogEvent, setTransportLogEvent,
+  setMessengerLogEvent, setTransportLogEvent,
 } from 'lykoi-adapter-telegram'
 import { maybeRunFocusCycle, maybeRunIntegration } from 'lykoi-learn'
 import type {} from 'lykoi-llm'
@@ -479,7 +479,7 @@ declare module '@deepseek-ai/cordis' {
 }
 
 export const name = 'lykoi-wake'
-export const inject = ['heart', 'lykoiLlm', 'audit']
+export const inject = ['heart', 'lykoiLlm', 'audit', 'lykoiRuntime']
 
 export interface Config {
   /** state 副本路径（golden devstate 永远只读——生产接的是治理侧发的可写副本）。 */
@@ -531,19 +531,16 @@ export function apply(ctx: Context, config: Config) {
   // 共用一份内核；两处 personaToml 分叉时由 path 守卫启动即炸。
   const persona = getPersona(resolve(config.personaToml))
   const notifications: NotificationsView = emptyNotifications // M3-W3 接 kernel 通知队列
-  // WO-FIX-LOOP-01 D-1b：只调一次 outboundOrganResources()，同一实例既喂
-  // dispatch 又喂器官清单的动作轴——两处不再各摸各的资源注册表。
-  const resources = outboundOrganResources()
-  const wiredCatalog = wiredActionCatalog(resources)
+  // Dispatch and capability rendering share the same live Runtime view.
+  const resources = ctx.lykoiRuntime.resources
+  const wiredCatalog = ctx.lykoiRuntime.catalog
   const organs = new OrganInventoryCache({
     persona,
     bindings: () => store.identityBindingInventory(),
-    // D-1b 改口：清单只列**真接得通**的动作子集（`wiredActionCatalog`），不再
-    // 是 `kernelActionCatalog` 的 18 项全表——器官清单四条禁止全朝"往少了说"，
-    // 这一处此前反了方向。
     catalog: wiredCatalog,
     logEvent,
   })
+  ctx.effect(() => ctx.lykoiRuntime.onChange(() => organs.invalidate()), 'capability view')
 
   // M3-W1 接线：真 kernel dispatch（reflow 的 DispatchFn 接口位在此换真身）。
   // origin 由接线方盖章（wake=autonomous —— 永不由模型给）；runId 贯穿审计行；
@@ -627,9 +624,8 @@ export function apply(ctx: Context, config: Config) {
       organBlock: () => organs.block(),
     },
     logEvent,
-    // D-1c 传参：wake 传 `new Set(catalog.knownActions)`——她若仍选 explore，
-    // 既有位点②（kind_not_in_candidates 降级 + capability_gap）接住，不另造。
-    wiredActions: new Set(wiredCatalog.knownActions),
+    // Candidate availability follows registration and retirement in this Runtime.
+    wiredActions: ctx.lykoiRuntime.actions,
     // SA-171 接真（W4）：整合与专注挂 lykoi-learn 的闸+周期。origin 分账
     // （SA-172）：同一 autonomous_cognition 路由上按 origin 记三本账，runId 用
     // 本拍的（一拍一个 run_id）。now 从 clock 取——学习环写面全显式传时刻（C-23）。

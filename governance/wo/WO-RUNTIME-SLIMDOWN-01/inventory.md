@@ -1,18 +1,14 @@
-# 第一阶段：保留、删除、迁移清单
+# P0-A：清单与安全减法（历史基线）
 
 审查基线：`main@cd5bfad`（2026-09-09，本地主仓干净）。此处描述代码事实，不代表生产版本或生产验收。
 
-用户确认的总顺序：迁移不变量先分类 → Runtime Slimdown → 插件解耦 → 防御审查 → Character Instance → 统一 Cognition → 能力系统 → Task 最小骨架 → Resolver → Delegation / Everything 与完整 Task → Forge → 身体与体验。
+Planning / current direction（可随产品证据调整，不是永久不变量）：迁移不变量先分类 → Runtime Slimdown → 插件解耦 → 防御审查 → Character Instance → 统一 Cognition → 能力系统 → Task 最小骨架 → Resolver → Delegation / Everything 与完整 Task → Forge → 身体与体验。
 
 ## 范围与证据
 
 静态扫描覆盖 18 个包、97 个 src TypeScript 文件、31,937 行；43 条包间静态依赖边。识别 453 个含迁移线索的注释、212 个 catch、146 处防御关键词标识符。这些是检索线索，不能解释为 212 个缺陷或已完成全面防御审查。
 
-原始依赖边及文件行号在 [inventory-before.json](inventory-before.json)，重跑命令：
-
-```sh
-node governance/wo/WO-RUNTIME-SLIMDOWN-01/inventory.mjs
-```
+原始机器输出与一次性脚本可从提交 `57ada64` 恢复；不再长期随源码维护。
 
 统计不覆盖动态依赖、外部消费者或服务器资产。人工跟踪了下列关键调用链；其余分支与具体防御仍待分批审查。当前白皮书已通读；历史 Python 实现状态不作为当前能力事实。
 
@@ -86,7 +82,7 @@ flowchart LR
 
 | 优先级 | 批次 | 价值 / 工作量 | 必要验证 |
 | --- | --- | --- | --- |
-| P0 | 本单，快照与调节首批减负 | 建立可评审基线 / 小 | 去注释执行代码等价、零写测试、全量与 typecheck |
+| P0-A | 本单，快照与调节首批减负 | 建立可评审基线 / 小 | 去注释执行代码等价、零写测试、全量与 typecheck |
 | P1 | contracts 与 runtime 注册基础 | 解除互相 import 和模块单例 / 中到大 | 两个独立 Context 同时注册相同动作互不串扰；dispose 后各自引用失效；保留现有权限门 |
 | P1 | BodySchema 服务与插件接线 | 消除 Browser 代建服务与 YAML 顺序依赖 / 中 | 有无 Telegram 均可建立能力视图；交换器官和消费者启动顺序仍可调用；卸载无残留 handler |
 | P2 | 行为防御与迁移测试退休 | 把角色选择交还模型 / 大 | 零关切整合、失败终态、真实硬预算、可见候选集合，必要的同输入影子对比 |

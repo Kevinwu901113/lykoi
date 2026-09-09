@@ -1,3 +1,4 @@
+import { outboundOrganResources } from './resources.ts'
 /**
  * lykoi-adapter-telegram — 哑适配器（M1 波次 2 交付③）。
  *
@@ -648,7 +649,7 @@ function loadArchive(path: string): ArchiveFile {
 
 export const name = 'lykoi-adapter-telegram'
 // 依赖显式化：audit（治理地基①）、lykoiMemory（绑定查询②d）、telegramTransport（传输 seam）。
-export const inject = ['audit', 'ingress', 'lykoiMemory', 'telegramTransport']
+export const inject = ['audit', 'ingress', 'lykoiMemory', 'telegramTransport', 'lykoiRuntime']
 
 export interface Config {
   cursorPath: string
@@ -733,6 +734,16 @@ export function apply(ctx: Context, config: Config) {
     pollTimeoutS: config.pollTimeoutS,
   })
   ctx.provide('messenger', adapter)
+  const outbound = outboundOrganResources()
+  ctx.effect(() => ctx.lykoiRuntime.register({
+    organId: 'telegram',
+    handlers: Object.fromEntries(['messenger.send', 'messenger.read', 'notify.owner',
+      'autonomy.queue_notification', 'autonomy.initiate_chat'].map(action => {
+      const [prefix, method] = action.split('.') as [string, string]
+      return [action, outbound[prefix]![method]!]
+    })),
+    sideEffects: [],
+  }), 'telegram capabilities')
   // M3-W3：**这个进程的 `messenger.send` 从此真的说得出话**（活体
   // `messenger._TRANSPORT = transport` 那一行的对应物，telegram_device.py:529）。
   // 于是她的每一条出站 —— 回复 / 审批问句 / 建议问句 / 投递线 —— 都继承同一套

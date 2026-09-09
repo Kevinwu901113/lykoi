@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * WO-UTTER-01 D-7：出站长文按通道上限切分。
  *
@@ -278,6 +279,7 @@ function fakeMemory(): LykoiMemoryService {
 async function setup(post: HttpPost) {
   isolate()
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   ctx.provide('audit', audit)
   const ingress = new DurableIngress({ dbPath: ':memory:', audit, autoStart: false })

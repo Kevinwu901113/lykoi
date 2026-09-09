@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * tool_calls wire 映射（M2 遗留 #13 → M3-W2 → WO-FIX-TOOLFRAME-01 翻面）。
  *
@@ -120,6 +121,7 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   createStateFixture(dbPath)
   seedBinding(dbPath)
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)

@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * 端到端 golden 全链（W5 交付④）：fake 入站（adapter-telegram fake 传输）→
  * 盖章 → 真装配器 → fake LLM 信封 → reply 回站（reply_to=入站 id）→
@@ -74,6 +75,7 @@ async function assemble(replyText: string): Promise<Assembly> {
   createStateFixture(dbPath)
   seedBinding(dbPath) // telegram/1001 → user_001（器官清单的身份轴真源）
   const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
   const audit = fakeAudit()
   const transport = new MemoryTelegramTransport()
   ctx.provide('audit', audit)

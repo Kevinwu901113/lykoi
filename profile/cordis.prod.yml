@@ -37,6 +37,8 @@
 # 规范路径全表见 `packages/lykoi-gate/src/surface.ts` 的 `ENV_PINS`。
 # ============================================================================
 
+- id: runtime
+  name: lykoi-runtime
 - id: timer
   name: '@deepseek-ai/cordis-plugin-timer'
 
@@ -113,11 +115,7 @@
     autoStart: true
 
 # ---- 浏览器器官（她自己的那双手）-------------------------------------------
-# **位置定死在 converse / wake 之前**（WO-M5-ORGAN-BROWSER D-9）：那两个位在
-# 各自的 apply 里调 `outboundOrganResources()` 取一次快照喂 `OrganInventoryCache`，
-# 快照是**调用时**的 `_extraOrgans`。器官位排在它们后面 = 清单里没有这三项
-# （她会以为自己没有手），而这里排在前面就不必动 wake / converse 一行 src。
-#
+# Runtime service 注入负责依赖关系；注册/卸载会刷新消费者，器官位置不影响能力发现。
 # 大脑侧这一条**只需要一个 socket 路径**：Chrome、持久 profile、截图全在另一个
 # OS 用户（lykoi-browser）的独立 systemd 单元里，大脑永不 spawn 浏览器。
 # root 供给（逐条命令见 docs/browser_organ.md）：

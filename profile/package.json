@@ -21,6 +21,7 @@
     "lykoi-ingress": "0.1.0",
     "lykoi-llm": "0.1.0",
     "lykoi-memory": "0.1.0",
-    "lykoi-organ-browser": "0.1.0"
+    "lykoi-organ-browser": "0.1.0",
+    "lykoi-runtime": "0.1.0"
   }
 }

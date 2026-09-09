@@ -1,7 +1,7 @@
 /**
  * 感知快照：maintain 执行维护写入，read 只读装配。
  * 调用方注入同一个 now；读写通过状态层完成，本包不开连接、不读取系统时钟。
- * 注意力上限由下方常量定义。迁移说明见 governance/adr/runtime-slimdown-01-history.md。
+ * 注意力上限由下方常量定义。迁移说明见 governance/archive/runtime-slimdown-01-history.md。
  */
 import {
   parseStateTimestamp,

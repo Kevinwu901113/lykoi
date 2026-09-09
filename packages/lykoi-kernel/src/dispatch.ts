@@ -173,8 +173,8 @@ export const KNOWN_ACTIONS: ReadonlySet<string> = new Set(KNOWN_ACTION_LIST)
 
 // --- 资源注册表（注入面） -----------------------------------------------------
 
-export type ResourceHandler = (params: Record<string, unknown>) => Promise<unknown>
-export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, ResourceHandler>>>>
+import type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
+export type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
 
 /**
  * W1 的显式替身注册表：18 个动作的 (prefix, method) 全部就位（_resolve 的
