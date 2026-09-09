@@ -18,7 +18,6 @@ export const CONVERSATION_KINDS = [REPLY, SILENCE, TOOL_CALL, PROMISE_FOLLOWUP] 
 
 export const CONVERSATION_CONTENT_REQUIRED = [REPLY, PROMISE_FOLLOWUP] as const
 
-
 /** 情境专属字段：由 evaluateMessage 原样抬进 Decision.envelope，在这里消毒。 */
 export const ENVELOPE_FIELDS = ['tool', '情绪脉冲', 'utterances'] as const
 
@@ -372,8 +371,7 @@ export function classifyFailure(
     if (!(exc instanceof Error)) {
       return [FAIL_OTHER, 'classifier_error']
     }
-    // 新体等价档：lykoi-decide 的契约破坏全部以 Error 抛出（ValueError 对应）；
-    // 传输/超时类以命名异常区分（otherDetail）。content 缺席 = 调用没回来。
+
     if (content === null || content === undefined) {
       return [FAIL_OTHER, otherDetail(exc)]
     }

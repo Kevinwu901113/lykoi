@@ -13,14 +13,14 @@ import {
   type NotificationsView, type ReplyToNotification,
 } from 'lykoi-reflow'
 import { REGISTRY, THOUGHT_SNAPSHOT_TOP, type RegulationVariableName } from 'lykoi-regulation'
-import { pyRound, renderRestartNotice, type RestartEvent } from 'lykoi-snapshot'
+import { roundDecimal, renderRestartNotice, type RestartEvent } from 'lykoi-snapshot'
 import {
   buildEnvelopeMessages, classifyFailure, cycleCall, cycleRecord, parseEnvelope,
   CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT,
   CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
   CYCLE_UNKNOWN_TOOL_EVENT,
   ENVELOPE_RESPONSE_FORMAT, FOLLOWUP_TOOL,
-  MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
+  MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE,
   TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
 } from './contract.ts'
@@ -189,10 +189,6 @@ export type ConverseDispatchFn = (
 
 export const ASK_FALLBACK = '这事需要你点头, 我稍后再问。'
 
-/**
- * SK-77 认知侧协议：交给"拥有这场对话的调用方"去问的待批动作载荷，**恰四项**。
- * 入站 message_id 一个字节都不进来（E2 分层：对端是谁只在设备层是结构事实）。
- */
 export const DELEGATED_ASK_FIELDS = ['action_type', 'params', 'action_id', 'correlation_id'] as const
 
 export interface CycleResult {
@@ -371,7 +367,7 @@ export class Conversation {
   #pendingUndeliveredIds: number[] = []
   #relevantMemories: ConverseMessage | null = null
   #followupRequest: string | null = null
-  /** SK-77 认知侧：交给调用方去问的待批动作载荷（一轮一份，取走即清）。 */
+
   #delegatedAsk: DelegatedAsk | null = null
   #background = false
   #cycleInner: string | null = null
@@ -611,7 +607,7 @@ export class Conversation {
       this.#lastInjectedThoughtIds = tops.map((t) => t.id)
       if (tops.length > 0) {
         const lines = tops.map(
-          (t) =>`id=${t.id} kind=${t.kind} charge=${pyFloatStr(pyRound(t.charge, 3))}: ${t.content}`,
+          (t) =>`id=${t.id} kind=${t.kind} charge=${pyFloatStr(roundDecimal(t.charge, 3))}: ${t.content}`,
         )
         blocks.push([BLOCK_THOUGHTS, {
           role: 'system',
@@ -1010,7 +1006,6 @@ export class Conversation {
       && observation.data.needs_approval
     ) {
 
-      // （新体一周期恰点名一个工具，所以"这一个"就是"其后所有"。）
       this.#appendToolResult(call.id, {
         success: false, deferred: true, note: 'awaiting owner approval',
       })

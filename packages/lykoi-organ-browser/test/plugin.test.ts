@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
-import { createDispatch, isUnwiredHandler, wiredActionCatalog, KNOWN_ACTION_LIST }
+import { createDispatch, isUnwiredHandler, wiredActionCatalog }
   from 'lykoi-kernel'
 import { CapabilityRuntime } from 'lykoi-runtime'
 import type { Server } from 'node:net'
@@ -115,7 +115,6 @@ test('D-1：注销器幂等（cordis 异常路径上可能调两次）', () => {
 })
 
 test('D-1：宿主不可达 → browser_host_unreachable，且远早于 2.5s（不抛、不阻塞）', async () => {
-  const runtime = new CapabilityRuntime()
   const events: { name: string; fields: Record<string, unknown> }[] = []
   const client = new BrowserHostClient({ socketPath: join(TMP, '不存在.sock') })
   const handler = createOrganHandler('browser.navigate', client,
@@ -130,7 +129,6 @@ test('D-1：宿主不可达 → browser_host_unreachable，且远早于 2.5s（�
 })
 
 test('D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排队', async () => {
-  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver({ delayMs: 200 }))
   const client = new BrowserHostClient({ socketPath: host.path })
   const first = client.call('navigate', { url: 'https://good.example/a' })
@@ -144,7 +142,6 @@ test('D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排�
 })
 
 test('D-1：health 通 + 三个动作经真宿主往返（假 driver）', async () => {
-  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver())
   const client = new BrowserHostClient({ socketPath: host.path })
   assert.equal((await client.call('health')).ok, true)
@@ -164,7 +161,6 @@ test('D-1：health 通 + 三个动作经真宿主往返（假 driver）', async 
 })
 
 test('D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就被拦（不打扰宿主）', async () => {
-  const runtime = new CapabilityRuntime()
   const client = new BrowserHostClient({ socketPath: join(TMP, 'nobody.sock') })
   for (const action of ['browser.navigate', 'research_browser.read_text'] as const) {
     const handler = createOrganHandler(action, client, () => {})
@@ -218,7 +214,6 @@ test('WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.succe
 })
 
 test('D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL', async () => {
-  const runtime = new CapabilityRuntime()
   const host = await startHost(fakeDriver())
   const client = new BrowserHostClient({ socketPath: host.path })
   const events: { name: string; fields: Record<string, unknown> }[] = []
@@ -240,7 +235,6 @@ test('D-6：browser_action 摘要只有六个字段，不含正文、不含完�
 })
 
 test('D-6：auditDomain 只到 eTLD+1，畸形 URL 落 unknown', () => {
-  const runtime = new CapabilityRuntime()
   assert.equal(auditDomain('https://www.good.example/x'), 'good.example')
   assert.equal(auditDomain('https://a.b.good.co.uk/x'), 'good.co.uk')
   assert.equal(auditDomain('不是个 URL'), 'unknown')
@@ -250,7 +244,6 @@ test('D-6：auditDomain 只到 eTLD+1，畸形 URL 落 unknown', () => {
 // ============ D-2：三个动作的返回形状（表里那三行就是契约） ============
 
 test('D-2：navigate / get_text / research_read_text 的 data 键集逐字对表', async () => {
-  const runtime = new CapabilityRuntime()
   const backend = new FakeBackend({
     'https://good.example/a': { title: 'T', body: '正文' },
     'https://good.example/doc': { title: 'D', body: '外部正文' },
@@ -273,7 +266,6 @@ test('D-2：navigate / get_text / research_read_text 的 data 键集逐字对表
 })
 
 test('D-2：其余六项刻意不接 —— research_browser.open 在 op 表里也没有对应项', () => {
-  const runtime = new CapabilityRuntime()
   assert.deepEqual(Object.keys(ACTION_TO_OP).sort(), [...ORGAN_ACTIONS].sort())
   assert.equal(Object.hasOwn(ACTION_TO_OP, 'research_browser.open'), false)
 })

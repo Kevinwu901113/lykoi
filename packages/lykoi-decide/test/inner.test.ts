@@ -58,23 +58,15 @@ test('SA-26：有界扫描 —— 只看前 8 条，第 9 条起即使合法也�
   assert.deepEqual(out.thoughts, [])
 })
 
-test('SA-27：charge_hint 的 bool 显式排除 → 0.5；数值/数字串夹 [0,1]；坏值回落 0.5', () => {
-  const one = (charge_hint: unknown) => sanitizeInner({
+test('charge_hint validates explicit values without clamping or string coercion', () => {
+  const thoughts = (charge_hint: unknown) => sanitizeInner({
     thoughts: [{ content: 't', kind: 'intent', charge_hint }], resolve: [],
-  }, { injectedIds: [] }).thoughts[0]!.charge_hint
-  assert.equal(one(true), 0.5) //   bool ⊂ int 的坑在闸上点名
-  assert.equal(one(false), 0.5)
-  assert.equal(one(0.8), 0.8)
-  assert.equal(one('0.7'), 0.7) //  Python float('0.7') 同向
-  assert.equal(one(1.5), 1.0)
-  assert.equal(one(-3), 0.0)
-  assert.equal(one('abc'), 0.5)
-  assert.equal(one(null), 0.5)
-  // 缺席 → 0.5
-  const absent = sanitizeInner({
-    thoughts: [{ content: 't', kind: 'intent' }], resolve: [],
-  }, { injectedIds: [] })
-  assert.equal(absent.thoughts[0]!.charge_hint, 0.5)
+  }, { injectedIds: [] }).thoughts
+  for (const invalid of [true, false, '0.7', 1.5, -3, 'abc', null, NaN, Infinity]) {
+    assert.deepEqual(thoughts(invalid), [])
+  }
+  assert.equal(thoughts(0.8)[0]!.charge_hint, 0.8)
+  assert.equal(thoughts(undefined)[0]!.charge_hint, 0.5, 'omitted optional hint keeps the documented initial charge')
 })
 
 test('related_concern_hint：int 非 bool 才留，否则 null', () => {
@@ -158,22 +150,14 @@ test('SA-29：applyInner —— 创建/了结/容量软拒/异常折软拒，sum
   }]])
 })
 
-test('SA-29：createThought 抛错被折为 rejected_create（永不抛）', () => {
-  const { store } = fakeStore({
-    create: (content) => {
-      if (content === 'boom') throw new Error('unknown thought kind')
-      return 7
-    },
-  })
-  const summary = applyInner({
-    thoughts: [
-      { content: 'boom', kind: 'intent', related_concern_hint: null, charge_hint: 0.5 },
-      { content: 'fine', kind: 'intent', related_concern_hint: null, charge_hint: 0.5 },
-    ],
+test('thought persistence failure propagates once and stops subsequent writes', () => {
+  let attempts = 0
+  const { store } = fakeStore({ create: () => { attempts++; throw new Error('disk unavailable') } })
+  assert.throws(() => applyInner({
+    thoughts: ['first', 'second'].map(content => ({ content, kind: 'intent' as const, related_concern_hint: null, charge_hint: 0.5 })),
     resolve: [],
-  }, { source: 'conversation', injectedIds: [], store, now: NOW })
-  assert.deepEqual(summary.created, [7])
-  assert.equal(summary.rejected_create![0]!.reason, 'unknown thought kind')
+  }, { source: 'conversation', injectedIds: [], store, now: NOW }), /disk unavailable/)
+  assert.equal(attempts, 1)
 })
 
 test('SA-30：source 派生事件名（wake/conversation 字节不变；无 rejected_create 键省略）', () => {

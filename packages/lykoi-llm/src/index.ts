@@ -199,9 +199,6 @@ class LykoiLlm implements LykoiLlmService {
       thrown = err
     }
 
-    // ③ 后置记账：结构保证——调用发生后必 charge，成败一视同仁。
-    // TODO(M2): usage 缺席（异常中断/适配器未报量）时按 0 记账；真实 adapter
-    // 波次需要治理侧定夺是否引入保守估算，蓝图本波未定。
     const chargeInput = {
       route: options.provider,
       runId: meta.runId,

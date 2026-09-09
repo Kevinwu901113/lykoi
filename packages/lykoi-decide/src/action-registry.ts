@@ -10,16 +10,6 @@ export interface ToolSpec {
   purpose: string
 }
 
-/**
- * 工具名不能带点，所以在这里映到 kernel 的动作类型上；signature 一律以动作层
- * handler **实际读取的参数名**为准（依据逐条见 WO-FIX-TOOLSPEC-01 报告）。
- *
- * 五个动作至今只有 `unwiredResources()` 的替身（`browser.click/type/screenshot`、
- * `research_browser.open/extract_links`）：其中 research 两项按 browser 器官
- * handler 的 `needsUrl` 惯例写 `url`，另外三项没有任何真身可核，signature 记
- * `...` —— 宁可说"形状未定"，也不编一个她会照着填的假参数。生产口径下
- * `wiredActions` 会把这五行整个滤掉，她看不到它们。
- */
 export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
   terminal_exec: {
     action: 'terminal.exec',
@@ -73,8 +63,7 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
     purpose: '对话之外主动找 {owner}：问验证码、联系方式这类只有{owner}能给的信息，'
       + '或把后台跟进的结果送到他那里。正在对话里就直接 reply，不要用它送答案',
   },
-  // 三个 in-cognition 工具（S-54）：不过 dispatch，所以 action 为 null，也就不
-  // 进 TOOL_TO_ACTION 投影；参数形状与其余工具同表同形，她读到的是同一张表。
+
   vision_describe: {
     action: null,
     signature: 'attachment_id, question?',
@@ -92,7 +81,6 @@ export const TOOL_TABLE: Readonly<Record<string, ToolSpec>> = {
     purpose: '后台跟进途中给 {owner} 发一条进展；只在后台回合可用，现场对话直接在回复里说',
   },
 }
-
 
 /** Ordered autonomous vocabulary. Internal actions retain their distinct effects. */
 export const AUTONOMY_ACTIONS = {

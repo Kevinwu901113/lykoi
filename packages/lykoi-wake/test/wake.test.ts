@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE, type LlmFn } from '../src/index.ts'
+import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE } from '../src/index.ts'
 import {
-  T0, contemplateReply, fakeDispatch, fakeHeart, fakeLlm, makeStore, makeWakeDeps, rawOpen,
+  T0, contemplateReply, fakeDispatch, fakeHeart, makeStore, makeWakeDeps, rawOpen,
 } from './fixture.ts'
 
 test('idle：心脏无积压拍（claim=0）→ 零副作用', async () => {

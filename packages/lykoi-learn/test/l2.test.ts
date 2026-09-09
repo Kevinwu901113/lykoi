@@ -12,7 +12,7 @@ import {
 } from '../src/l2.ts'
 import {
   PERSONA, T0, changedTables, fakeCompletion, hoursAfter, makeStore, minutesAfter,
-  rawOpen, seedExperience, setConcernStatus, setLoad, tableDigests, eventLog,
+  rawOpen, seedExperience, setConcernStatus, setLoad, tableDigests,
 } from './fixture.ts'
 
 function setAnchor(path: string, at: Date): void {
@@ -125,7 +125,7 @@ test('信封防御式解析：畸形节降级为空；SA-97 owner_directed 只�
     ],
     concern_releases: [{ concern_id: 3, reason: '  ' }, { concern_id: 4, reason: 'ok' }],
     new_concerns: [
-      { kind: 'question', title: ' t ', owner_directed: 'true', source_experience_id: 5, weight: '2' },
+      { kind: 'question', title: ' t ', owner_directed: 'true', source_experience_id: 5, weight: 1 },
       { kind: 'question', title: '', owner_directed: true },
     ],
     narrative: { content: 'x', change_summary: '' }, // 缺 summary → null
@@ -138,7 +138,7 @@ test('信封防御式解析：畸形节降级为空；SA-97 owner_directed 只�
   })
   assert.deepEqual(parsed.concern_releases, [{ concern_id: 4, reason: 'ok' }])
   assert.equal(parsed.new_concerns.length, 1)
-  // "true" 字符串一律不算（宁可漏认不可错认）；weight "2" 经 float 后夹到 1。
+  // 字符串 true 不构成用户指定的证据。
   assert.deepEqual(parsed.new_concerns[0], {
     kind: 'question', title: 't', description: '', weight: 1,
     owner_directed: false, source_experience_id: 5,
@@ -567,4 +567,17 @@ test('zero-concern integration can consume an experience into a thread and narra
     assert.ok(store.currentCognitiveNarrative()?.content.includes('问题'))
     assert.deepEqual(summary.rejected, [])
   } finally { store.close() }
+})
+
+test('invalid concern weights are rejected instead of manufacturing a default or clamped preference', () => {
+  for (const weight of [undefined, null, true, '0.8', -1, 2, Infinity, NaN]) {
+    assert.throws(() => parseIntegrationEnvelope({new_concerns: [{kind: 'interest', title: 'x', weight}]}), /weight/)
+  }
+})
+
+test('learning JSON parser does not duplicate provider framing recovery', async () => {
+  const { extractJsonOrNull } = await import('../src/shared.ts')
+  assert.deepEqual(extractJsonOrNull('{"ok":true}'), { ok: true })
+  assert.equal(extractJsonOrNull('prefix {"ok":true} suffix'), null)
+  assert.equal(extractJsonOrNull('{"ok":true'), null)
 })

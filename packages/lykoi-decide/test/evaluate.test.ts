@@ -66,11 +66,11 @@ test('红测 3：decision 键缺失或非对象 → raise 顶层形状', () => {
 test('红测 4：kind 白名单外 → raise（不是降级 —— SA-19 分野）', () => {
   assert.throws(
     () => evaluateMessage(msg({ decision: { kind: 'dance' } }), CANDS),
-    /unknown decision kind: 'dance'/,
+    /unknown decision kind:.*dance/,
   )
   assert.throws(
     () => evaluateMessage(msg({ decision: {} }), CANDS),
-    /unknown decision kind: None/,
+    /unknown decision kind: null/,
   )
 })
 
@@ -79,14 +79,12 @@ test('红测 5：content 必填缺失 → raise；contemplate 刻意豁免（SA-
     () => evaluateMessage(msg({ decision: { kind: 'record_note', content: '  ' } }), CANDS),
     /record_note requires 'content'/,
   )
-  // contemplate 不在 CONTENT_REQUIRED（纯内向，产出在 inner）—— 不因缺 content 抛
-  const d = evaluateMessage(
-    msg({ decision: { kind: 'contemplate', reason: '' } }),
-    [...CANDS, { kind: 'contemplate', weight: 0.4, cost: 'c', note: 'n' }],
-  )
+  assert.equal(evaluateMessage(msg({ decision: { kind: 'contemplate' } }), [
+    ...CANDS, { kind: 'contemplate', weight: 0.5, cost: '0', note: '' },
+  ]).kind, 'contemplate')
 })
 
-test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/21）', () => {
+test('理由未逐字引用时仍保留模型选择', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({
@@ -99,7 +97,7 @@ test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/
   assert.deepEqual(events, [])
 })
 
-test('safe_kind 免疫：rest 未接地也永不降级（SA-03）', () => {
+test('rest 不需要逐字引用理由', () => {
   const d = evaluateMessage(
     msg({ decision: { kind: 'rest', reason: '随便一个没引用的理由' } }),
     CANDS,
@@ -113,8 +111,8 @@ test('红测 9：assessment 的 concern_id 越界 → 丢 id 留文本 + 事件 
     msg({
       meaning_assessment: [
         { item: '快照条目甲', meaning: 'mmmm', concern_id: 99, pull: 0.4 },
-        { item: '快照条目乙', meaning: 'nnnn', concern_id: 7, pull: '0.8' },
-        { item: 3, meaning: null, concern_id: true, pull: 2.5 }, // 类型垃圾
+        { item: '快照条目乙', meaning: 'nnnn', concern_id: 7, pull: 0.8 },
+        { item: 3, meaning: null, concern_id: true, pull: 0.2 }, // 非法 concern_id 不进入关联集
         'not-a-dict',
       ],
       decision: { kind: 'explore', url: 'https://x.example', reason: '引用:快照条目甲' },
@@ -125,7 +123,7 @@ test('红测 9：assessment 的 concern_id 越界 → 丢 id 留文本 + 事件 
   assert.deepEqual(d.meaning_assessment, [
     { item: '快照条目甲', meaning: 'mmmm', pull: 0.4 },
     { item: '快照条目乙', meaning: 'nnnn', concern_id: 7, pull: 0.8 },
-    { item: '3', meaning: '', pull: 1.0 }, // bool concern_id 被拒；pull 夹到 1
+    { item: '3', meaning: '', pull: 0.2 }, // bool concern_id 被拒，模型给出的 pull 保留
   ])
   assert.deepEqual(events, [
     ['grounding_concern_out_of_snapshot', { concern_id: 99, where: 'assessment' }],
@@ -277,4 +275,13 @@ test('D-2 路径 4 反例：decisionConcernId 为 null/未命中 → 不因结�
 
 test('domain evaluation requires canonical JSON; provider framing is handled by LLM adapter', () => {
   assert.throws(() => extractJson('前缀 {"decision":{"kind":"rest"}}'), /invalid decision JSON/)
+})
+
+test('assessment does not manufacture strength by coercing or clamping invalid pull', () => {
+  for (const pull of [true, '0.8', -1, 2.5, null]) {
+    assert.throws(() => evaluateMessage(msg({
+      meaning_assessment: [{ item: '一条观察', meaning: '需要理解', pull }],
+      decision: { kind: 'rest', reason: '' },
+    }), CANDS), /assessment pull/)
+  }
 })

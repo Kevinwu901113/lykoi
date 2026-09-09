@@ -1,24 +1,3 @@
-/**
- * persona 内核与投影（cognition/config.py + memory/persona.py 移植；SA-154..159）。
- *
- * Lykoi 有两层。本模块管**先天**层：一份 TOML（owner 域、进程外）说她是谁。
- * `parsePersonaData` 严格校验 —— 缺 section 或字段就抛：一个坏内核必须在启动时
- * 炸，而不是被静默默认值糊过去（SA-156 fail-fast）。`buildPersonaKernel` 把
- * 校验过的配置装配成 system-prompt 块，**逐字节相同**地注入对话路径与自主唤醒
- * （SA-17：醒着还是在聊天，她是同一个人）。本函数放在共享处（G-7 工程面）：
- * W5 的对话装配器 import 同一个函数 —— 内核只有这一个装配点（SA-154）。
- *
- * **后天**层（memory insights，`buildPersonaPrompt`）叠在内核之上、是会演化的
- * 那部分。时变内容（restart notices / notes / insights）不属于内核，由调用方
- * 围绕它叠加（SA-155）。
- *
- * W5 收口：TOML 文件加载（tomllib 对应物）+ 进程级缓存 getPersona
- * （改 TOML 需重启，与模块级 prompt 常量同一契约）见 ./persona-toml.ts；
- * 种子（出生证语义）见 ./seed.ts。
- */
-
-// ============================== 类型（config.py:31-73 对应） ==============================
-
 export interface PersonaIdentity {
   name: string
   self: string
@@ -67,8 +46,6 @@ export class PersonaConfigError extends Error {
   }
 }
 
-// ============================== 校验（config.py:81-157 逐字对应） ==============================
-
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -108,11 +85,6 @@ function strList(block: Record<string, unknown>, sec: string, key: string): read
   return [...value]
 }
 
-/**
- * load_persona 的校验半段（SA-156）：五个 section（identity/voice/relationship/
- * personality/interests）与全部字段类型严格校验，任何缺失/类型错 →
- * PersonaConfigError。文件 I/O（tomllib 对应物）归 W5。
- */
 export function parsePersonaData(data: unknown): PersonaConfig {
   if (!isPlainObject(data)) {
     throw new PersonaConfigError('persona TOML must parse to a table at top level')
@@ -151,22 +123,6 @@ export function parsePersonaData(data: unknown): PersonaConfig {
   }
 }
 
-// ============================== 内核装配（config.py:172-206；SA-154） ==============================
-
-/**
- * 把先天内核装配成一个确定性的 system-prompt 块（九段拼装逐字，含全角
- * `（）。` —— 字节级契约，fixture 对拍 sha 见测试）。
- *
- * DETERMINISTIC 且 PATH-AGNOSTIC：同一 cfg 永远产出完全相同的文本，且本函数是
- * 内核唯一的装配点 —— 对话路径与自主唤醒因此逐字节注入同一个自我（SA-17，
- * 活体由 test_persona::test_dual_path_kernel_is_identical 钉住，新体见
- * prompt.test.ts）。时变内容（restart notices、notes、insights）不属于这里，
- * 由调用方围绕这个块叠加（SA-155）。
- *
- * v2 分叉点（SA-157）：persona-v2 双层（actual vs as_presented、audience-aware
- * rewriting）会在**这个函数**分叉 —— 它会接一个 audience 参数并输出被呈现的
- * 自我。v1 是单层：有且只有一个自我，原样注入。
- */
 export function buildPersonaKernel(cfg: PersonaConfig): string {
   const ident = cfg.identity
   const rel = cfg.relationship
@@ -190,9 +146,6 @@ export function buildPersonaKernel(cfg: PersonaConfig): string {
   return parts.join('\n')
 }
 
-// ============================== 后天投影（memory/persona.py；SA-158） ==============================
-
-/** 投影的读依赖：insights 按类读取（lykoi-memory/rw 的 getInsights 结构化子集）。 */
 export interface InsightsReader {
   getInsights(category: string): { content: string }[]
 }
@@ -208,16 +161,6 @@ function bullets(rows: { content: string }[]): string {
   return rows.map((row) => `- ${row.content}`).join('\n')
 }
 
-/**
- * persona 投影（memory/persona.py:18-28 逐字；SA-158）。投影不是存储：
- * 她的 persona 不是存起来的对象，而是在需要的那一刻从 persona/preference 两类
- * insights 投影出来的。
- *
- * 三条不可动的形状：① 非空时**前置 "\n\n"**；② 两节之间也是 "\n\n"；
- * ③ 全空返回**空串**（decide 侧 buildMessages 据此决定加不加这条 system
- * 消息 —— 空串不注入）。
- */
-/** 固定三种模板位；一次替换，不解释实例值中的模板字符。 */
 export function renderOwnerTemplate(text: string, persona?: PersonaConfig): string {
   const names = { owner: persona?.voice.address_owner ?? '所有者',
     owner_name: persona?.owner?.name ?? persona?.voice.address_owner ?? '所有者',

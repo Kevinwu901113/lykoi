@@ -1,17 +1,3 @@
-/**
- * 出站器官的资源注册面（W1 TODO ①"unwiredResources 换装"的 W3 那一批）。
- *
- * 换装四个动作：`messenger.send` / `messenger.read`（resources/messenger.py，
- * SK-80）、`notify.owner`（resources/notify.py，SK-60）、
- * `autonomy.queue_notification` + `autonomy.initiate_chat`（resources/autonomy.py）。
- * 其余 14 个动作（browser 5 / terminal.exec / research_browser 4 / delegation 3）
- * **原样留替身** —— 感知与执行器官归 M5。三道门（策略/审计/遮蔽）不因这次换装
- * 移动一行。
- *
- * SK-56 的结构面在这里成立：`sendNotification` 的**唯一合法调用方**就是本文件里
- * 那两个 handler（`notify.owner` 与 `autonomy.queue_notification`）—— 认知、surface
- * 与调度器一律经 `kernel.dispatch` 进来。治理不变量测试静态钉这条。
- */
 import {
   sendNotification, trySend as proactiveTrySend, unwiredResources,
   type ResourceHandler, type ResourceRegistry,
@@ -19,11 +5,6 @@ import {
 import { appendOutbox } from './outbox.ts'
 import * as messenger from './messenger.ts'
 
-/**
- * 本 handler 会给通知打的 origin。**`autonomous` 被刻意排除**（SK-60）：自主环
- * 有它自己的 allow-list 动作（`autonomy.queue_notification`），不许经 notify.owner
- * 够到 Kevin —— 否则那条路上的日上限/冷却/同题去重就成了一个可以绕开的建议。
- */
 export const NOTIFY_ALLOWED_ORIGINS: ReadonlySet<string>
   = new Set(['interactive', 'scheduler', 'system'])
 

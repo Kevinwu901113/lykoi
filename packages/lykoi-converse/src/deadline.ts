@@ -51,7 +51,7 @@ export class DeadlineExceededError extends Error {
 
 /** 毫秒计的单调读点（超时判定与 elapsed 元数据共用它 —— 播种与读取同钟）。 */
 export function monotonicNowMs(): number {
-  return performance.now() // realtime-allow: 时延量真实墙钟（与 G-10 周期时延同法）
+  return performance.now()
 }
 
 /** 秒 → 毫秒；非有限/非正数 = 不设限（`0` 是「关掉这条边」的显式写法）。 */
@@ -145,8 +145,7 @@ export async function runInterpretWithDeadline<T>(
         })
         continue
       }
-      // 终局：形状与 G-10 的 u3_cycle_failed 同族（error_type/elapsed_ms/
-      // reason/attempts），**零正文**。
+
       opts.logEvent(INTERPRET_FAILURE_EVENT, {
         action_type: actionType,
         error_type: errorType,

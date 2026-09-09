@@ -5,13 +5,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  KIND_CONCERN_RELEASE, KIND_PERMISSION_RULE, KIND_STANDING_GRANT, PERMISSION_MARKERS,
+  SuggestionLineageError, KIND_CONCERN_RELEASE, KIND_PERMISSION_RULE, KIND_STANDING_GRANT, PERMISSION_MARKERS,
   SUGGESTION_TEXT_CHARS, dedupKey, isPermissionBoundary, stagedInstructions,
   suggestConcernRelease, suggestPermissionRule,
 } from '../src/l5.ts'
 import type { SuggestStore } from '../src/l5.ts'
 import {
-  T0, changedTables, eventLog, hoursAfter, makeStore, tableDigests,
+  T0, changedTables, hoursAfter, makeStore, tableDigests,
 } from './fixture.ts'
 
 test('SA-142：dedup_key 由代码派生 f"{kind}:{ref}"；库层 UNIQUE 保证同一件事只排一次', () => {
@@ -79,7 +79,7 @@ test('入队文本有界：suggestion_text 与 rationale 各裁 400 字符（码
   }
 })
 
-test('SA-147：血缘失败不回滚入队——建议仍在队里等 Kevin，失败落 telemetry', () => {
+test('血缘失败明确返回已持久化建议的身份，不重放入队', () => {
   const { store, log } = makeStore()
   try {
     const broken: SuggestStore = {
@@ -88,11 +88,14 @@ test('SA-147：血缘失败不回滚入队——建议仍在队里等 Kevin，�
         throw new Error('lineage table on fire')
       },
     }
-    const result = suggestPermissionRule(broken, log.logEvent, {
-      insightId: 9, conclusion: '这类事不用再问我了吧（权限）', concernId: 2, cycleId: 4, now: T0,
+    assert.throws(() => suggestPermissionRule(broken, log.logEvent, {
+      insightId: 9, conclusion: '涉及权限的结论', concernId: 2, cycleId: 4, now: T0,
+    }), (error: unknown) => {
+      assert.ok(error instanceof SuggestionLineageError)
+      assert.equal(store.getRuleSuggestion(error.suggestion.id)!.status, 'pending')
+      return true
     })
-    assert.equal(result.enqueued, true)
-    assert.equal(store.getRuleSuggestion(result.id)!.status, 'pending')
+    assert.equal(store.listRuleSuggestions(null).length, 1)
     const evt = log.of('rule_suggestion_lineage_failed')
     assert.equal(evt.length, 1)
     assert.match(String(evt[0]!.error), /lineage table on fire/)
@@ -102,7 +105,7 @@ test('SA-147：血缘失败不回滚入队——建议仍在队里等 Kevin，�
 })
 
 test('血缘正路：product=rule_suggestion，源=insight(+concern)；cycle_id=0（尚无周期）时不记血缘', () => {
-  const { store, path, log } = makeStore()
+  const { store, log } = makeStore()
   try {
     // 造一个真周期号（product_lineage.cycle_id 有 FK）。
     const cycleId = store.openFocusCycle({ now: T0 })
@@ -149,8 +152,7 @@ test('状态机（_V14）：pending→asked 原子认领；asked→declined 带�
     })
     assert.deepEqual([during.enqueued, during.reason], [false, 'cooldown'])
     // 冷却期满 → 再武装回 pending：文本刷新，ask_count 与上次 answer_text 保留。
-    const cycleId = store.openFocusCycle({ now: hoursAfter(T0, 2) })
-    void cycleId
+    while (store.currentFocusCycleId() < 33) store.openFocusCycle({ now: hoursAfter(T0, 2) })
     const rearmed = suggestConcernRelease(store, log.logEvent, {
       concern, cycleId: 33, cooldownCount: 5, now: hoursAfter(T0, 2),
     })

@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import {
   AUTONOMOUS_COOLDOWN_S, AUTONOMOUS_DAILY_CAP, NOTIFICATIONS_MAX_KEEP,
   NOTIFICATION_OUTBOX_KIND, THROTTLE_POLICIES, _autonomousThrottle,
@@ -239,10 +239,10 @@ test('主动开口预算：日 1 条 / 冷却 6h，原子占用；快照读面�
   assert.equal(trySend(T('2026-08-26T06:00:00Z')), null, '冷却过了 → 新的一天第一条')
 })
 
-test('主动开口账本**坏账本当空**（与 GK-2 的 pending 坏文件"照抄可见崩溃"刻意相反）', () => {
+test('损坏的主动开口账本不能恢复发送额度', () => {
   isolate()
   writeFileSync(proactiveChatLedgerPath(), '{ 这不是 JSON')
-  assert.equal(proactiveRemainingToday(T('2026-08-25T10:00:00Z')), 1)
-  assert.equal(trySend(T('2026-08-25T10:00:00Z')), null)
-  assert.ok(existsSync(proactiveChatLedgerPath()))
+  assert.throws(() => proactiveRemainingToday(T('2026-08-25T10:00:00Z')), SyntaxError)
+  assert.throws(() => trySend(T('2026-08-25T10:00:00Z')), SyntaxError)
+  assert.equal(readFileSync(proactiveChatLedgerPath(), 'utf8'), '{ 这不是 JSON')
 })

@@ -19,7 +19,6 @@ test('D-9：prod.yml 有 browser 位，名字与 socketPath 都对', () => {
 })
 
 test('D-9：profile/package.json 依赖了本包', () => {
-  const runtime = new CapabilityRuntime()
   const pkg = JSON.parse(readFileSync(join(REPO, 'profile', 'package.json'), 'utf8')) as
     { dependencies: Record<string, string> }
   assert.equal(pkg.dependencies['lykoi-organ-browser'], '0.1.0')

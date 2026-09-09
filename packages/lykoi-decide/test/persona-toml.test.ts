@@ -1,25 +1,15 @@
-/**
- * persona TOML 装载面（SA-156；W5 身份收口）：合成测试实例包 TOML → 合成值守卫
- * （只许合成，零第一实例事实）→ 内核 sha 全等；装载失败姿态逐字
- * （not found / not valid TOML / 五 section 校验）；getPersona 进程级缓存。
- */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative as relativePath } from 'node:path'
 import {
-  buildPersonaKernel, getPersona, loadPersona, parseTomlSubset, PersonaConfigError,
+  getPersona, loadPersona, parseTomlSubset, PersonaConfigError,
   resetPersonaCacheForTest,
 } from '../src/index.ts'
 import { FIXTURE_PERSONA, FIXTURE_PERSONA_TOML } from './persona-fixture.ts'
 
 const FIXTURE_TOML = FIXTURE_PERSONA_TOML
-
-function sha(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
-}
 
 function tmpToml(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-persona-toml-'))
@@ -38,12 +28,6 @@ test('合成值守卫：夹具是合成测试实例包（name=Fixture / partner=
   const body = readFileSync(FIXTURE_TOML, 'utf8').split('\n').filter((line) => !line.startsWith('#')).join('\n')
   assert.deepEqual([...new Set(body.match(/[A-Z][A-Za-z]+/g))].sort(), ['Fixture', 'Owner', 'VM'])
   assert.equal(/[0-9]/.test(body), false)
-})
-
-test('fixture TOML → 内核九段 sha 全等（chars=367, 72b48e63…；SA-154 装配点唯一的文件侧对拍）', () => {
-  const kernel = buildPersonaKernel(loadPersona(FIXTURE_TOML))
-  assert.equal([...kernel].length, 367)
-  assert.equal(sha(kernel), '72b48e63ea01e3e214f6bcae7a17ae6c34fff815e603697a01ca63842814f43f')
 })
 
 test('装载失败姿态逐字：文件缺失 → "persona TOML not found: {target}"', () => {

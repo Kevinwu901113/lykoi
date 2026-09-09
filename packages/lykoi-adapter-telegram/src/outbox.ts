@@ -1,25 +1,7 @@
-/**
- * chat outbox + 未送达账本（shared/chat_outbox.py 逐字对拍；SK-79/81 的存储面）。
- *
- * **上半张表：她在对话框里的主动发言队列。** 后台跟进（followup）的结果与自主
- * 路径的主动开口（proactive）排进这个出站队列。它是对话 surface 的延伸（和同步
- * 回复同级），不是对外副作用通道，所以**入队本身不过 kernel.dispatch** —— 内容
- * 来自一个完整审计过的回合。正式读取是**非破坏性**的广播日志，每个消费者只持
- * 自己的 cursor。
- *
- * **下半张表另住一张：Telegram 出站的未送达账本**（WO-U0 ②/WO-U1 ②）。两张表
- * **互不读写**，同住是为了层次（文件头逐字理由见下面那一节）。
- *
- * Python→TS 形态适配：`file_lock` 跨进程锁 → 单进程插件树里的同步 RMW（与
- * kernel/jsonio.ts 的 GK-4 同源声明逐字同理由）；`write_json_atomic` → 同目录
- * 临时文件 + fsync + rename。
- */
 import { existsSync, readFileSync } from 'node:fs'
 import { writeJsonAtomicSync } from './jsonio.ts'
 
-// ============================================================================
 // 上半张表：主动发言队列（广播日志）
-// ============================================================================
 
 export function chatOutboxPath(): string {
   return process.env.LYKOI_CHAT_OUTBOX ?? 'var/state/chat_outbox.json'
@@ -47,11 +29,6 @@ function _intId(item: { id?: unknown }): number {
   return Number.isFinite(n) ? n : 0
 }
 
-/**
- * 读 outbox state（chat_outbox._load_state 逐字）。v1 裸 list **就地迁移**（下一次
- * append 才持久 v2；读保持零副作用）；非法形状抛 —— **无保护，刻意**（R-14 与
- * GK-2 同族：可见的崩溃，不是静默的数据丢失）。
- */
 export function loadOutboxState(): OutboxState {
   const path = chatOutboxPath()
   if (!existsSync(path)) return { version: 2, next_id: 1, items: [] }
@@ -77,11 +54,6 @@ export function loadOutboxState(): OutboxState {
   }
 }
 
-/**
- * 入队一条主动发言。`kind` 标注消息类别（followup=进度/结果、
- * approval_request=挂起任务的审批请求、proactive=自主路径的主动开口、
- * notification=GK-8 开启后并入的通知）；不认识的 kind 当普通消息打印即可。
- */
 export function appendOutbox(
   content: string,
   kind = 'followup',
@@ -104,13 +76,6 @@ export function appendOutbox(
   return msg
 }
 
-/**
- * 账本里当前最大的 id（空账本 = 0）—— **纯读，不发事件**。
- *
- * 给**新消费者**定游标初值用："从现在起"，而不是把积压的陈货全灌一遍
- * （SK-79）。刻意不复用 `readAfter`：那个会记一条 `chat_outbox_read`，而定初值
- * 并没有读走任何一条消息，记了就是假账。
- */
 export function outboxNewestId(): number {
   const items = loadOutboxState().items
   return items.length > 0 ? _intId(items[items.length - 1]!) : 0
@@ -156,22 +121,6 @@ export function readOutboxAfter(
   }
 }
 
-// ============================================================================
-// 下半张表：未送达账本（WO-U0 ② 的存储面 / WO-U1 ② 的读取面）
-// ============================================================================
-// 为什么和主动发言队列同住一个模块 —— 层次，不是省事（活体文件头逐字）：
-//   * 账本住在两边都够得着的最底层：投递失败的一侧写得了，装配上下文的一侧读得
-//     了，谁都不必跨层 import 谁。（新体形态：converse 经注入的 `UndeliveredView`
-//     读，源码上一次 cognition→resources 的 import 都不发生。）
-//   * 两者同类：都是"她说出去的话"的持久账，共用同一套原子写纪律。**但两张表
-//     互不读写**：上面的 outbox 是广播日志（消费者是 cursor），这里是 Telegram
-//     出站的未送达记录 —— U0 侦查早已判定前者不能兼任后者。
-//   * 不新建模块：新文件 = manifest 多一条受保护源文件，而这件事不值一条。
-//
-// **单写者**：记录的**产生**仍只有一个入口 —— `transport.recordUndelivered`
-// （U0 口径：一条出站消息要么有 message_id，要么在这张表里）。本节只提供存取
-// 原语与 surfaced 标记，自己绝不造记录。
-
 export function undeliveredPath(): string {
   return process.env.LYKOI_TELEGRAM_UNDELIVERED ?? 'var/state/telegram_undelivered.json'
 }
@@ -197,23 +146,13 @@ interface UndeliveredState {
   items: UndeliveredRecord[]
 }
 
-/**
- * 读未送达账本。**记录本身损坏时当空处理**：丢掉旧记录也好过让一次投递失败
- * 升级成崩溃（与上面 outbox 的"坏文件抛"**刻意相反** —— R-14 坏文件语义四档，
- * 逐文件复刻活体的取舍，不统一）。
- */
 function _loadUndelivered(): UndeliveredState {
   const path = undeliveredPath()
   if (!existsSync(path)) return { next_id: 1, items: [] }
-  let raw: unknown
-  try {
-    raw = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return { next_id: 1, items: [] }
-  }
+  const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
   if (typeof raw !== 'object' || raw === null
     || !Array.isArray((raw as Record<string, unknown>).items)) {
-    return { next_id: 1, items: [] }
+    throw new TypeError('invalid undelivered ledger')
   }
   const doc = raw as Record<string, unknown>
   const items = doc.items as UndeliveredRecord[]
@@ -249,14 +188,6 @@ export function undelivered(limit = 50): UndeliveredRecord[] {
   return _loadUndelivered().items.slice(-limit)
 }
 
-/**
- * 还没进过她上下文的未送达记录，最近的 `limit` 条（最新在后）。
- *
- * **纯读**：不建文件、不写文件 —— 账本不存在时返回 `[]`，于是"她没有掉过话"的
- * 那些天，上下文与今天逐字节一致（WO-U1 ③）。标记由 `markUndeliveredSurfaced`
- * 单独完成，因为"装配了一次"不等于"她真的看到了一次"：装配在预算收敛循环里
- * 会跑好几遍。
- */
 export function unsurfacedUndelivered(
   contextId: string | null = null,
   limit: number | null = 3,

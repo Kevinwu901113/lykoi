@@ -7,7 +7,7 @@ import type { ConversationDirection, ExperienceSource } from 'lykoi-memory/rw'
 import {
   conversationTimestamps,
   medianGapHours,
-  pyRound,
+  roundDecimal,
   sameWindowDays,
   type SnapshotStore,
 } from 'lykoi-snapshot'
@@ -101,7 +101,7 @@ function pyStr(v: unknown): string {
 }
 
 function pyFloat1(x: number): string {
-  const r = pyRound(x, 1)
+  const r = roundDecimal(x, 1)
   return Number.isInteger(r) ? r.toFixed(1) : String(r)
 }
 
@@ -439,7 +439,7 @@ export function cheapTick(opts: {
           { salience: SILENCE_SALIENCE, now },
         )
         store.applyRegulationCause('owner_silence_anomaly', { now })
-        logEvent?.('mind_silence_anomaly', { hours_quiet: pyRound(hoursQuiet, 1) })
+        logEvent?.('mind_silence_anomaly', { hours_quiet: roundDecimal(hoursQuiet, 1) })
         out.silence_anomaly = true
       }
     }

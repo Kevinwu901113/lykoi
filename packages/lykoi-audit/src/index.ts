@@ -1,29 +1,8 @@
-/**
- * lykoi-audit — 治理地基①：append-only 审计 sink（JSONL）。
- *
- * 行为正本：治理仓库 WO-M0-STATE-CONTRACT §6 R-16 —
- *   「audit.jsonl 的 append-only：O_APPEND 单次 write；保真：单次 write 一整行
- *    （不分片），否则多进程并发追加会交错。」
- *
- * M1 写 dev 路径（默认 var/audit.jsonl）；M3 接 /var/log 权限模型
- * （root 属主 + chattr +a 由治理特权层落，不在插件树内）。
- *
- * 纪律：
- * - 只以 O_APPEND（flag 'a'）打开；本模块不存在任何截断/重写代码路径（永不截断重写）。
- * - 进程内串行：record 挂在一条 promise 链上，先到先写。
- * - 写失败向调用方抛错（fail-closed 的地基；M3 权限模型在此之上）。
- */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { mkdir, open, readFile, type FileHandle } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
-/**
- * 一条审计事件。`type` 必填；`ts` 缺省时由 sink 补 ISO-8601 UTC（毫秒 + Z）。
- * 审计行的规范信封（M3-W1 起）由 lykoi-kernel 定义并自带 ts —— dispatch 主链的
- * action_dispatch/action_result（含 decision/origin/exemption/delegation 栏）与
- * delegation_* 事件族；本 sink 保持哑管道，对新事件类零改动可用（不发明 schema）。
- */
 export interface AuditEvent {
   type: string
   ts?: string
@@ -31,7 +10,7 @@ export interface AuditEvent {
 }
 
 export interface AuditService {
-  /** 追加一行 JSON。串行、单次 write 一整行（R-16）；失败抛给调用方。 */
+
   record(event: AuditEvent): Promise<void>
   /**
    * 带稳定 event id 的幂等投影。用于 SQLite 已有 canonical 终态、JSONL 需要崩溃补账
@@ -64,7 +43,7 @@ class AuditWriter implements AuditService {
     if (!this.#opening) {
       const opening = (async () => {
         await mkdir(dirname(this.#path), { recursive: true })
-        // R-16: O_APPEND 打开；'a' 是本模块唯一的打开方式，不存在截断路径。
+
         const handle = await open(this.#path, 'a')
         this.#handle = handle
         return handle
@@ -83,7 +62,7 @@ class AuditWriter implements AuditService {
       throw new Error('lykoi-audit: sink disposed (fiber unloaded); refusing to record')
     }
     const line = { ts: new Date().toISOString(), ...event }
-    // R-16: 整行（含换行符）序列化为单个 buffer，单次 write 写入，不分片。
+
     const buf = Buffer.from((this.#needsLineBoundary ? '\n' : '') + JSON.stringify(line) + '\n', 'utf8')
     const handle = await this.#open()
     const { bytesWritten } = await handle.write(buf, 0, buf.length)

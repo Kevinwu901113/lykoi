@@ -2,10 +2,9 @@
 import {
   CAUSES,
   cognitiveEffects,
-  THRESHOLDS,
   type RegulationValues,
 } from 'lykoi-regulation'
-import { plusFixed2, pyRound } from 'lykoi-snapshot'
+import { plusFixed2, roundDecimal } from 'lykoi-snapshot'
 import {
   emitCapabilityGap,
   GAP_KIND_NOT_IN_CANDIDATES,
@@ -137,7 +136,6 @@ export function decisionToDict(decision: Decision): Record<string, unknown> {
   return out
 }
 
-/** 新体 decision 持久化口径（W1 TODO#6 定案；文件头注释详述）。 */
 export function serializeDecision(decision: Decision): string {
   return JSON.stringify(decisionToDict(decision))
 }
@@ -230,26 +228,26 @@ export function buildCandidates(
   const catalogue: Record<KindName, Candidate> = {
     explore: {
       kind: 'explore',
-      weight: pyRound(weights.explore, 3),
+      weight: roundDecimal(weights.explore, 3),
       cost: '消耗 1 行动预算;读 1 个公开网页(只读,与 {owner} 的浏览器隔离)',
       note: `完成后 exploration_hunger ${plusFixed2(CAUSES.explore_completed![1])};`
         + '没有 url 的探索会扑空(记 failed)',
     },
     record_note: {
       kind: 'record_note',
-      weight: pyRound(weights.record_note, 3),
+      weight: roundDecimal(weights.record_note, 3),
       cost: '内部动作,不消耗行动预算',
       note: '写入我的自主笔记(append-only)',
     },
     queue_notification: {
       kind: 'queue_notification',
-      weight: pyRound(weights.queue_notification, 3),
+      weight: roundDecimal(weights.queue_notification, 3),
       cost: `消耗 1 行动预算 + 今日通知配额(剩 ${notifsLeft})`,
       note: contactNote,
     },
     initiate_chat: {
       kind: 'initiate_chat',
-      weight: pyRound(weights.initiate_chat, 3),
+      weight: roundDecimal(weights.initiate_chat, 3),
       cost: `消耗 1 行动预算 + 今日主动开口份额(剩 ${proactiveLeft};日 1 条、冷却 6 小时,比通知更紧)`,
       note: '在对话框里主动开口(kind=proactive):消息出现在与 {owner} 的对话里,'
         + '不是手机通知;打开对话就会看到'
@@ -257,20 +255,20 @@ export function buildCandidates(
     },
     tend_inner: {
       kind: 'tend_inner',
-      weight: pyRound(weights.tend_inner, 3),
+      weight: roundDecimal(weights.tend_inner, 3),
       cost: '内部动作,无外部副作用,不经 kernel',
       note: '三种形式:给一条线写进展(thread_id)/调整一条关切描述(concern_id)/给自己留 note(都不带)',
     },
     rest: {
       kind: 'rest',
-      weight: pyRound(weights.rest, 3),
+      weight: roundDecimal(weights.rest, 3),
       cost: '0',
       note: `load ${plusFixed2(CAUSES.rested![1])};下一拍由心脏节律决定`,
     },
     // §5.5 §2.1: 纯内向,花一拍,无外部副作用;围绕快照中 Top 念头/关切的推进。
     contemplate: {
       kind: 'contemplate',
-      weight: pyRound(weights.contemplate, 3),
+      weight: roundDecimal(weights.contemplate, 3),
       cost: '内部动作,花一拍,无外部副作用',
       note: '围绕快照中 Top 念头/关切的推进(新念头、resolve 既有念头、对一条 question 写部分回答)',
     },
@@ -382,18 +380,6 @@ export function buildMessages(
   return messages
 }
 
-function pyRepr(v: unknown): string {
-  if (v === undefined || v === null) return 'None'
-  if (typeof v === 'string') return `'${v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-  if (typeof v === 'boolean') return v ? 'True' : 'False'
-  return String(v)
-}
-
-function cpSlice(text: string, limit: number): string {
-  const cps = [...text]
-  return cps.length <= limit ? text : cps.slice(0, limit).join('')
-}
-
 export function extractJson(content: string | null | undefined): unknown {
   try { return JSON.parse(content ?? '') } catch { throw new Error('invalid decision JSON') }
 }
@@ -403,16 +389,6 @@ function pyStrOrEmpty(v: unknown): string {
   if (typeof v === 'string') return v
   if (typeof v === 'number' || typeof v === 'boolean') return String(v)
   return ''
-}
-
-function pyFloat(v: unknown): number | null {
-  if (typeof v === 'number') return Number.isNaN(v) ? null : v
-  if (typeof v === 'boolean') return v ? 1.0 : 0.0
-  if (typeof v === 'string' && v.trim() !== '') {
-    const n = Number(v)
-    return Number.isNaN(n) ? null : n
-  }
-  return null
 }
 
 export function sanitizeAssessment(
@@ -438,8 +414,11 @@ export function sanitizeAssessment(
         opts.logEvent?.('grounding_concern_out_of_snapshot', { concern_id: cid, where: 'assessment' })
       }
     }
-    const pull = pyFloat(Object.hasOwn(item, 'pull') ? item.pull : 0.0)
-    entry.pull = pull === null ? 0.0 : Math.max(0.0, Math.min(1.0, pull))
+    const pull = item.pull === undefined ? 0 : item.pull
+    if (typeof pull !== 'number' || !Number.isFinite(pull) || pull < 0 || pull > 1) {
+      throw new TypeError('assessment pull must be a finite number in [0, 1]')
+    }
+    entry.pull = pull
     entries.push(entry)
   }
   return entries
@@ -546,12 +525,8 @@ export function sanitizeInner(
       const kind = item.kind
       if (!(INNER_THOUGHT_KIND_WHITELIST as readonly unknown[]).includes(kind)) continue
 
-      let chargeHint = 0.5
-      const chargeRaw = Object.hasOwn(item, 'charge_hint') ? item.charge_hint : 0.5
-      if (typeof chargeRaw !== 'boolean') {
-        const parsed = pyFloat(chargeRaw)
-        if (parsed !== null) chargeHint = Math.max(0.0, Math.min(1.0, parsed))
-      }
+      const chargeHint = item.charge_hint === undefined ? 0.5 : item.charge_hint
+      if (typeof chargeHint !== 'number' || !Number.isFinite(chargeHint) || chargeHint < 0 || chargeHint > 1) continue
       const hintRaw = item.related_concern_hint
       const hint = typeof hintRaw === 'number' && Number.isInteger(hintRaw) ? hintRaw : null
       sanitizedThoughts.push({
@@ -612,19 +587,11 @@ export function applyInner(
   const created: number[] = []
   const rejectedCreate: { thought: SanitizedThought; reason: string }[] = []
   for (const t of parsedInner.thoughts) {
-    let tid: number | null
-    try {
-      tid = opts.store.createThought(t.content, t.kind, opts.source, {
-        relatedConcernId: t.related_concern_hint,
-        chargeHint: t.charge_hint,
-        now: opts.now,
-      })
-    } catch (exc) {
-
-      // 折为 rejected_create（方向：宁软拒不断拍）。
-      rejectedCreate.push({ thought: t, reason: exc instanceof Error ? exc.message : String(exc) })
-      continue
-    }
+    const tid = opts.store.createThought(t.content, t.kind, opts.source, {
+      relatedConcernId: t.related_concern_hint,
+      chargeHint: t.charge_hint,
+      now: opts.now,
+    })
     if (tid === null) {
       rejectedCreate.push({ thought: t, reason: 'capacity' })
     } else {
@@ -702,7 +669,7 @@ export function evaluateMessage(
     emitCapabilityGap(logEvent, {
       wanted: kind, reason: GAP_UNKNOWN_KIND, source: opts.gap?.source, runId: opts.gap?.runId,
     })
-    throw new Error(`unknown decision kind: ${pyRepr(kind)}`)
+    throw new Error(`unknown decision kind: ${JSON.stringify(kind ?? null)}`)
   }
 
   const contentRaw = decisionRaw.content

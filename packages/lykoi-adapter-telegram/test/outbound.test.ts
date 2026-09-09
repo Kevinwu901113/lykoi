@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  BotApiTransport, DEFINITE_FAILURE_ERRORS, MAX_RATE_LIMIT_RETRIES, NullTransport,
+  BotApiTransport, DEFINITE_FAILURE_ERRORS, MAX_RATE_LIMIT_RETRIES,
   OUTBOX_BATCH_LIMIT, OUTBOX_DELIVERABLE_KINDS, OutboundOrgan, PROACTIVE_COOLDOWN_H,
   PROACTIVE_DAILY_CAP, SEND_RETRY_BACKOFF_S, TEXT_SUMMARY_CHARS,
   UNDELIVERED_EXPERIENCE_SOURCE, UNDELIVERED_SALIENCE, appendOutbox, currentTransport,
@@ -33,7 +33,7 @@ import {
   NOTIFICATION_OUTBOX_KIND, setNotificationOutboxDelivery, upstreamBudgetedDelivery,
   type Observation,
 } from 'lykoi-kernel'
-import { isolateOutboundState } from '../src/testing.ts'
+import { ArchiveMessengerTransport, isolateOutboundState } from '../src/testing.ts'
 import { writeJsonAtomicSync } from '../src/jsonio.ts'
 
 const T0 = new Date('2026-08-25T10:00:00Z')
@@ -41,7 +41,7 @@ const T0 = new Date('2026-08-25T10:00:00Z')
 function isolate(): string {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-outbound-'))
   isolateOutboundState(dir)
-  setMessengerTransport(null) // 回到缺省 NullTransport
+  setMessengerTransport(new ArchiveMessengerTransport())
   setTransportLogEvent(null)
   setUndeliveredExperienceSink(null)
   setNotificationOutboxDelivery(false)
@@ -70,9 +70,12 @@ test('包内 JSON 原子写入：成功落盘，rename 失败清掉临时文件'
 
 // ============================== SK-80 messenger 资源契约 ==============================
 
-test('SK-80 缺省 transport 是 Null（零网络 I/O）；单写者 = 设备层才换它', () => {
+test('缺少 transport 明确失败，不制造发送成功或消耗主动额度', async () => {
   isolate()
-  assert.ok(currentTransport() instanceof NullTransport)
+  setMessengerTransport(null)
+  assert.throws(currentTransport, /transport unavailable/)
+  await assert.rejects(messengerSend({ text: 'hello', context_id: '1001' }), /transport unavailable/)
+  assert.equal(messengerProactiveRemainingToday(), PROACTIVE_DAILY_CAP)
 })
 
 test('SK-80 **只有 reply_to is None 才过原子 check-and-reserve**：应答不花预算', async () => {
@@ -104,7 +107,7 @@ test('SK-80 节流返回**结局不抛**（认知体验成结果，不是崩溃�
   await assert.rejects(() => messengerSend({ text: 'a' }), /requires 'context_id'/)
 })
 
-test('SK-80 账本**环 50** + 坏账本当空（最坏是多开一次口，仍受日上限约束）', () => {
+test('账本保留 50 条；损坏账本不能重置额度', () => {
   isolate()
   const many = Array.from({ length: 80 }, (_, i) => `2026-08-0${(i % 9) + 1}T00:00:00.000Z`)
   writeFileSync(messengerLedgerPath(), JSON.stringify(many))
@@ -113,8 +116,9 @@ test('SK-80 账本**环 50** + 坏账本当空（最坏是多开一次口，仍�
   assert.equal(ledger.length, 50, '账本环 50')
   // 坏账本
   writeFileSync(messengerLedgerPath(), 'not json at all')
-  assert.equal(messengerProactiveRemainingToday(T0), 1)
-  assert.equal(_reserveProactiveSlot(T0), null)
+  assert.throws(() => messengerProactiveRemainingToday(T0), SyntaxError)
+  assert.throws(() => _reserveProactiveSlot(T0), SyntaxError)
+  assert.equal(readFileSync(messengerLedgerPath(), 'utf8'), 'not json at all')
 })
 
 test('SK-80 冷却 6h：同日额度用完后跨日仍受冷却约束', () => {
@@ -304,7 +308,7 @@ test('SK-81 送达路：拿到 message_id 就不进账本（"没有第三种结�
 
 // ============================== SK-79 出站游标机 ==============================
 
-test('SK-79 **坏游标方向与入站刻意相反**：出站坏/首启 = 当前 max id（宁跳过不灌陈货）', () => {
+test('首启跳过历史广播；损坏游标明确失败', () => {
   isolate()
   // 账本里躺着 3 条"陈货"（历史广播日志，不是待发队列）
   appendOutbox('陈货 1', 'proactive')
@@ -317,9 +321,10 @@ test('SK-79 **坏游标方向与入站刻意相反**：出站坏/首启 = 当前
   assert.equal(loadOutboxCursor(), 3)
   // 损坏：与首启同归一个返回值 —— 仍然是"从现在起"，不是从 0 重放
   writeFileSync(outboxCursorPath(), '{ 坏掉了')
-  assert.equal(loadOutboxCursor(), null)
+  assert.throws(() => loadOutboxCursor(), SyntaxError)
   appendOutbox('新的', 'proactive')
-  assert.equal(initOutboxCursor(), 4)
+  assert.throws(() => initOutboxCursor(), SyntaxError)
+  assert.equal(readFileSync(outboxCursorPath(), 'utf8'), '{ 坏掉了')
   // 重启走**已持久化**那一支
   saveOutboxCursor(2)
   assert.equal(initOutboxCursor(), 2)
@@ -639,11 +644,11 @@ test('SK-82 三级路由：审批答复 → 建议答复 → 普通对话；**�
   assert.deepEqual(seq, ['approval', 'suggestion'])
 })
 
-// ============================== NullTransport ==============================
+// ============================== ArchiveMessengerTransport ==============================
 
-test('NullTransport：零网络 I/O，send 记进 JSONL，read 重放同一个文件', async () => {
+test('ArchiveMessengerTransport：零网络 I/O，send 记进 JSONL，read 重放同一个文件', async () => {
   const dir = isolate()
-  const transport = new NullTransport(join(dir, 'log.jsonl'))
+  const transport = new ArchiveMessengerTransport(join(dir, 'log.jsonl'))
   await transport.sendMessage({ contextId: '1001', text: 'a', replyTo: null })
   await transport.sendMessage({ contextId: '2002', text: 'b', replyTo: '5' })
   const all = await transport.fetchUpdates({})
@@ -708,7 +713,6 @@ test('autonomy.initiate_chat：proactive_chat 账本**原子强制**（日 1 条
   await assert.rejects(() => initiateChat({ content: '   ' }), /requires 'content'/)
 })
 
-
 test('跟进入队与轮询消费共用串行锁：持久化先于发送、只发送一次、等待送达', async () => {
   isolate()
   const sent: string[] = []
@@ -736,7 +740,6 @@ test('跟进入队与轮询消费共用串行锁：持久化先于发送、只�
   assert.equal(loadOutboxCursor(), 1)
 })
 
-
 test('跟进无 owner 绑定不制造一条迟到消息；关闭器官拒绝后续消费', async () => {
   isolate()
   const organ = new OutboundOrgan({ ownerChannelKey: () => null,
@@ -746,4 +749,11 @@ test('跟进无 owner 绑定不制造一条迟到消息；关闭器官拒绝后�
   assert.equal(loadOutboxState().items.length, 0)
   await organ.close()
   await assert.rejects(organ.consumeOutboxOnce(), /outbound_closed/)
+})
+
+test('损坏的未送达账本明确失败并保留原字节', () => {
+  isolate()
+  writeFileSync(undeliveredPath(), '{broken')
+  assert.throws(() => undelivered(), SyntaxError)
+  assert.equal(readFileSync(undeliveredPath(), 'utf8'), '{broken')
 })

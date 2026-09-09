@@ -44,8 +44,6 @@ export const ORIGIN_AUTONOMOUS_WAKE = 'autonomous_wake'
 export const ORIGIN_AUTONOMOUS_INTEGRATE = 'autonomous_integrate'
 export const ORIGIN_AUTONOMOUS_FOCUS = 'autonomous_focus'
 
-// ============================== logEvent → audit（W2 TODO#4） ==============================
-
 export function auditLogEvent(audit: AuditService, onError?: (err: unknown) => void): LogEvent {
   return (name, fields) => {
     audit.record({ type: name, channel: 'telemetry', ...fields }).catch((err) => {
@@ -188,13 +186,6 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   const { beats } = deps.heart.claim()
   if (beats === 0) return { status: 'idle', beats }
 
-  // 阶段 2：仲裁。yield 是零 LLM 零表写的廉价分支。
-
-  // 回合开头与结尾各打一次 markActive）；被让掉的拍**不回灌心脏** —— claim 已经
-
-  // 结束立刻醒），新体心跳更粗，让位的代价是"最多晚一个基线拍醒"。刻意如此：
-  // 回灌会让她一让位就欠下一拍，聊得久了积压成串，反而在对话刚结束的那一刻炸出
-  // 一连串补偿拍 —— 那正是让位本身想避免的打扰。
   if (deps.shouldYieldToChat?.() === true) {
     return { status: 'yielded', beats }
   }
@@ -206,7 +197,6 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     return { status: 'budget_exhausted', beats, reason: 'hourly_cap', next_wake_at: deps.heart.nextAt }
   }
 
-  // 阶段 2b：记账。一个 run_id = 一次 LLM 调用（R-CA-1 的记账点语义）。
   const runId = (deps.runIdFn ?? defaultRunId)()
   deps.store.startAutonomyRun(runId, { startedAt: moment })
   const counts: WakeCounts = { action: 0, external_read: 0, notification: 0 }
@@ -375,9 +365,7 @@ export function apply(ctx: Context, config: Config) {
   const logEvent = auditLogEvent(ctx.audit, (err) => {
     ctx.logger.error('lykoi-wake: audit record failed: %s', String(err))
   })
-  // W1 TODO#9 定案：wake 编排是 rw 句柄在插件树里的持有者（开在 load、关在卸载）。
-  // W3 TODO#1 落地：store 层遥测经构造注入接 audit（thought_resolve_rejected /
-  // focus_cycle_* / rule_suggestion_* 等 store 内部事件位由此可见）。
+
   const store = new ReadWriteMemory(resolve(config.dbPath), { logEvent })
   ctx.effect(() => () => store.close(), 'lykoi-wake rw handle')
 
@@ -489,12 +477,11 @@ export function apply(ctx: Context, config: Config) {
     // Candidate availability follows registration and retirement in this Runtime.
     wiredActions: ctx.lykoiRuntime.actions,
 
-    // 本拍的（一拍一个 run_id）。now 从 clock 取——学习环写面全显式传时刻（C-23）。
     integrate: async ({ runId }) => {
       await maybeRunIntegration({
         store, persona, logEvent, now: systemClock.now(),
         completion: (messages) => llm(messages, {
-          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_INTEGRATE,
+          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_INTEGRATE, responseFormat: { type: 'json_object' },
         }),
       })
     },
@@ -502,7 +489,7 @@ export function apply(ctx: Context, config: Config) {
       await maybeRunFocusCycle({
         store, persona, logEvent, now: systemClock.now(),
         completion: (messages) => llm(messages, {
-          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_FOCUS,
+          runId, route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_FOCUS, responseFormat: { type: 'json_object' },
         }),
       })
     },
@@ -516,8 +503,7 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('heart/beat', () => {
     wake.beat().catch((err) => {
 
-      // 重启单元兜底，新体的对应物是留痕 + 下一拍照常。
-      ctx.logger.error('lykoi-wake: beat crashed outside SA-170 net: %s', String(err))
+      ctx.logger.error('lykoi-wake: beat failed: %s', String(err))
       logEvent('autonomy_wake_crashed', { error: String(err) })
     })
   })

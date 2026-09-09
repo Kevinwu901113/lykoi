@@ -1,22 +1,3 @@
-/**
- * 大脑 ↔ 宿主的线协议（WO-M5-ORGAN-BROWSER D-1）。
- *
- * 两个进程：大脑侧插件（`./index.ts`，lykoi 用户）与宿主守护进程
- * （`./host.ts`，lykoi-browser 用户）。它们之间只有一条本地 Unix socket，
- * 上面跑 NDJSON —— 一行一条消息，请求 `{id, op, args}`，响应
- * `{id, ok, data | error}`。
- *
- * 纪律：
- *  - **宿主串行**。第二个并发请求立即回 `busy`，不排队 —— 一双手同一时刻只能
- *    看一个页面，排队会让"她以为自己在看 A，其实在看 B"。
- *  - **宿主不可达不抛**。连接 2s 打不通 → 大脑侧 handler 返回
- *    `browser_host_unreachable`，认知照常往下走（器官是手不是心脏）。
- *  - 本文件**零 I/O、零 env**：只有类型、常量与两个纯编解码函数。
- */
-
-// ============================== 动作 ↔ op ==============================
-
-/** 身体图式里的器官标识（`BodySchemaRegistry.register` 的 organId）。 */
 export const ORGAN_ID = 'browser'
 
 /**

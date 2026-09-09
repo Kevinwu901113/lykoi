@@ -11,12 +11,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  buildCandidates, buildMessages, evaluateMessage, extractJson,
+  buildCandidates, buildMessages, evaluateMessage,
   type SnapshotLike,
 } from 'lykoi-decide'
 import { maintain, read } from 'lykoi-snapshot'
 import {
-  T0, contemplateReply, fakeLlm, logicalDigest, makeStore, stubMessageDeps, stubSnapshotDeps,
+  T0, contemplateReply, logicalDigest, makeStore, stubMessageDeps, stubSnapshotDeps,
 } from './fixture.ts'
 
 test('推演零写入（SA-47）+ 对照组（SA-48）：read→candidates→messages→evaluate 全程零写', () => {

@@ -1,21 +1,3 @@
-/**
- * 实例包（E4-SPEC §2.3 / §3.2；WO-E4-2）—— 框架 / 实例分离的第一个装载面。
- *
- * 缺省假设（Kevin 裁定 E4-SPEC §6.4 前生效）：**实例包根 = persona TOML 所在目录**
- * （产线 `/home/lykoi/runtime/persona/`）；零新路径常量，根只由 personaToml 派生。
- *
- * 目前包里只有一样东西：`seeds.toml` —— 后天 insights 的出生种子。它曾是 `seed.ts`
- * 里的一条框架常量（第一实例的一条偏好），每个新实例出生都被写进去；现在种子
- * 住在实例包，框架**零缺省种子**。语义：
- *  - 文件缺失 = 零种子（不是缺省一条）；
- *  - 文件损坏 / 形状不对 = 抛 InstancePackageError（出生证阶段抛错比静默好）；
- *  - 形态沿用本包既有的严格 TOML 子集（`[[array-of-tables]]` 不在子集内，故不用
- *    `[[seed]]`）：
- *        [seeds]
- *        preference = ["…", "…"]
- *    表名固定 `seeds`，键 = insight category，值 = 该类的种子内容（字符串数组）。
- *    展平为 [category, content][]，顺序 = 键序 × 数组序。空文件 / 空表 = 零种子。
- */
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseTomlSubset } from './persona-toml.ts'

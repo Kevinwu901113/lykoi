@@ -1,3 +1,4 @@
+import { isolateKernelState } from '../../lykoi-kernel/test/fixture.ts'
 import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * 端到端 golden 全链（W5 交付④）：fake 入站（adapter-telegram fake 传输）→
@@ -70,6 +71,7 @@ interface Assembly {
 
 /** 全链装配：fixture db（含 owner 绑定）+ fake transport + mock LLM 固定信封。 */
 async function assemble(replyText: string): Promise<Assembly> {
+  isolateKernelState()
   const dir = tmp()
   const dbPath = join(dir, 'state.db')
   createStateFixture(dbPath)

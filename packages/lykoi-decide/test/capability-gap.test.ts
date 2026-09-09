@@ -90,15 +90,15 @@ test('fail-safe：事件写失败不毁一轮（logEvent 抛 → emit 不抛；�
   ))
 })
 
-test('位点①（kind 词表判定）：未知 kind → capability_gap；**抛错语义逐字节不变**', () => {
+test('位点①（kind 词表判定）：未知 kind 明确抛错并记录 capability_gap', () => {
   const { logEvent, events } = recorder()
   assert.throws(
     () => evaluateMessage(
       msg({ decision: { kind: 'send_email', content: 'x' } }), CANDS,
       { logEvent, gap: { source: 'wake', runId: 'run-1' } },
     ),
-    /unknown decision kind: 'send_email'/,
-    '原拒绝（抛错 + 消息逐字）不许被留痕改写',
+    /unknown decision kind:.*send_email/,
+    '记录能力缺口不能代替拒绝未知动作',
   )
   assert.deepEqual(gaps(events), [{
     wanted: 'send_email', source: 'wake', run_id: 'run-1', reason: 'unknown_kind',
@@ -141,7 +141,7 @@ test('对照组 A：合法且在候选表的 kind → **零** capability_gap', (
   assert.deepEqual(gaps(events), [], '能力在位就不许报缺口')
 })
 
-test('对照组 B：reason 未接地的降级 → decision_ungrounded 有，capability_gap **零**', () => {
+test('有能力的动作不因理由未逐字引用而被替换', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({
@@ -166,7 +166,7 @@ test('D-1e：GAP_NOT_WIRED 字面值 = not_wired，且能作为 emitCapabilityGa
   }])
 })
 
-test('对照组 C：safe_kind（rest）永不降级 → 零事件、零 gap', () => {
+test('选择 rest 不产生能力缺口', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({ decision: { kind: 'rest', reason: '' } }), CANDS,

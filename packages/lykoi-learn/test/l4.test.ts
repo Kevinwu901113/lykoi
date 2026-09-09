@@ -7,7 +7,7 @@ import test from 'node:test'
 import { INTEGRATION_EVERY_HOURS } from '../src/l2.ts'
 import {
   COOLDOWN_CYCLES, FOCUS_EVERY_HOURS, FOCUS_EVERY_INTEGRATIONS, FOCUS_INSIGHT_CATEGORY,
-  NO_PROGRESS_STREAK_LIMIT, SHADOW_PERIOD_CYCLES, maybeRunFocusCycle, parseFocusEnvelope,
+  NO_PROGRESS_STREAK_LIMIT, maybeRunFocusCycle, parseFocusEnvelope,
   runFocusCycle, selectConcern, shouldFocus,
 } from '../src/l4.ts'
 import type { FocusDeps } from '../src/l4.ts'
@@ -440,7 +440,7 @@ test('SA-145/146：触及权限边界的结论入队 permission_rule，且**照�
   }
 })
 
-test('SA-136 派生关切失败不是周期失败：active 满 12 撞帽 → 主结论照落 + 事件', async () => {
+test('派生关切失败如实报告，已落主结论仍保留', async () => {
   const { store, log } = makeStore()
   try {
     for (let i = 0; i < 12; i += 1) {
@@ -452,7 +452,8 @@ test('SA-136 派生关切失败不是周期失败：active 满 12 撞帽 → 主
     })
     const { deps } = mkDeps(store, log, hoursAfter(T0, 1), reply)
     const summary = await runFocusCycle(deps)
-    assert.equal(summary.outcome, 'advanced')
+    assert.equal(summary.outcome, 'failed')
+    assert.equal(summary.failures[0]?.operation, 'derived_concern')
     assert.ok(summary.insight_id !== null)
     assert.equal(summary.derived_concern_id, null)
     assert.equal(log.of('focus_derived_concern_rejected').length, 1)
@@ -486,13 +487,13 @@ test('派生关切成功：origin=derived + parent_id + 自己的血缘行', asy
   }
 })
 
-test('SA-139 信封收敛：advanced 无 conclusion → no_progress；防御式解析永不抛', () => {
-  assert.equal(parseFocusEnvelope({ outcome: 'advanced', conclusion: null }).outcome, 'no_progress')
-  assert.equal(parseFocusEnvelope({ outcome: 'revised', conclusion: '  ' }).outcome, 'no_progress')
+test('Focus 坏输出明确拒绝，不改写为 no_progress', () => {
+  assert.throws(() => parseFocusEnvelope({ outcome: 'advanced', conclusion: null }), /requires a conclusion/)
+  assert.throws(() => parseFocusEnvelope({ outcome: 'revised', conclusion: '  ' }), /requires a conclusion/)
   assert.equal(parseFocusEnvelope({ outcome: 'advanced', conclusion: '有' }).outcome, 'advanced')
-  assert.equal(parseFocusEnvelope('garbage').outcome, 'no_progress')
-  assert.deepEqual(parseFocusEnvelope({ conflicts: [{ insight_id: true }] }).conflicts, [])
-  assert.deepEqual(parseFocusEnvelope({ cited_experience_ids: [1, true, 'x', 2] }).cited_experience_ids, [1, 2])
+  assert.throws(() => parseFocusEnvelope('garbage'), /must be an object/)
+  assert.deepEqual(parseFocusEnvelope({ outcome: 'no_progress', conflicts: [{ insight_id: true }] }).conflicts, [])
+  assert.deepEqual(parseFocusEnvelope({ outcome: 'no_progress', cited_experience_ids: [1, true, 'x', 2] }).cited_experience_ids, [1, 2])
 })
 
 test('maybeRunFocusCycle：闸没开 → null 零副作用；闸开 → autonomy_focus 事件带账面字段', async () => {
@@ -551,4 +552,35 @@ test('编排层异常也落诚实失败周期（外层 except）：finalize 有�
   } finally {
     store.close()
   }
+})
+
+for (const operation of ['finalizeFocusCycle', 'resetFocusCycle'] as const) {
+  test(`focus ${operation} failure is visible and persistence is attempted once`, async () => {
+    const { store, log } = makeStore()
+    const original = store[operation].bind(store)
+    let attempts = 0
+    Object.defineProperty(store, operation, { configurable: true, value: () => { attempts++; throw new Error('disk unavailable') } })
+    try {
+      const { deps, calls } = mkDeps(store, log, T0)
+      await assert.rejects(runFocusCycle(deps), /focus cycle (finalization|reset) failed/)
+      assert.equal(attempts, 1)
+      assert.equal(calls.length, 0, 'persistence failure must not rerun cognition')
+    } finally {
+      Object.defineProperty(store, operation, { configurable: true, value: original })
+      store.close()
+    }
+  })
+}
+
+test('malformed focus progress persists as failed without inventing no_progress', async () => {
+  const { store, log } = makeStore()
+  try {
+    store.createConcern('project', '睡眠质量', { weight: 0.5, origin: 'grown', now: T0 })
+    seedExperience(store, 'conversation', '聊睡眠质量', T0)
+    const { deps, calls } = mkDeps(store, log, hoursAfter(T0, 1), JSON.stringify({ outcome: 'advanced' }))
+    const summary = await runFocusCycle(deps)
+    assert.equal(summary.outcome, 'failed')
+    assert.equal(summary.insight_id, null)
+    assert.equal(calls.length, 1)
+  } finally { store.close() }
 })
