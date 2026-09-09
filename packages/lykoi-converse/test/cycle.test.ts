@@ -609,3 +609,15 @@ test('WO-FIX-TAILBRACE-01 安全网：首字符 `{` 但补不出合法 JSON → 
   assert.equal(retried.reason, 'not_json')
   assert.equal(retried.detail, 'first_char:brace')
 })
+
+
+test('框架抑制保留原因，不能冒充主动 silence', async () => {
+  const h = makeConversation()
+  try {
+    h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '你好', reason: '无引用的理由' } }) })
+    assert.equal(await h.conversation.send('在吗', { runId: 'suppressed' }), '')
+    assert.deepEqual(h.conversation.lastCycleOutcome(), {
+      kind: 'suppressed', step: 0, originalKind: 'reply', reason: 'reason_not_grounded',
+    })
+  } finally { h.store.close() }
+})

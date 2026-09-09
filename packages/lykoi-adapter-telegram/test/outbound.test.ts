@@ -21,7 +21,7 @@ import {
   OUTBOX_BATCH_LIMIT, OUTBOX_DELIVERABLE_KINDS, OutboundOrgan, PROACTIVE_COOLDOWN_H,
   PROACTIVE_DAILY_CAP, SEND_RETRY_BACKOFF_S, TEXT_SUMMARY_CHARS,
   UNDELIVERED_EXPERIENCE_SOURCE, UNDELIVERED_SALIENCE, appendOutbox, currentTransport,
-  loadOutboxCursor, initOutboxCursor, messengerLedgerPath, messengerProactiveRemainingToday,
+  loadOutboxState, loadOutboxCursor, initOutboxCursor, messengerLedgerPath, messengerProactiveRemainingToday,
   outboxCursorPath, outboxDeliverableKinds, outboxNewestId, readOutboxAfter,
   initiateChat, notifyOwner, NOTIFY_ALLOWED_ORIGINS, outboundOrganResources,
   queueNotification, recordUndelivered, saveOutboxCursor, send as messengerSend,
@@ -706,4 +706,44 @@ test('autonomy.initiate_chat：proactive_chat 账本**原子强制**（日 1 条
   const blocked = await initiateChat({ content: '再说一件' })
   assert.deepEqual(blocked, { queued: false, reason: 'daily_cap' })
   await assert.rejects(() => initiateChat({ content: '   ' }), /requires 'content'/)
+})
+
+
+test('跟进入队与轮询消费共用串行锁：持久化先于发送、只发送一次、等待送达', async () => {
+  isolate()
+  const sent: string[] = []
+  let release!: () => void
+  const gate = new Promise<void>(r => { release = r })
+  const organ = new OutboundOrgan({
+    ownerChannelKey: () => 'owner',
+    dispatch: async action => {
+      sent.push(String(action.params.text))
+      assert.equal(loadOutboxState().items.length, 1)
+      await gate
+      return { success: true, data: { message_id: 1 } } as never
+    },
+  })
+  let finished = false
+  const followup = organ.deliverFollowup('逐字跟进').then(r => { finished = true; return r })
+  const poll = organ.consumeOutboxOnce()
+  await new Promise(r => setImmediate(r))
+  assert.equal(finished, false)
+  assert.deepEqual(sent, ['逐字跟进'])
+  release()
+  assert.equal(await followup, 'delivered')
+  await poll
+  assert.deepEqual(sent, ['逐字跟进'])
+  assert.equal(loadOutboxCursor(), 1)
+})
+
+
+test('跟进无 owner 绑定不制造一条迟到消息；关闭器官拒绝后续消费', async () => {
+  isolate()
+  const organ = new OutboundOrgan({ ownerChannelKey: () => null,
+    dispatch: async () => { assert.fail('must not dispatch') },
+  })
+  assert.equal(await organ.deliverFollowup('不能投递'), 'undelivered')
+  assert.equal(loadOutboxState().items.length, 0)
+  await organ.close()
+  await assert.rejects(organ.consumeOutboxOnce(), /outbound_closed/)
 })

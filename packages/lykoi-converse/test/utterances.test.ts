@@ -5,7 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { UserTurn } from 'lykoi-ingress'
 import { parseEnvelope, handleTurn, ContinuationRunner } from '../src/index.ts'
 import { sequenceUtterances } from '../src/sequencer.ts'
-import { envelope, makeConversation, T0 } from './fixture.ts'
+import { envelope, makeConversation, rawOpen, T0 } from './fixture.ts'
 
 const parts = [' 第一条\r\n', '第二条🙂  ', '更正：第三条']
 const reply = (utterances: unknown, kind = 'reply') => envelope({ decision: {
@@ -97,7 +97,8 @@ test('continuation真实runCycle的多条产出按边界进入原outbox回调', 
   const progress: string[] = []
   const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
     audit: { record: async () => {} }, messenger: () => undefined,
-    postProgress: text => { progress.push(text) }, now: () => T0,
+    canDeliver: () => true,
+    deliver: async text => { progress.push(text); return 'delivered' }, now: () => T0,
   })
   try {
     h.llm.push({ content: reply(parts) })
@@ -173,7 +174,8 @@ test('continuation收账不取走锁外等待期间新用户轮的followup', asy
   const events: Record<string, unknown>[] = []
   const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
     audit: { record: async event => { events.push(event) } }, messenger: () => undefined,
-    postProgress: () => {}, now: () => T0,
+    canDeliver: () => true,
+    deliver: async () => 'delivered', now: () => T0,
   })
   try {
     h.llm.push({ content: reply(['旧任务完成。']) })
@@ -188,4 +190,28 @@ test('continuation收账不取走锁外等待期间新用户轮的followup', asy
     assert.equal(events.find(event => event.type === 'continuation/terminal')!.chained_request, false)
     assert.equal(h.conversation.takeFollowupRequest(), 'TASK_GOAL')
   } finally { release(); h.store.close() }
+})
+
+test('续跑第二条投递失败后不发送第三条，也不能 completed', async () => {
+  const h = makeConversation()
+  const attempted: string[] = []
+  const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
+    audit: { record: async () => {} }, messenger: () => undefined,
+    canDeliver: () => true,
+    deliver: async text => { attempted.push(text); return attempted.length === 1 ? 'delivered' : 'undelivered' },
+    now: () => T0,
+  })
+  try {
+    h.llm.push({ content: reply(parts) })
+    runner.register({ originTurnId: 'failure-origin', originRunId: 'r0', goal: '继续整理' })!
+    await runner.scan(T0)
+    assert.deepEqual(attempted, parts.slice(0, 2))
+    assert.equal(h.store.runningContinuations().length, 0)
+    const db = rawOpen(h.path)
+    try {
+      const row = db.prepare('SELECT state, terminal_reason FROM pending_continuations').get()!
+      assert.equal(row.state, 'failed')
+      assert.equal(row.terminal_reason, 'delivery_failed')
+    } finally { db.close() }
+  } finally { h.store.close() }
 })

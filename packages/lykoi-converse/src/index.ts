@@ -31,7 +31,7 @@ import { LlmFinishError } from 'lykoi-llm'
 import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { TurnExecutionResult, UserTurn } from 'lykoi-ingress'
 import {
-  OutboundOrgan, markUndeliveredSurfaced, outboundOrganResources,
+  OutboundOrgan, OutboundUnavailableError, markUndeliveredSurfaced, outboundOrganResources,
   outboxNotificationSink, setMessengerLogEvent, setTransportLogEvent,
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
@@ -66,7 +66,7 @@ import { ENVELOPE_RETRY_MAX, type ConverseMessage } from './contract.ts'
 import { D01_DEFAULTS, runInterpretWithDeadline, RunAbortedError } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
 import {
-  SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome, type TurnStatus,
+  cycleFailure, type CycleOutcome, SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome, type TurnStatus,
 } from './outcome.ts'
 
 export * from './contract.ts'
@@ -624,7 +624,12 @@ export function apply(ctx: Context, config: Config) {
     conversation,
     audit: ctx.audit,
     messenger: () => ctx.get('messenger') as MessengerAdapterService | undefined,
-    postProgress: (content) => { appendOutbox(content, 'followup', { logEvent }) },
+    canDeliver: () => (ctx.get('messenger') as MessengerAdapterService | undefined)?.outboundWired() === true,
+    deliver: async (content) => {
+      const messenger = ctx.get('messenger') as MessengerAdapterService | undefined
+      if (!messenger?.outboundWired()) return 'dispatch_failed'
+      return messenger.deliverFollowup(content)
+    },
     now: () => new Date(),
     onError: (where, err) => {
       ctx.logger.error('lykoi-converse: continuation %s failed: %s', where, String(err))
@@ -647,17 +652,20 @@ export function apply(ctx: Context, config: Config) {
   // **晚绑定**：设备层与认知层互为对方的下游（活体用 `messenger._TRANSPORT =
   // transport` 的同一手法在启动时打通）。telegram 默认 disabled 时这段整段不跑，
   // 本插件照常挂载、安静待命。
-  const messengerAtBoot = ctx.get('messenger') as MessengerAdapterService | undefined
-  if (messengerAtBoot !== undefined) {
-    messengerAtBoot.wireOutbound(new OutboundOrgan({
-      dispatch: kernelDispatch,
-      // 出站投递的 chat id 只认 P2-01 登记的 owner 绑定（只读；绝不在这里写）。
-      ownerChannelKey: () => store.ownerBinding()?.channel_key ?? null,
-      approval,
-      suggestion,
-      logEvent,
-    }))
-  }
+  ctx.inject(['messenger'], (scope) => {
+    const messenger = scope.get('messenger') as MessengerAdapterService
+    scope.effect(() => {
+      const unwire = messenger.wireOutbound(new OutboundOrgan({
+        dispatch: kernelDispatch,
+        ownerChannelKey: () => store.ownerBinding()?.channel_key ?? null,
+        approval,
+        suggestion,
+        logEvent,
+      }))
+      continuations.kick()
+      return unwire
+    }, 'converse outbound binding')
+  })
 
   ctx.ingress.registerInterruptor?.({
     canInterrupt: runId => conversation.canInterrupt(runId),
@@ -671,7 +679,7 @@ type TurnResolution =
   | { kind: 'failure'; reason: TurnFailReason }
   | {
     kind: 'empty'
-    cycleKind: NonNullable<ReturnType<Conversation['lastCycleOutcome']>>['kind'] | null
+    cycleOutcome: CycleOutcome | null
     askSent: boolean
   }
   | { kind: 'delivery'; outcome: 'delivered' | 'undelivered' | 'needs_approval' | 'dispatch_failed' }
@@ -687,23 +695,16 @@ function resolveTurnOutcome(input: TurnResolution): Pick<TurnOutcome, 'status' |
     }
     return { status: 'failed', reason: 'delivery_failed' }
   }
-  if (input.cycleKind === 'envelope_failed') {
-    return { status: 'failed', reason: 'envelope_failed' }
-  }
-  if (input.cycleKind === 'missing_tool') {
-    return { status: 'failed', reason: 'missing_tool' }
-  }
-  if (input.cycleKind === 'tool_budget') {
-    return { status: 'failed', reason: 'tool_budget_exhausted' }
-  }
-  if (input.askSent || input.cycleKind === 'ask_pending') {
+  const failure = cycleFailure(input.cycleOutcome)
+  if (failure) return { status: 'failed', reason: failure }
+  if (input.askSent || input.cycleOutcome?.kind === 'ask_pending') {
     return { status: 'deferred', reason: 'approval_pending' }
   }
   return { status: 'intentional_silence', reason: null }
 }
 
 const NOTICE_REASONS = new Set<TurnFailReason>([
-  'envelope_failed', 'missing_tool', 'tool_budget_exhausted', 'llm_failed',
+  'decision_suppressed', 'outbound_unavailable', 'envelope_failed', 'missing_tool', 'tool_budget_exhausted', 'llm_failed',
   'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown',
 ])
 
@@ -777,6 +778,7 @@ export async function handleTurn(
 
   try {
     const messenger = ctx.get('messenger') as MessengerAdapterService | undefined
+    if (messenger && !messenger.outboundWired()) throw new OutboundUnavailableError()
     // S-08 仍严格逐 part 判定：owner 的显式 reply_to 先审批、再建议；被消费的 part
     // 不进入 cognition。parts[] 本身不改写，terminal 仍能反查整轮所有外界输入。
     const conversationalParts = [] as UserTurn['parts']
@@ -861,7 +863,7 @@ export async function handleTurn(
         await askAbout()
         terminal = resolveTurnOutcome({
           kind: 'empty',
-          cycleKind: result.outcome?.kind ?? null,
+          cycleOutcome: result.outcome,
           askSent,
         })
       }
@@ -886,9 +888,11 @@ export async function handleTurn(
           if (deviceSideWired) return (await messenger.sendReply(
             turn.contextId, text, replyAnchor, { run_id: runId, turn_id: turnId },
           )).outcome
-          return (await messenger.send(turn.contextId, text, replyAnchor)).sent ? 'delivered' : 'undelivered'
+          return 'dispatch_failed'
         })
-        terminal = resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
+        terminal = deviceSideWired
+          ? resolveTurnOutcome({ kind: 'delivery', outcome: delivered.outcome })
+          : resolveTurnOutcome({ kind: 'failure', reason: 'outbound_unavailable' })
         await ctx.audit.record({
           type: 'converse/utterances_delivery', turn_id: turnId, run_id: runId,
           total: delivered.total, delivered: delivered.delivered, outcome: delivered.outcome,

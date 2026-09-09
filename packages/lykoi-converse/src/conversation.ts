@@ -1183,7 +1183,9 @@ export class Conversation {
       }
       if (kind === SILENCE) {
         // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
-        this.#lastCycleOutcome = { kind: 'silence', step }
+        this.#lastCycleOutcome = decision.demoted
+          ? { kind: 'suppressed', step, originalKind: decision.original_kind!, reason: decision.demote_why! }
+          : { kind: 'silence', step }
         return ''
       }
       if (kind === REPLY) {
