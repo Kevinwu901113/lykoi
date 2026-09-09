@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { PersonaConfigError, parsePersonaData, type PersonaConfig } from './persona.ts'
 
 // ============================== TOML 子集解析 ==============================
@@ -167,30 +166,4 @@ export function loadPersona(path: string): PersonaConfig {
     throw new PersonaConfigError(`persona TOML is not valid TOML: ${message}`)
   }
   return parsePersonaData(data)
-}
-
-let cached: PersonaConfig | null = null
-let cachedPath: string | null = null
-
-export function getPersona(path: string): PersonaConfig {
-  const normalized = resolve(path)
-  if (cached === null) {
-    // 先装载后落坑：loadPersona 抛出时 cached/cachedPath 原样为 null。
-    const loaded = loadPersona(normalized)
-    cached = loaded
-    cachedPath = normalized
-    return loaded
-  }
-  if (cachedPath !== normalized) {
-    throw new PersonaConfigError(
-      `persona TOML path conflict: process already loaded ${cachedPath}, `
-      + `refusing ${normalized} (one persona kernel per process, SA-156)`,
-    )
-  }
-  return cached
-}
-
-export function resetPersonaCacheForTest(): void {
-  cached = null
-  cachedPath = null
 }

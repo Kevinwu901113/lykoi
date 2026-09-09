@@ -217,6 +217,7 @@ export interface UndeliveredView {
 }
 
 export interface ConverseDeps {
+  runOwned?: <T>(work: () => Promise<T>) => Promise<T>
   store: ConverseStore
   persona: PersonaConfig
   llm: ConverseLlmFn
@@ -1227,6 +1228,20 @@ export class Conversation {
   }
 
   async send(
+    message: string,
+    opts: {
+      background?: boolean
+      onUtterances?: (parts: readonly string[]) => void
+      onCycleResult?: (result: CycleResult) => void
+      replyToNotification?: ReplyToNotification | null
+      runId?: string
+      turnId?: string | null
+    } = {},
+  ): Promise<string> {
+    return this.#deps.runOwned ? this.#deps.runOwned(() => this.#send(message, opts)) : this.#send(message, opts)
+  }
+
+  async #send(
     message: string,
     opts: {
       background?: boolean

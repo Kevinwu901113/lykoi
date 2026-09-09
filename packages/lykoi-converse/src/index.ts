@@ -18,7 +18,7 @@ import {
   setUndeliveredExperienceSink, unsurfacedUndelivered, appendOutbox,
 } from 'lykoi-adapter-telegram'
 import {
-  getPersona, loadInstancePackage, seedPersona, OrganInventoryCache, type LogEvent,
+  loadPersona, OrganInventoryCache, type LogEvent,
 } from 'lykoi-decide'
 import { stagedInstructions } from 'lykoi-learn'
 import {
@@ -255,15 +255,10 @@ export function apply(ctx: Context, config: Config) {
   setIdentityBindingLookup((channel, channelKey) => store.identityBindingUserId(channel, channelKey))
   setOwnerBindingLookup(() => store.ownerBinding())
 
-  // 不再直调 loadPersona —— 同进程只读+解析一次；且本插件与 wake 的
-  // personaToml 一旦分叉，getPersona 的 path 守卫会启动即炸（而非静默错人格）。
-  const persona = getPersona(resolve(config.personaToml))
+  // The launch binding pins both plugins to the instance definition snapshot.
+  const persona = loadPersona(resolve(config.personaToml))
 
-  // --- 出生序（文件头注释） ---
-
-  // 文件缺失 = 零种子，损坏 = 启动即炸（出生证阶段抛错比静默好）。
-  const instance = loadInstancePackage(resolve(config.personaToml))
-  seedPersona(store, instance.seeds, { now: new Date() })
+  // Creation applies seeds once. Startup restores the existing experience.
 
   // `recordRestartEvent` 那边缺席即省略，**绝不编造**。dev profile 两个采集配置
   // 都留空 → 只带得到 INVOCATION_ID，与 W5 的行为完全一致（零行为变更）。
@@ -417,6 +412,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   conversation = new Conversation({
+    runOwned: work => ctx.lykoiRuntime.run(work),
     store,
     persona,
     llm,
@@ -530,6 +526,7 @@ export function apply(ctx: Context, config: Config) {
   // 登记发生在 handleTurn.finally（回合终局之后）；扫描由 wake 的 cheap tick
   // （600 s）与登记后的 kick 驱动；启动时先把上个进程留下的 running 行收账。
   const continuations = new ContinuationRunner({
+    runOwned: work => ctx.lykoiRuntime.run(work),
     store,
     conversation,
     audit: ctx.audit,
@@ -549,8 +546,8 @@ export function apply(ctx: Context, config: Config) {
   ctx.provide('continuations', continuations)
   ctx.effect(() => {
     const now = new Date()
-    continuations.recoverOnStartup(now)
-      .then(() => continuations.scan(new Date()))
+    ctx.lykoiRuntime.run(() => continuations.recoverOnStartup(now)
+      .then(() => continuations.scan(new Date())))
       .catch((err) => {
         ctx.logger.error('lykoi-converse: continuation startup failed: %s', String(err))
         logEvent('continuation/runner_failed', { where: 'startup', error_name: err instanceof Error ? err.name : 'unknown' })

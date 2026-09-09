@@ -8,7 +8,7 @@ import type { AuditService } from 'lykoi-audit'
 import {
   applyInner, buildCandidates, buildMessages, buildPersonaPrompt, buildRelationshipOverlay,
   evaluateMessage,
-  getPersona, OrganInventoryCache, serializeDecision,
+  loadPersona, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type OverlayReader,
   type SnapshotLike,
 } from 'lykoi-decide'
@@ -381,7 +381,7 @@ export function apply(ctx: Context, config: Config) {
   // 文件缺失/坏 TOML 抛 PersonaConfigError，不包不吞，病内核在启动时炸）。
 
   // 共用一份内核；两处 personaToml 分叉时由 path 守卫启动即炸。
-  const persona = getPersona(resolve(config.personaToml))
+  const persona = loadPersona(resolve(config.personaToml))
   const notifications: NotificationsView = emptyNotifications
   // Dispatch and capability rendering share the same live Runtime view.
   const resources = ctx.lykoiRuntime.resources
@@ -496,7 +496,7 @@ export function apply(ctx: Context, config: Config) {
   }
 
   const wake: WakeService = {
-    beat: () => wakeOnce(deps),
+    beat: () => ctx.lykoiRuntime.run(() => wakeOnce(deps)),
   }
 
   // 心跳事件 → 一拍（claim 合并：连发的多个事件里第一拍取走全部积压）。
@@ -514,11 +514,11 @@ export function apply(ctx: Context, config: Config) {
     const timer = setInterval(() => {
       const now = systemClock.now()
       if (!driver.due(now)) return
-      runCheapTick({
+      ctx.lykoiRuntime.run(async () => runCheapTick({
         ownerName: persona.owner?.name ?? persona.voice.address_owner,
         store, notifications, now, logEvent,
         continuations: ctx.get('continuations') as ContinuationScanner | undefined,
-      })
+      })).catch(err => logEvent('cheap_tick_failed', { error: String(err) }))
     }, config.checkIntervalMs)
     return () => clearInterval(timer)
   }, 'lykoi-wake cheap tick driver')

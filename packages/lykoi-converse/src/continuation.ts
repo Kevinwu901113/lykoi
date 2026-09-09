@@ -58,6 +58,7 @@ export interface ContinuationRunnerDeps {
   now: () => Date
   /** 后台错误的兜底出口（kick / 启动效应里的 promise 拒绝）。 */
   onError?: (where: string, err: unknown) => void
+  runOwned?: <T>(work: () => Promise<T>) => Promise<T>
 }
 
 export interface ScanSummary {
@@ -130,6 +131,10 @@ export class ContinuationRunner implements ContinuationsService {
    * skipped），正在跑的那次结束前会再扫一圈把新登记的行捡起来。
    */
   async scan(now: Date): Promise<ScanSummary> {
+    return this.#deps.runOwned ? this.#deps.runOwned(() => this.#scan(now)) : this.#scan(now)
+  }
+
+  async #scan(now: Date): Promise<ScanSummary> {
     if (!this.#deps.canDeliver()) return { skipped: true, claimed: 0, expired: 0 }
     if (this.#scanning !== null) {
       this.#rescan = true

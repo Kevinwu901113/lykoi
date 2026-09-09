@@ -215,3 +215,13 @@ test('实例seeds/deploy同源纳入root域：新增/篡改/删除皆红，重�
     }
   } finally { fx.cleanup() }
 })
+
+test('production instance descriptor and frozen definition join the protected root domain', () => {
+  const f = makeFixture()
+  const directory = dirname(f.env.personaToml)
+  writeFileSync(join(f.env.repoRoot, 'profile', 'instance.prod.json'), JSON.stringify({ registry: dirname(directory), id: 'persona' }))
+  const entries = protectedEntries(f.env.repoRoot, { personaToml: f.env.personaToml })
+  for (const name of ['instance.json', 'definition.toml']) {
+    assert.equal(entries.find(e => e.path === join(directory, name))?.domain, 'root')
+  }
+})

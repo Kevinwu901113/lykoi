@@ -119,6 +119,18 @@ export function protectedEntries(
     entries.push({ name: manifestKey(repoRoot, path), path, domain })
   }
 
+  // The production selector, ownership descriptor and frozen definition are startup authority.
+  const selector = join(repoRoot, 'profile', 'instance.prod.json')
+  if (existsSync(selector)) {
+    const selected = JSON.parse(readFileSync(selector, 'utf8')) as { registry: string; id: string }
+    if (typeof selected.registry !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(selected.id)) {
+      throw new Error('invalid production instance selector')
+    }
+    const directory = join(selected.registry, selected.id)
+    push(join(directory, 'instance.json'), 'root')
+    push(join(directory, 'definition.toml'), 'root')
+  }
+
   // --- root 属主域：特权层包 + 门自身 ---
   for (const pkg of ROOT_OWNED_PACKAGES) {
     const dir = join(repoRoot, 'packages', pkg)

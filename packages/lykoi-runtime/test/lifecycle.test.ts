@@ -125,3 +125,18 @@ test('telemetry observes a complete registration and retirement', () => {
   assert.deepEqual(observed, [true, false])
   runtime.dispose()
 })
+
+test('quiesce refuses new work and waits for a late result before retirement', async () => {
+  const runtime = new CapabilityRuntime()
+  let finish!: (value: string) => void
+  const outcome = runtime.run(() => new Promise<string>(resolve => { finish = resolve }))
+  await Promise.resolve()
+  let drained = false
+  const closing = runtime.quiesce().then(() => { drained = true })
+  await assert.rejects(runtime.run(async () => 'new'), /stopping/)
+  assert.equal(drained, false)
+  finish('owned result')
+  assert.equal(await outcome, 'owned result')
+  await closing
+  assert.equal(drained, true)
+})

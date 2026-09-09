@@ -163,5 +163,9 @@ export function apply(ctx: Context, config: Config) {
   const writer = new AuditWriter(resolve(config.path))
   // 可逆副作用：fiber 卸载即关句柄；之后 record 一律拒绝（audit 不在 = 不许静默继续）。
   ctx.effect(() => () => writer.dispose(), 'lykoi-audit sink')
-  ctx.provide('audit', writer)
+  const instanceId = ctx.get('lykoiInstance')?.id
+  ctx.provide('audit', instanceId ? {
+    record: (event: AuditEvent) => writer.record({ ...event, instance_id: instanceId }),
+    recordOnce: (id: string, event: AuditEvent) => writer.recordOnce(id, { ...event, instance_id: instanceId }),
+  } : writer)
 }

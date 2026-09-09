@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./instance": "./src/instance.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""
@@ -12,6 +13,8 @@
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "lykoi-contracts": "0.1.0",
-    "lykoi-kernel": "0.1.0"
+    "lykoi-kernel": "0.1.0",
+    "lykoi-memory": "0.1.0",
+    "lykoi-decide": "0.1.0"
   }
 }

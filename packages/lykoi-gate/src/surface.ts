@@ -156,6 +156,10 @@ export function hashPinnedPackages(repoRoot: string): string[] {
  * 这是 GK-13「W4 细化」授权范围内的一次显式重划，报告 §受保护面终表列明。
  */
 export const PROFILE_ROOT_OWNED_FILES: readonly string[] = Object.freeze([
+  'profile/assembly.ts',
+  'profile/instance.prod.json',
+  'profile/instance.ts',
+  'profile/instance-worker.ts',
   'profile/package.json',
   'profile/index.ts',
   // 生产专用入口（M4-W2）：它决定生产箱装载哪一份装配，与装配面本身同级。

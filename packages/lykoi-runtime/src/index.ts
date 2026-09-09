@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { BodySchemaRegistry, KNOWN_ACTION_LIST, isHardGated, unwiredResources } from 'lykoi-kernel'
 import type {
-  CapabilityRegistration, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
+  CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
 } from 'lykoi-contracts'
 
 /** A read-only, live set. Consumers cannot mutate registration through the view. */
@@ -29,6 +29,8 @@ export class CapabilityRuntime implements RuntimeService {
   #schema: BodySchemaRegistry
   #revision = 0
   #closed = false
+  #accepting = true
+  #work = new Set<Promise<unknown>>()
   #log: RuntimeLog
   #events: Array<[string, Record<string, unknown>]> = []
   readonly resources: ResourceRegistry
@@ -36,7 +38,10 @@ export class CapabilityRuntime implements RuntimeService {
   readonly bodySchema: RuntimeService['bodySchema']
   readonly catalog: RuntimeService['catalog']
 
-  constructor(log: RuntimeLog = () => {}) {
+  readonly instance: CharacterInstance | undefined
+
+  constructor(log: RuntimeLog = () => {}, instance?: CharacterInstance) {
+    this.instance = instance
     this.#log = (name, fields) => {
       // Telemetry cannot prevent resource retirement or leak a half-registration.
       try { log(name, fields) } catch { /* Dispatch's immutable audit gate remains independent. */ }
@@ -60,6 +65,18 @@ export class CapabilityRuntime implements RuntimeService {
       get knownActions() { return KNOWN_ACTION_LIST.filter(action => runtime.#actions.has(action)) },
       isHardGated,
     })
+  }
+
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (!this.#accepting || this.#closed) throw new Error('instance runtime is stopping')
+    const task = Promise.resolve().then(work)
+    this.#work.add(task)
+    try { return await task } finally { this.#work.delete(task) }
+  }
+
+  async quiesce(): Promise<void> {
+    this.#accepting = false
+    await Promise.allSettled([...this.#work])
   }
 
   get revision() { return this.#revision }
@@ -129,7 +146,7 @@ export class CapabilityRuntime implements RuntimeService {
 
 export const name = 'lykoi-runtime'
 export function apply(ctx: Context) {
-  const runtime = new CapabilityRuntime((event, fields) => ctx.logger.debug('%s %o', event, fields))
+  const runtime = new CapabilityRuntime((event, fields) => ctx.logger.debug('%s %o', event, fields), ctx.get('lykoiInstance'))
   ctx.provide('lykoiRuntime', runtime)
   ctx.effect(() => () => runtime.dispose(), 'runtime capability lifetime')
 }
