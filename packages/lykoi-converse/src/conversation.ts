@@ -1,39 +1,10 @@
-/**
- * Conversation —— 回合骨架 + 真装配器 + 信封周期（cognition/conversation.py 的
- * Conversation 类对应物；S-12..S-34 装配面 + S-35..S-53 信封面 + G-10 修正版）。
- *
- * 三段带（S-23，CACHE-INVERT）：
- *
- *   [稳定前缀]  persona 头(内核+重启叙事+纪律+acquired+转正结论) → 器官清单
- *               → 自我叙事 → 重启回灌 → 早前对话摘要 → 活跃关切（末尾！S-24）
- *   [历史]      #messages[1:]
- *   [易变尾部]  相关记忆 → 念头 → 当前时间 → 有话没送出去 → self-state（S-25）
- *
- * 字节在轮与轮之间不变的块全部先于 append-only 的历史，可匹配前缀随对话增长
- * 而不是被钉死在 message 0。空态零字节（S-26）：任何可空块为空时不加块、不加
- * 占位。稳定前缀的失效印记 = (integration_state.last_integration_at, 最新
- * focus_cycles.id)，跨进程可读；读不到 → 保持现状（S-27）。
- *
- * 信封周期（新体出生形态）：对话路径**生而信封** —— 每周期一次 completion +
- * parseEnvelope，四选一（reply/silence/tool_call/promise_followup）。失败方向
- * = 沉默（不变量 3）：契约失败经 D-01 的有界重试一次后仍败 → 降级沉默 +
- * u3_cycle_failed（带原始响应元数据，D-08 口径全部非内容）。
- *
- * D-01 的另一半（M4-W1）：**周期有一条时间上的边**（`cycleTimeoutS`，缺省
- * `D01_CYCLE_TIMEOUT_S`）。撞线不降级成沉默 —— 一次挂死的调用与她选择不说话
- * 在账上必须分得开：`u3_cycle_timeout` + S-14 整轮回滚 + 大声抛。
- *
- * M3 接口位（显式替身，绝不静默成功）：kernel dispatch 已接真身（W1）、审批
- * 问句机已接真身（W2：SK-77 四项载荷 → kernel approval-conversation）；仍为
- * 替身的是 vision 模型 / 出站进度队列 / interactive_lock / 未送达账本的生产侧
- * （随 W3 出站器官波）。
- */
+/** Bounded conversation cycles with explicit outcomes, context management and tool dispatch. */
 import { RunAbortedError } from './deadline.ts'
 import { randomUUID, createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import {
   applyInner, buildPersonaKernel, buildPersonaPrompt, buildRelationshipOverlay, renderOwnerTemplate,
-  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION, repairTrailingClosers,
+  emitCapabilityGap, GAP_NOT_WIRED, GAP_UNKNOWN_ACTION,
   type InnerBlock, type LogEvent, type PersonaConfig, type SanitizedThought,
 } from 'lykoi-decide'
 import { retrieveForConcern } from 'lykoi-learn'
@@ -45,12 +16,10 @@ import { REGISTRY, THOUGHT_SNAPSHOT_TOP, type RegulationVariableName } from 'lyk
 import { pyRound, renderRestartNotice, type RestartEvent } from 'lykoi-snapshot'
 import {
   buildEnvelopeMessages, classifyFailure, cycleCall, cycleRecord, parseEnvelope,
-  envelopeJsonMode,
-  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT, CYCLE_REPAIRED_EVENT,
-  CYCLE_RETRY_EVENT,
-  CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_DEMOTED_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
-  CYCLE_UNKNOWN_TOOL_EVENT, DETAIL_FIRST_CHAR_BRACE,
-  ENVELOPE_RESPONSE_FORMAT, ENVELOPE_RETRY_MAX, FAIL_NOT_JSON, FOLLOWUP_TOOL,
+  CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT,
+  CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
+  CYCLE_UNKNOWN_TOOL_EVENT,
+  ENVELOPE_RESPONSE_FORMAT, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE, TOOL_CALL,
   TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
@@ -70,8 +39,6 @@ import {
   SUMMARY_SKELETON, THOUGHTS_HEADER, UNDELIVERED_HEADER, fmt, renderSystemPrompt, SELF_STATE_TEMPLATE,
 } from './prompts.ts'
 import type { CycleOutcome } from './outcome.ts'
-
-// --- Context governance 常量（S-28；conversation.py:72-107 逐字，env 可覆写） ----
 
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name]
@@ -95,8 +62,6 @@ export const L3_LINE_CHARS = 80
 export const CONCERNS_CONTEXT_MAX = 5
 export const CONCERNS_DESC_CHARS = 60
 
-// --- 装配块的稳定名字（S-23；conversation.py:113-124 逐字 12 块） ---------------
-
 export const BLOCK_PERSONA = 'persona'
 export const BLOCK_ORGANS = 'organs'
 export const BLOCK_CONCERNS = 'concerns'
@@ -110,10 +75,6 @@ export const BLOCK_TIME = 'time'
 export const BLOCK_UNDELIVERED = 'undelivered'
 export const BLOCK_SELF_STATE = 'self_state'
 
-/**
- * 一整轮塞不进硬预算（S-20/S-30）：surface 呈现为清晰的 message_too_large，
- * 而不是让 provider 用一个不透明错误拒掉超限载荷。
- */
 export class ContextBudgetError extends Error {
   constructor(message: string) {
     super(message)
@@ -136,9 +97,9 @@ export interface ConverseStore {
   currentCognitiveNarrative(): { content: string } | undefined
   getThoughtsForSnapshot(topN: number): { id: number; kind: string; charge: number; content: string }[]
   getInsights(category: string | null): { content: string }[]
-  /** S-34/W4#2：转正结论唯一消费口 —— 不是 listFocusInsights 全集。 */
+
   promotedFocusInsights(): RawRowLike[]
-  /** WO-PERS-OVERLAY-01（D-4/D-5）：键到**这个人**的相处方式条目。 */
+
   promotedRelationshipInsights(subjectUserId: string): RawRowLike[]
   getIntegrationState(): RawRowLike
   currentFocusCycleId(): number
@@ -176,7 +137,6 @@ export interface ConverseStore {
   resolveThought(id: number, injectedIds: Iterable<number>): boolean
 }
 
-/** 一次 LLM 调用的结果面（D-01 失败元数据的来源；全部非内容）。 */
 export interface ConverseLlmResult {
   content: string | null
   finishReason?: string | null
@@ -184,11 +144,7 @@ export interface ConverseLlmResult {
   completionTokens?: number | null
   /** 原始响应 role/content 之外的键名（能暴露 reasoning_content 的存在，不泄内容）。 */
   extraKeys?: readonly string[]
-  /**
-   * WO-FIX-NOTJSON-01 D-4：来自 lykoi-llm 的 `LlmCallResult.reasoningLength`
-   * ——只透传数，与 wake 的 `autonomy_wake_retried.reasoning_len` 同口径。
-   * 缺省 fake 不带这个键也成立（`?? 0`）。
-   */
+
   reasoningLength?: number
 }
 
@@ -196,28 +152,14 @@ export type ConverseLlmFn = (
   messages: ConverseMessage[],
   opts: {
     purpose: 'envelope' | 'summary'
-    /** S-52：json 强制只在信封调用生效；summary 恒 null。 */
+
     responseFormat: typeof ENVELOPE_RESPONSE_FORMAT | null
     maxTokens?: number
     temperature?: number
     runId: string
-    /**
-     * D-01（M4-W1）：周期超时的 AbortSignal 形态。信封调用带它 —— 周期撞线时
-     * 那一跳**真的被掐断**（dsh-llm `GenerateOptions.signal` 收它），而不只是
-     * 这边不等了。summary 在锁外、不属于周期，恒不带。
-     */
+
     signal?: AbortSignal
-    /**
-     * 推理档位的**接缝**（`GenerateOptions.reasoningEffort` 的转接位；缺席 =
-     * 键根本不出现在 wire body 上，同 responseFormat/signal 的口径）。
-     *
-     * WO-FIX-THINKPOLICY-01 D-3 起 Conversation **不再设它**（任何 step 都不）：
-     * 推理策略归 adapter 一处，由 profile `llm-deepseek` 的显式档位决定。此前
-     * WO-FIX-TOOLSTEP-01 D-1 在 `step >= 1` 塞 `'off'`，是原生工具帧缺
-     * reasoning_content 被 DeepSeek 判 400 的绕行；那个根因已由
-     * WO-FIX-TOOLFRAME-01（工具帧改文本帧）消除。接缝本身留着 —— 它是
-     * lykoi-converse 与 dsh 之间那一位的类型，不是策略。
-     */
+
     reasoningEffort?: 'off'
   },
 ) => Promise<ConverseLlmResult>
@@ -228,7 +170,6 @@ export interface ConverseObservation {
   error?: string | null
 }
 
-/** kernel dispatch 接口位（M3 真 kernel；origin 由实现方盖章，永不由模型给）。 */
 export type ConverseDispatchFn = (
   action: { type: string; params: Record<string, unknown> },
   context: {
@@ -238,7 +179,6 @@ export type ConverseDispatchFn = (
   },
 ) => Promise<ConverseObservation>
 
-// --- WO-FIX-APPROVAL-UX ②：老横幅退役（cognition/conversation.py:428 迁入） ----
 // 它取代的那个横幅会把一行裸的 `POST /approvals/{id}/approve` 打进聊天。它是为
 // Mac 客户端写的 —— 在那里那个端点是唯一的应答方式；在 Telegram 里它是一条
 // Kevin 无法执行的指令，而 2026-08-12 他在一次交流里收到了**四遍**，因为每一个
@@ -246,7 +186,7 @@ export type ConverseDispatchFn = (
 // 退役的是对话里的那个横幅。问是审批器官的活了：`requestApproval` 把问句说成
 // 一句话、发进他的聊天、连同问句那条消息的 id 一起记下来（于是他的回复可归属），
 // 并且拒绝就同一条悬置动作问第二遍。
-/** 15 字逐字，sha256 66b17e24…（SPEC-KERNEL §2 D 段）。 */
+
 export const ASK_FALLBACK = '这事需要你点头, 我稍后再问。'
 
 /**
@@ -275,7 +215,6 @@ export const unwiredConverseDispatch: ConverseDispatchFn = async (action) => ({
   error: `kernel dispatch 未接线(M3):${action.type} 不可达`,
 })
 
-/** 未送达账本读面（shared/chat_outbox 未送达半面；生产侧随 M3 出站器官）。 */
 export interface UndeliveredView {
   unsurfaced(limit: number): { id: number; ts?: string | null; text_summary?: string | null }[]
   markSurfaced(ids: readonly number[]): void
@@ -298,37 +237,21 @@ export interface ConverseDeps {
   dispatchFn?: ConverseDispatchFn
   /** vision 模型接口位（M3）：attachment 路径 + 可选问题 → 描述文本。 */
   describeImage?: (path: string, question: string | null) => Promise<string>
-  /** 出站进度队列接口位（chat_outbox.append 对应；M3 出站器官）。 */
+
   postProgress?: (content: string) => void
-  /**
-   * self-state 注入接口位（活体缺省 disabled = null 不注入）。WO-PULSE-01 D-1：
-   * 生产装配接 `selfStateBlock(store, now)`（调节场四变量投影）；`now` 由本类的
-   * 时钟递入 —— 懒衰减读依赖 now，接口位里不许裸 new Date()（测试时钟纪律）。
-   */
+
   selfState?: (now: Date) => ConverseMessage | null
-  /** interactive_lock.mark_active 接口位（S-17；M3 接 wake 仲裁）。 */
+
   markActive?: () => void
   /** 演化叙事 flag 文件路径（存在才注入；owner 域动作）。 */
   narrativeFlagPath?: string
-  /**
-   * D-01 周期超时（秒；M4-W1 交付①）。一个对话周期 = 信封调用 + 工具派发全程；
-   * 撞线 = 整轮按 S-14 回滚 + `u3_cycle_timeout` 落账 + 大声抛（设备侧那一层
-   * 记 `converse/turn_failed`，对 Kevin 呈现为沉默）。**不降级成"假装沉默"**：
-   * 一次挂死的调用与一次她选择不说话，在账上必须分得开。
-   *
-   * 缺省 = `D01_CYCLE_TIMEOUT_S`（源码单一出处）；`0` = 不设限（旧行为）。
-   */
+
   cycleTimeoutS?: number
   /** 对话情境念头出口熔断（测试面；缺省 = CONVERSATION_INNER_ENABLED）。 */
   innerEnabled?: boolean
-  /** 测试面（Python 侧以 monkeypatch 模块常量实现同一件事）。 */
+
   limits?: Partial<{ windowTurns: number; backfillRows: number; maxInputTokens: number }>
-  /**
-   * WO-FIX-LOOP-01 D-1d：真接得通的动作子集（`wiredActionCatalog(resources).
-   * knownActions` 的 Set 化）。`#buildAction` 拿它挡"在 TOOL_TO_ACTION 词表里
-   * 但注册表里仍是替身"的动作——不给 → 行为逐字节不变（既有测试与生产以外的
-   * 调用点零改动）。
-   */
+
   wiredActions?: ReadonlySet<string>
   capabilityRevision?: () => number
 }
@@ -357,7 +280,6 @@ function parseToolArguments(call: ToolCall):
   }
 }
 
-/** 简单互斥（asyncio.Lock 对应）：回合与摘要各一把（S-12）。 */
 class AsyncLock {
   #tail: Promise<void> = Promise.resolve()
 
@@ -376,12 +298,6 @@ class AsyncLock {
   }
 }
 
-/**
- * D-04（G-10 修正版）：审批横幅的装配点。reply 为空（silence 回合）时**不加
- * 横幅** —— 沉默作为一个正当动作必须能一路走到底，不被基础设施推翻；本轮就是
- * 审批问句时也不加（双重警告）。pending 的权威源 = kernel `pendingCount()`，
- * 由拥有对话的调用方在装配点递进来（设备侧接线归 M3-W3）。
- */
 export function composeSurfaceReply(
   reply: string,
   pending: number,
@@ -395,9 +311,6 @@ export function composeSurfaceReply(
 
 // --- Conversation --------------------------------------------------------------
 
-// --- self_state 块（WO-PULSE-01 D-1，断点 ①③） --------------------------------
-
-/** D-1：至少一个变量偏离其 REGISTRY 基线达到此值才注入 self_state 块（省 token）。 */
 export const SELF_STATE_DEVIATION_MIN = 0.05
 
 /**
@@ -462,13 +375,13 @@ export class Conversation {
   #delegatedAsk: DelegatedAsk | null = null
   #background = false
   #cycleInner: string | null = null
-  /** WO-PULSE-01 D-2：本轮最终被接受信封的情绪脉冲（一轮一份；S-13 清、S-14 丢）。 */
+
   #cyclePulse: string[] = []
   #cycleUtterances: string[] = []
   #lastRunId = ''
   #lastTurnId: string | null = null
   #lastCycleOutcome: CycleOutcome | null = null
-  /** S-56：截图路径永不交给模型 —— 只发不透明 attachment id（进程内注册表）。 */
+
   #attachments = new Map<string, string>()
 
   constructor(deps: ConverseDeps) {
@@ -521,13 +434,6 @@ export class Conversation {
     return overrides.maxInputTokens ?? CONTEXT_MAX_INPUT_TOKENS
   }
 
-  // --- persona 头（S-24 第一块） ----------------------------------------------
-
-  /**
-   * 她的 system prompt，分层：先天内核（与自主唤醒逐字节相同 —— 同一个装配
-   * 函数，SA-154）→ 重启叙事（若刚醒）→ 操作纪律 → 后天 insights → 转正结论
-   * （W4#2 唯一消费口）。整合边界重建，不是每轮（S-27）。
-   */
   #buildPersonaMessage(): ConverseMessage {
     const parts = [buildPersonaKernel(this.#deps.persona)]
     const notice = renderRestartNotice(this.#deps.restartEvent?.() ?? null)
@@ -542,12 +448,6 @@ export class Conversation {
     return { role: 'system', content: parts.join('\n\n') }
   }
 
-  /**
-   * S-34：**只读 promotedFocusInsights()**（= status active），不是
-   * listFocusInsights() 全集 —— shadow 还没熬过复核期、contested 正被她自己
-   * 质疑、revised/withdrawn 已作废：一条都不进上下文，那正是影子门的语义。
-   * 只叠在对话路径，不进 buildPersonaPrompt（那是 decide 共用的投影）。
-   */
   #promotedInsightsSection(): string {
     let rows: RawRowLike[]
     try {
@@ -562,29 +462,14 @@ export class Conversation {
     const lines = rows
       .map((row) => String(row.content ?? '').trim())
       .filter((content) => content.length > 0)
-      .map((content) => `- ${content}`)
+      .map((content) =>`- ${content}`)
     if (lines.length === 0) return '' // 判据⑧a：空态零字节
     this.#log('promoted_insights_injected', { count: lines.length })
     return PROMOTED_INSIGHTS_HEADER + lines.join('\n')
   }
 
-  /**
-   * WO-PERS-OVERLAY-01（D-5）：慢变层的"对谁"维度——她和**眼前这个人**相处的方式。
-   *
-   * 与上一段的分工不是重要性而是作用域：转正结论对谁都成立，overlay 条目脱开那个人
-   * 就没有意义。所以这里多一个 subject 参数，而那里没有。
-   *
-   * subject = `store.ownerPrimaryUserId()`：`Conversation` 是**单实例单对话者**
-   * （converse 对所有绑定发信人走同一个实例的 send，本身不知道本轮是谁），而现体
-   * 能与她对话的只有 owner。给 send 加对话者参数是多对话者那一单的结构改动，不在
-   * 这里顺手做——真做了也只会是一个永远等于 owner 的参数。
-   *
-   * subject 为 null（owner 未登记）或读回为空 → **零字节**，与转正结论段同口径：
-   * 没有内容时连标题都不出现，人格块逐字节回到本单之前的形态。
-   * 读失败 → 一条事件 + 零字节：读不到就是这一层今天不叠，不是整轮对话失败。
-   */
   #relationshipOverlaySection(): string {
-    // WO-OVERLAY-WAKE-01 D-1：渲染规则的唯一真源在 lykoi-decide/overlay.ts（wake
+
     // 走同一个函数）；这里只剩落账。事件名与字段不变，加 origin 分辨两路。
     const overlay = buildRelationshipOverlay(this.#deps.store)
     if (overlay.error !== undefined) {
@@ -614,7 +499,7 @@ export class Conversation {
           throw new TypeError('malformed exchange')
         }
         user = cpSlice(String(exchange.user), BACKFILL_CLIP_CHARS)
-        // 读侧卫生（S-32）：已落库的 DSML 泄漏行不再经回灌重新进入上下文。
+
         reply = cpSlice(stripMarkup(String(exchange.reply)), BACKFILL_CLIP_CHARS)
       } catch {
         skipped += 1 // an unreadable row is dropped, never invented
@@ -629,8 +514,6 @@ export class Conversation {
     if (entries.length === 0) return null
     return BACKFILL_HEADER + '\n\n' + entries.join('\n\n')
   }
-
-  // --- 整合边界刷新（S-27） ---------------------------------------------------
 
   /**
    * 夜间机器走过一遍的印记，**跨进程可读**：integration_state.last_integration_at
@@ -663,8 +546,6 @@ export class Conversation {
     this.#log('stable_prefix_rebuilt', { reason: 'nightly_epoch' })
   }
 
-  // --- 稳定前缀（S-24 实际发出顺序） ------------------------------------------
-
   #stablePrefix(): [string, ConverseMessage][] {
     this.#refreshIdentityIfStale()
     const blocks: [string, ConverseMessage][] = [[BLOCK_PERSONA, this.#messages[0]!]]
@@ -689,7 +570,7 @@ export class Conversation {
     if (this.#summary) {
       blocks.push([BLOCK_SUMMARY, { role: 'system', content: fmt(SUMMARY_SKELETON, this.#summary) }])
     }
-    // S-24：concerns 在稳定段**末尾**（实际发出顺序为准，不是常量声明序）。
+
     if (this.#concerns !== null) {
       blocks.push([BLOCK_CONCERNS, this.#concerns])
     }
@@ -720,8 +601,6 @@ export class Conversation {
     return { role: 'system', content: CONCERNS_HEADER + lines.join('\n') }
   }
 
-  // --- 易变尾部（S-25） --------------------------------------------------------
-
   #volatileTail(selfState: ConverseMessage | null): [string, ConverseMessage][] {
     const blocks: [string, ConverseMessage][] = []
     if (this.#relevantMemories !== null) {
@@ -732,7 +611,7 @@ export class Conversation {
       this.#lastInjectedThoughtIds = tops.map((t) => t.id)
       if (tops.length > 0) {
         const lines = tops.map(
-          (t) => `id=${t.id} kind=${t.kind} charge=${pyFloatStr(pyRound(t.charge, 3))}: ${t.content}`,
+          (t) =>`id=${t.id} kind=${t.kind} charge=${pyFloatStr(pyRound(t.charge, 3))}: ${t.content}`,
         )
         blocks.push([BLOCK_THOUGHTS, {
           role: 'system',
@@ -758,10 +637,6 @@ export class Conversation {
     return blocks
   }
 
-  /**
-   * L3 跨时间检索（S-33 前半）：来话即探针，一轮一算（在 send 里，不在 assemble
-   * 里 —— enforceBudget 会反复调 assemble）。**零 LLM**：纯三轴打分一次 SELECT。
-   */
   #buildRelevantMemories(message: string): ConverseMessage | null {
     const probe = cpSlice((message || '').trim(), L3_PROBE_MAX_CHARS)
     if (!probe) return null
@@ -780,7 +655,7 @@ export class Conversation {
       })
       return null
     }
-    if (hits.length === 0) return null // 命中为空不加块（S-26/⑧a）
+    if (hits.length === 0) return null
     const lines = hits.map((hit) => this.#renderMemoryLine(hit))
     this.#log('relevant_memories_injected', { hits: hits.length, probe_chars: [...probe].length })
     return { role: 'system', content: MEMORIES_HEADER + lines.join('\n') }
@@ -794,11 +669,6 @@ export class Conversation {
     return `- [${stamp}] ${source}: ${cpSlice(body, L3_LINE_CHARS)}`
   }
 
-  /**
-   * 「我刚才有话没送到他手上」（≤3 条）。**只读不标**（S-33）：enforceBudget 会
-   * 反复调 assemble，在这里标就会把块标没了；标 surfaced 落在这一周期最终成立
-   * 之后（D-05 修正版）。
-   */
   #undeliveredBlock(): ConverseMessage | null {
     const ledger = this.#deps.undelivered
     if (ledger === undefined) {
@@ -821,16 +691,11 @@ export class Conversation {
     }
     this.#pendingUndeliveredIds = items.map((item) => Number(item.id))
     const lines = items.map(
-      (item) => `- [${beijingStamp(String(item.ts ?? ''))}] 「${item.text_summary ?? ''}」`,
+      (item) =>`- [${beijingStamp(String(item.ts ?? ''))}] 「${item.text_summary ?? ''}」`,
     )
     return { role: 'system', content: renderOwnerTemplate(UNDELIVERED_HEADER, this.#deps.persona) + lines.join('\n') }
   }
 
-  /**
-   * 展示期结束（D-05 修正版）：在**这一周期最终成立**（信封解析通过）之后调，
-   * 不是每次 completion 之后 —— 重试的第二轮装配因此仍带着未送达块，她看到的
-   * 处境与第一次相同。看到一次就够了；重说与否是她的认知决定。
-   */
   #markUndeliveredSurfaced(): void {
     const ids = this.#pendingUndeliveredIds
     if (ids.length === 0) return
@@ -848,7 +713,6 @@ export class Conversation {
 
   // --- 装配 --------------------------------------------------------------------
 
-  /** WO-PULSE-01 D-1：接口位读失败只记账不毁轮（与 undelivered 块同口径）。 */
   #selfState(): ConverseMessage | null {
     const provider = this.#deps.selfState
     if (provider === undefined) return null
@@ -876,7 +740,6 @@ export class Conversation {
     return assembled
   }
 
-  /** 结构守恒测试的断言面（S-23）：本轮会装配的块标签序，history 代活窗。 */
   assembleLayout(): string[] {
     const selfState = this.#selfState()
     const tags = this.#stablePrefix().map(([tag]) => tag)
@@ -885,9 +748,6 @@ export class Conversation {
     return tags
   }
 
-  // --- Context governance（S-29/S-30/S-31） -----------------------------------
-
-  /** 轮边界（user 消息处）：裁剪只在这里切 —— tool_calls 与其结果同生共死（S-29）。 */
   #roundStarts(): number[] {
     const starts: number[] = []
     for (let i = 1; i < this.#messages.length; i += 1) {
@@ -896,11 +756,6 @@ export class Conversation {
     return starts
   }
 
-  /**
-   * 软窗（S-31）：活窗轮数超限时把溢出部分摘要进滚动摘要再丢。摘要是网络调用，
-   * **锁外**跑；正确性靠对象身份重对齐 —— 捕获的消息仍在窗口前部的才删。
-   * 摘要失败什么都不丢（硬预算仍兜底，下一轮重试）。
-   */
   async governContext(): Promise<void> {
     await this.#summaryLock.run(async () => {
       let overflow: ConverseMessage[] = []
@@ -980,10 +835,6 @@ export class Conversation {
     return summary
   }
 
-  /**
-   * 硬预算（S-30）：先丢最老的完整轮（不动当前轮）→ 再丢回灌 → 都没了就大声
-   * 抛 ContextBudgetError（文案骨架 sha 钉死）。确定性 —— 摘要器不可用时照样成立。
-   */
   #enforceBudget(): void {
     const budget = this.#limit('maxInputTokens')
     for (;;) {
@@ -1005,30 +856,14 @@ export class Conversation {
     }
   }
 
-  // --- 一次 completion（S-52 的 json 钮只在信封那一次生效） --------------------
-
-  /**
-   * WO-FIX-NOTJSON-01 D-2：`nudge` 缺省/false → attempt 0 的请求字节逐字节
-   * 不变；`true` → 契约末尾追加一条临时引导（contract.ts 的
-   * buildEnvelopeMessages 第三参）——这条消息只存在于这一次返回的 messages
-   * 里，不 push 进 `#messages`，不进历史/摘要/下一步装配。
-   *
-   * WO-FIX-JSONMODE-01 D-1：`nudge` 为 true 时 `responseFormat: null`——
-   * json_object 模式下的空白退化态对同一份引导前缀原样重发过（NOTJSON-01
-   * 已证），引导本身对这种退化无效；这一单换个杠杆，重试跳直接不强制 json
-   * 模式，靠 lykoi-decide 的 extractJson（contract.ts:classifyFailure 已在
-   * 用的花括号切片容错）从「前缀说明 + JSON 对象」形态的正文里抠出信封。
-   * attempt 0（`nudge` 缺省/false）维持 `envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT
-   * : null` 不变——这一支从未被本单触碰，字节逐字节不变。
-   */
-  async #completion(signal?: AbortSignal, nudge?: boolean): Promise<ConverseLlmResult> {
+  async #completion(signal?: AbortSignal): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, nudge, this.#deps.persona)
+    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, this.#deps.persona)
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
-      responseFormat: nudge ? null : (envelopeJsonMode() ? ENVELOPE_RESPONSE_FORMAT : null),
+      responseFormat: ENVELOPE_RESPONSE_FORMAT,
       runId: this.#lastRunId,
-      // D-01：周期的那条边递到 wire（signal 缺席 = 不设限，键根本不出现）。
+
       ...(signal === undefined ? {} : { signal }),
       // WO-FIX-THINKPOLICY-01 D-3：这里**不再**碰推理档位（任何 step 都不带
       // reasoningEffort 键）。推理策略只许有一个主人 —— adapter 那一处
@@ -1046,119 +881,32 @@ export class Conversation {
 
   // --- 信封周期 ----------------------------------------------------------------
 
-  /**
-   * 一个 inbound 回合 = 一串信封周期。每周期四选一；失败方向 = 沉默（不变量 3）
-   * + D-01 有界重试（WO-FIX-NOTJSON-01 D-3 改口：至多两次，带引导，只对
-   * not_json）。这条路上没有一个新的对外副作用出口。
-   */
   async #runCycle(signal?: AbortSignal): Promise<string> {
     for (let step = 0; step <= MAX_TOOL_STEPS; step += 1) {
       const closing = step === MAX_TOOL_STEPS
       if (closing) {
         this.#messages.push({ role: 'system', content: CYCLE_CLOSING_NOTE })
       }
-      let decision: Decision | null = null
-      let elapsedMs = 0
-      // WO-FIX-THINKPOLICY-01 D-0：最终成立的那一次调用的回包 —— 与 elapsedMs
-      // 同样要活过 attempt 循环（cycleRecord 在循环外记账）。失败路不用它：
-      // `u3_cycle_failed` 在循环内就地拿得到 result，三个字段本就齐了。
-      let lastResult: ConverseLlmResult | null = null
-      for (let attempt = 0; ; attempt += 1) {
-        const started = monotonicNowMs() // realtime-allow: 周期时延量真实墙钟
-        // WO-FIX-NOTJSON-01 D-2：attempt 0 原样重发；attempt ≥ 1 带引导——
-        // 前一次原样重发已证对这种退化无效，改前缀才是杠杆。
-        // WO-FIX-JSONMODE-01 D-1：attempt ≥ 1（nudge）同时去 json 模式——
-        // json_mode 记的是**刚发出去的这一次请求**是否带了 json_object。
-        const nudge = attempt >= 1
-        const result = await this.#completion(signal, nudge)
-        // 旧调用即使不合作、晚到成功，也不能进入 parse/inner/tool 或下一 run 状态。
-        signal?.throwIfAborted()
-        lastResult = result
-        const jsonMode = !nudge && envelopeJsonMode()
-        elapsedMs = Math.round(monotonicNowMs() - started)
-        const parseOpts = {
+      const started = monotonicNowMs() // realtime-allow: cycle duration
+      const lastResult = await this.#completion(signal)
+      signal?.throwIfAborted()
+      const elapsedMs = Math.round(monotonicNowMs() - started)
+      let decision: Decision
+      try {
+        decision = parseEnvelope({ content: lastResult.content }, {
           logEvent: this.#deps.logEvent,
-          runId: this.#lastRunId || null, // capability_gap 的 run_id 栏（旁路留痕）
-        }
-        try {
-          decision = parseEnvelope({ content: result.content }, {
-            ...parseOpts,
-            injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
-          })
-          break
-        } catch (firstExc) {
-          // 契约失败 = 这一轮沉默，不是回合崩掉。
-          let exc: unknown = firstExc
-          let [reason, detail] = classifyFailure(exc, result.content)
-          if (reason === FAIL_NOT_JSON && detail === DETAIL_FIRST_CHAR_BRACE) {
-            // WO-FIX-TAILBRACE-01 D-2：首字符是 `{` 却解析不了 —— PROBE-CAP-01
-            // 读数里这一形态多数只是缺尾括号。先本地补齐再解析一次（零 LLM
-            // 调用）；补不了或补完仍坏，才落到下面既有的重试/失败路径
-            // （LANDING-K/L 那条链原样保留为安全网）。修复事件零正文。
-            const repaired = repairTrailingClosers(result.content ?? '')
-            if (repaired !== null) {
-              this.#log(CYCLE_REPAIRED_EVENT, {
-                step,
-                attempt: attempt + 1,
-                added_chars: repaired.added.length,
-                finish_reason: result.finishReason ?? null,
-              })
-              try {
-                decision = parseEnvelope({ content: repaired.text }, {
-                  ...parseOpts,
-                  injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
-                })
-                break
-              } catch (repairedExc) {
-                // 修复文本过了 JSON 关却倒在后面几关（unknown_kind 等）：按
-                // 修复后的归因走既有路径 —— 理解偏差不重试，与未修复时同口径。
-                exc = repairedExc
-                ;[reason, detail] = classifyFailure(exc, repaired.text)
-              }
-            }
-          }
-          if (attempt < ENVELOPE_RETRY_MAX && reason === FAIL_NOT_JSON) {
-            // D-01（WO-FIX-NOTJSON-01 D-3 改口）：只对 not_json 有界重试，
-            // 至多两次、且从第二次起带引导语 —— 空回复/截断在同一前缀上是
-            // 确定性退化而非采样偶发，原样重发无效，改前缀才有收益；
-            // unknown_kind/missing_content 是理解偏差，重试大概率复现，不带。
-            this.#log(CYCLE_RETRY_EVENT, {
-              reason, detail, step, attempt: attempt + 1,
-              // WO-FIX-NOTJSON-01 D-4：与 wake 的 autonomy_wake_retried 同口径
-              // ——「答案被吞进 reasoning」在对话路径上也可读数。
-              reasoning_len: result.reasoningLength ?? 0,
-              // WO-FIX-JSONMODE-01 D-2：刚失败的这一次请求是否带了 json_object。
-              json_mode: jsonMode,
-            })
-            continue
-          }
-          // D-01/D-08：失败事件带**非内容**元数据 —— 长度/键名/finish_reason，
-          // 原文一个字不进事件流。
-          this.#log(CYCLE_FAILURE_EVENT, {
-            error_type: exc instanceof Error ? exc.name : 'Error',
-            elapsed_ms: elapsedMs,
-            reason,
-            detail,
-            step,
-            attempts: attempt + 1,
-            content_chars: [...(result.content ?? '')].length,
-            has_content: result.content !== null && result.content !== undefined,
-            finish_reason: result.finishReason ?? null,
-            completion_tokens: result.completionTokens ?? null,
-            prompt_tokens: result.promptTokens ?? null,
-            other_message_keys: [...(result.extraKeys ?? [])],
-            // WO-FIX-NOTJSON-01 D-4：同上，最后一次尝试的 reasoning_len。
-            reasoning_len: result.reasoningLength ?? 0,
-            // WO-FIX-JSONMODE-01 D-2：同上，最后一次尝试是否带了 json_object。
-            json_mode: jsonMode,
-          })
-          this.#lastCycleOutcome = { kind: 'envelope_failed', step }
-          return ''
-        }
+          runId: this.#lastRunId || null,
+          injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
+        })
+      } catch (error) {
+        const [reason, detail] = classifyFailure(error, lastResult.content)
+        this.#log(CYCLE_FAILURE_EVENT, { reason, detail, step, elapsed_ms: elapsedMs })
+        this.#lastCycleOutcome = { kind: 'envelope_failed', step }
+        return ''
       }
       // 同步提交段从这里开始；inner、进度等内部写入也不允许事后回滚。
       this.#runSealed = true
-      // D-05（修正版）：这一周期最终成立之后才收未送达展示期。
+
       this.#markUndeliveredSurfaced()
       const injected = new Set(this.#lastInjectedThoughtIds)
       const innerApplied = this.#applyCycleInner(decision, injected)
@@ -1168,32 +916,22 @@ export class Conversation {
         step,
         innerApplied,
         wiredActions: this.#deps.wiredActions,
-        // WO-FIX-THINKPOLICY-01 D-0：成立那一跳的三个读数（elapsed_ms 单独一个
+
         // 数分不开「思考长」与「前缀缓存未命中」）。缺席交给 cycleRecord 兜底：
         // usage 两项 null、reasoning_len 0。
         promptTokens: lastResult?.promptTokens ?? null,
         completionTokens: lastResult?.completionTokens ?? null,
         reasoningLength: lastResult?.reasoningLength ?? 0,
       }))
-      if (decision.demoted && decision.original_kind === TOOL_CALL) {
-        // D-03：她想动手却被闸掉 ≠ 她本来就想沉默 —— 独立告警。
-        const tool = decision.envelope.tool as { name: string } | null
-        this.#log(CYCLE_TOOL_DEMOTED_EVENT, {
-          original_kind: TOOL_CALL,
-          tool_name: tool?.name ?? null,
-        })
-      }
       const kind = decision.kind
       if (kind === SILENCE || kind === REPLY || kind === PROMISE_FOLLOWUP) {
-        // WO-PULSE-01 D-2/D-4：只有**最终被接受**的那个信封的脉冲进回流 ——
+
         // 工具步中间信封的脉冲不累加（它们描述的是半途，不是这一轮的落点）。
         this.#cyclePulse = [...((decision.envelope.pulse as string[] | undefined) ?? [])]
       }
       if (kind === SILENCE) {
         // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
-        this.#lastCycleOutcome = decision.demoted
-          ? { kind: 'suppressed', step, originalKind: decision.original_kind!, reason: decision.demote_why! }
-          : { kind: 'silence', step }
+        this.#lastCycleOutcome = { kind: 'silence', step }
         return ''
       }
       if (kind === REPLY) {
@@ -1236,17 +974,10 @@ export class Conversation {
         return outcome // 撞了审批门：这一轮的结局由那条腿交代
       }
     }
-    this.#lastCycleOutcome = { kind: 'silence', step: MAX_TOOL_STEPS }
+    this.#lastCycleOutcome = { kind: 'tool_budget', step: MAX_TOOL_STEPS }
     return '' // 不可达（closing 那一周期必然 return），安全侧兜底
   }
 
-  /**
-   * 执行信封点名的那一个工具，回填结果；null = 周期继续。合成一条
-   * assistant/tool_calls 消息：信封这一路没用 tools API，但对话历史是共用的 ——
-   * 用它原生的词汇把"她决定动手"写进历史，既有结果回填/回执探针原样可用。
-   * 撞审批门（S-57）：补 deferred 结果，然后走 `#askForApproval`（M3-W2 换真身：
-   * SK-77 四项载荷交给拥有对话的调用方）—— 回合本身沉默收场，不静默执行。
-   */
   async #executeCycleTool(
     step: number,
     tool: { name: string; arguments: Record<string, unknown> },
@@ -1278,7 +1009,7 @@ export class Conversation {
       && isPlainObject(observation.data)
       && observation.data.needs_approval
     ) {
-      // S-57：这一个未应答的 tool_call 补 deferred 结果，历史保持合法形状。
+
       // （新体一周期恰点名一个工具，所以"这一个"就是"其后所有"。）
       this.#appendToolResult(call.id, {
         success: false, deferred: true, note: 'awaiting owner approval',
@@ -1289,28 +1020,6 @@ export class Conversation {
     return null
   }
 
-  /**
-   * 这一轮的动作撞了审批门。**问一次**，并且在回复本身里什么也不说
-   * （WO-FIX-APPROVAL-UX ② / S-58）。
-   *
-   * 返回值就是这一回合的回复，所以在问句已经在途的那条路上它刻意是**空串**：
-   * 问句就是那条消息，在回复里再复述一遍，正是它所替代的那堆四连横幅。只有
-   * 一条问句都问不出去时这一回合才开口 —— 而且永不带一个端点进去。
-   *
-   * **SK-77 认知侧协议（新体唯一形态）**：认知侧只交出四项载荷
-   * （action_type / params / action_id / correlation_id），由**拥有这场对话的
-   * 调用方**（今天 = 设备层）以当轮入站 message_id 为 reply_to 去问。
-   *
-   * 为什么不是"把入站 id 送进认知侧"：那是 WO-U3/P1 E2 分层的刻意设计 ——
-   * 「对端是谁」只在设备层是结构事实。所以反过来：**问句移到设备层去发**。
-   * 排队也跟着问句走，在那一侧由 `requestApproval` 一次做完（"先发后排"的原子
-   * 性口径原封不动），这一层**不预先排一条没人问过的队**（S-59）。
-   *
-   * 活体的路 B（`_delegate_approval_ask=False`，认知侧自己取 `_owner_context()`
-   * 调 request_approval）是 Mac app 的缺省路径 —— 具身重设计后 Mac 退化为纯感知
-   * 器官，那条路在新体**不出生**（本波刻意不迁；ASK_FALLBACK 的文案随本条款迁
-   * 入，用在下面那个真正"问不出去"的分支上）。
-   */
   #askForApproval(
     action: { type: string; params: Record<string, unknown> },
     data: Record<string, unknown>,
@@ -1323,7 +1032,7 @@ export class Conversation {
       this.#log('approval_ask_skipped', { reason: 'no_action_id', action_type: action.type })
       return ASK_FALLBACK
     }
-    // 一轮一份，取走即清（S-60）：同一个待批动作被两个调用方各问一遍，就是
+
     // Kevin 面前两条问句指向一件事。
     this.#delegatedAsk = {
       action_type: action.type,
@@ -1336,25 +1045,14 @@ export class Conversation {
     return ''
   }
 
-  /**
-   * D-02②③：工具名过 TOOL_TO_ACTION 枚举 —— unknown-tool 分支**大声失败**
-   * （cycle_unknown_tool 事件 + error 结果回填；活体这里零 audit 零 events，
-   * 正是 U3 缺陷②"零痕迹断点"的病灶）。notify.owner 的 origin 由本循环盖章，
-   * 永不由模型给（S-55）。
-   *
-   * GK-14：两道闸的判定本身现在只在 `toolDispatchGate`（contract.ts）里写一份
-   * —— 这里只消费判定结果，不重复判定逻辑；`cycleRecord` 也调同一个函数算
-   * `dispatch_gate`/`dispatched`，两处不会各说各话。事件名、`capability_gap`
-   * 载荷、error 结果串逐字节不变。
-   */
   #buildAction(call: ToolCall): [{ type: string; params: Record<string, unknown> } | null, Fields | null] {
     const name = call.function.name
     const gate = toolDispatchGate(name, this.#deps.wiredActions)
     if (gate === 'unknown_tool') {
       this.#log(CYCLE_UNKNOWN_TOOL_EVENT, { name })
-      // 位点④（工具名词表判定；WO-U2-SENSE-01）：她点了一个白名单外的工具名 ——
+
       // 这是「她想做但没有」在对话路径上最贴近判定的那一处。旁路留痕：上面那条
-      // 账与下面回填的 error 结果都逐字节不变。
+
       emitCapabilityGap(this.#deps.logEvent, {
         wanted: name,
         reason: GAP_UNKNOWN_ACTION,
@@ -1364,10 +1062,10 @@ export class Conversation {
       return [null, { success: false, error: `unknown tool '${name}'` }]
     }
     const actionType = TOOL_TO_ACTION[name]!
-    // WO-FIX-LOOP-01 D-1d：动作**在**词表里，但注册表里仍是 D-1a 打了标记的
+
     // 替身（未接线）—— 与上面的"词表外"分支是结构上不同的两件事，不许合并；
     // 不给 wiredActions 时（未接线口径缺省关）`toolDispatchGate` 永不判 not_wired，
-    // 此分支永不触发，行为逐字节不变。
+
     if (gate === 'not_wired') {
       this.#log(CYCLE_TOOL_UNWIRED_EVENT, { name, action_type: actionType })
       emitCapabilityGap(this.#deps.logEvent, {
@@ -1388,7 +1086,6 @@ export class Conversation {
     return [{ type: actionType, params }, null]
   }
 
-  /** S-56：截图真实路径永不交给模型 —— 只给不透明 attachment id。 */
   #resultPayload(
     action: { type: string; params: Record<string, unknown> },
     observation: ConverseObservation,
@@ -1422,7 +1119,7 @@ export class Conversation {
     if (!attachmentId || typeof attachmentId !== 'string') {
       return { success: false, error: "vision_describe requires 'attachment_id'" }
     }
-    // S-56：只有可信生产者发出的 id 才 resolve —— 猜的 id、裸路径永远到不了读取。
+
     const path = this.#attachments.get(attachmentId)
     if (path === undefined) {
       return { success: false, error: `unknown attachment: ${attachmentId}` }
@@ -1444,10 +1141,6 @@ export class Conversation {
     }
   }
 
-  /**
-   * promise_followup —— 认知内工具：只登记，不动外界（S-54）。现场回合由 surface
-   * 在回合成功后调度成后台跟进；后台回合是挂起信号（无递归自动续跑）。
-   */
   #handleFollowup(call: ToolCall): Fields {
     const { args, error } = parseToolArguments(call)
     if (error !== null) return error
@@ -1464,7 +1157,6 @@ export class Conversation {
     return { success: true, data: { queued: true, note: '回复结束后开始后台跟进' } }
   }
 
-  /** post_progress —— 后台执行中的进度推送：写对话出站队列，不过 dispatch（S-54）。 */
   #handleProgress(call: ToolCall): Fields {
     const { args, error } = parseToolArguments(call)
     if (error !== null) return error
@@ -1491,11 +1183,6 @@ export class Conversation {
     return { success: true, data: { delivered: true } }
   }
 
-  /**
-   * 信封的 inner 真落库。source='conversation'：事件名由 source 派生 ——
-   * conversation_inner_applied 与活体同一条曲线。注入 id 门与 THOUGHT_OPEN_CAP
-   * 软拒原样继承（都在 applyInner/createThought 里，这里一条都没重写）。
-   */
   #applyCycleInner(decision: Decision, injectedIds: Set<number>): boolean {
     const inner: InnerBlock = decision.inner ?? { thoughts: [], resolve: [] }
     if (!(inner.thoughts.length > 0 || inner.resolve.length > 0)) return false
@@ -1523,37 +1210,23 @@ export class Conversation {
     return true
   }
 
-  // --- 回合骨架（S-12..S-17） --------------------------------------------------
-
   /** 只读查看本轮是否登记了 follow-up；不消费请求。 */
   hasFollowupRequest(): boolean {
     return this.#followupRequest !== null
   }
 
-  /** 取走并清空本轮登记的跟进任务（S-60：取走即清）。 */
   takeFollowupRequest(): string | null {
     const task = this.#followupRequest
     this.#followupRequest = null
     return task
   }
 
-  /**
-   * 取走并清空本轮交给调用方去问的待批动作（S-60；surface/设备层在回合结束后
-   * 调用）。与 takeFollowupRequest 同一形态：取一次就没了 —— 同一个待批动作被
-   * 两个调用方各问一遍，就是 Kevin 面前两条问句指向一件事（`requestApproval`
-   * 的 already-outstanding 检查会挡住第二条入队，但那是最后一道网，不是借口）。
-   */
   takeDelegatedAsk(): DelegatedAsk | null {
     const ask = this.#delegatedAsk
     this.#delegatedAsk = null
     return ask
   }
 
-  /**
-   * 只看不取（本波的观测口）。`takeDelegatedAsk` 的语义是**消费** —— 在设备层
-   * 真接上去问之前调它，等于把载荷丢进垃圾桶；所以接线侧落账用这个，去问用
-   * 那个。跨轮不会悬着：下一轮 `send` 开头就清场（S-13）。
-   */
   peekDelegatedAsk(): DelegatedAsk | null {
     return this.#delegatedAsk
   }
@@ -1569,15 +1242,14 @@ export class Conversation {
       turnId?: string | null
     } = {},
   ): Promise<string> {
-    this.#deps.markActive?.() // S-17：开头一次（M3 接真锁）
+    this.#deps.markActive?.()
     const visible = await this.#lock.run(async () => {
       this.#background = opts.background ?? false
-      // S-13 一轮一份的清场（新体适用子集：followup / cycle_inner / delegate
-      // ask —— 后者随 M3-W2 审批器官出生；shadow 是影子期构件，本体不存在）。
+
       this.#followupRequest = null
       this.#delegatedAsk = null
       this.#cycleInner = null
-      this.#cyclePulse = [] // WO-PULSE-01 D-2：一轮一份
+      this.#cyclePulse = []
       this.#cycleUtterances = []
       this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
@@ -1590,8 +1262,7 @@ export class Conversation {
       this.#runController = new AbortController()
       let reply: string
       try {
-        // D-01（M4-W1）：整个周期有一条边。撞线 = AbortSignal 掐断那一跳 +
-        // 下面的 S-14 回滚 + `u3_cycle_timeout` 落账（elapsed 与判定读同一只表）。
+
         const timeoutMs = deadlineMs(this.#deps.cycleTimeoutS ?? D01_CYCLE_TIMEOUT_S)
         const controller = this.#runController
         reply = await withDeadline('conversation_cycle', timeoutMs, async signal => {
@@ -1600,7 +1271,7 @@ export class Conversation {
         }, controller.signal)
       } catch (exc) {
         if (exc instanceof DeadlineExceededError) {
-          // 风格对齐 G-10 的 u3_cycle_failed：类别/时延/原因/零正文。
+
           this.#log(CYCLE_TIMEOUT_EVENT, {
             error_type: exc.name,
             elapsed_ms: exc.elapsedMs,
@@ -1608,30 +1279,29 @@ export class Conversation {
             reason: 'cycle_timeout',
           })
         }
-        // S-14：失败回合整轮回滚 —— 消息列表永不带半截轮（未应答的 tool_call
+
         // 会毒化之后每一次装配）。已 dispatch 的副作用留在 audit 里。
         const dropped = this.#messages.length - checkpoint
         this.#messages.splice(checkpoint)
-        this.#cyclePulse = [] // WO-PULSE-01 D-3：失败轮不打脉冲
+        this.#cyclePulse = []
         this.#log('chat_turn_rolled_back', { dropped_messages: dropped })
         throw exc
       } finally {
         this.#runController = null
         this.#runSealed = true
-        // S-15：召回是针对这句话的，展示期就是这一轮。
+
         this.#relevantMemories = null
       }
       if (this.#cycleUtterances.length === 0 && reply) this.#cycleUtterances = [reply]
       const appliedInner = this.#cycleInner
       const now = this.#now()
-      // S-16：每个成功回合恰一条 history(conversation) 行（含 silence，reply=""）。
+
       const historyId = this.#deps.store.appendHistory(
-        'conversation',
+'conversation',
         JSON.stringify({ user: message, reply, ...(this.#cycleUtterances.length > 1 ? { utterances: this.#cycleUtterances } : {}) }),
         { now },
       )
-      // D-08（G-10 修正版）：inner_outer_pair 只记长度/哈希 —— 正文归 history 表
-      // （她的记忆），不归事件流。活体在这里写明文正文，与 u3_* 的隐私口径
+
       // 自相矛盾；出生规格统一成严的那一侧。
       this.#log('inner_outer_pair', {
         history_id: historyId,
@@ -1640,7 +1310,7 @@ export class Conversation {
         inner_chars: appliedInner === null ? 0 : [...appliedInner].length,
         has_inner: appliedInner !== null,
       })
-      // S-16：一次 conversationTurnReflow —— reflow 失败是遥测，不是坏掉的回合。
+
       try {
         conversationTurnReflow({
           store: this.#deps.store,
@@ -1651,7 +1321,7 @@ export class Conversation {
           historyId,
           now,
           replyToNotification: opts.replyToNotification ?? null,
-          // WO-PULSE-01 D-2（断点 ②）：本轮被接受信封的脉冲交给回流消费。
+
           pulse: this.#cyclePulse,
           runId: this.#lastRunId,
           turnId: this.#lastTurnId,
@@ -1672,9 +1342,9 @@ export class Conversation {
       opts.onUtterances?.([...this.#cycleUtterances])
       return reply
     })
-    // S-12：摘要在**锁外**跑 —— 摘要时延不挡并发回合。
+
     await this.governContext()
-    this.#deps.markActive?.() // S-17：结尾一次
+    this.#deps.markActive?.()
     return visible
   }
 }

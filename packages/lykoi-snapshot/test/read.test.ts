@@ -191,11 +191,10 @@ test('环境块：读数、探索断粮、节律、预算（G-6 系数 1.0 直�
   assert.equal(snap.环境.预算.本小时剩余行动数, 20)
   assert.equal(snap.环境.预算.今日剩余通知数, 2)
   assert.equal(snap.环境.预算.今日剩余主动开口数, 1)
-  assert.equal(snap.环境.预算.预算系数, 1.0)
   store.close()
 })
 
-test('G-6 落地：load>0.7 → floor(20×0.5) − 已花 = 剩余（快照侧折算一次）', () => {
+test('高负荷不折扣真实预算：小时上限减去已花次数', () => {
   const path = makeFixture()
   const db = rawOpen(path)
   db.prepare("UPDATE regulation_field SET value = 0.8, updated_at = ? WHERE name = 'load'")
@@ -206,8 +205,7 @@ test('G-6 落地：load>0.7 → floor(20×0.5) − 已花 = 剩余（快照侧�
   db.close()
   const store = new ReadWriteMemory(path)
   const snap = read(store, stubDeps(), NOW)
-  assert.equal(snap.环境.预算.预算系数, 0.5)
-  assert.equal(snap.环境.预算.本小时剩余行动数, 7) // floor(10) - 3
+  assert.equal(snap.环境.预算.本小时剩余行动数, 17) // real cap 20 - 3
   store.close()
 })
 

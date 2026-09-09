@@ -79,59 +79,6 @@ test('cost/note 文案逐字；explore/rest note 从 CAUSES 插值（SA-13/14）
   )
 })
 
-test('force_inner_tending（coherence<0.4）：三内向候选、不看预算、tend +0.3（SA-07）', () => {
-  const cands = buildCandidates(snap({ coherence: 0.3, hourly: 0, notifs: 0, proactive: 0 }))
-  assert.deepEqual(cands.map((c) => c.kind), ['tend_inner', 'rest', 'contemplate'])
-  assert.deepEqual(cands.map((c) => c.weight), [0.7, 0.5, 0.4])
-})
-
-test('force_inner 优先于 prefer_rest（SA-06 互斥）：双高时走 force 分支', () => {
-  const cands = buildCandidates(snap({ coherence: 0.3, load: 0.8 }))
-  assert.deepEqual(cands.map((c) => [c.kind, c.weight]), [
-    ['tend_inner', 0.7], ['rest', 0.5], ['contemplate', 0.4], // rest 未 +0.2
-  ])
-})
-
-test('prefer_rest（load>0.7）：三内向候选、rest +0.2、initiate 从不候选（SA-08）', () => {
-  const cands = buildCandidates(snap({ load: 0.8, tension: 0.9 })) // tension 高也进不来
-  assert.deepEqual(cands.map((c) => [c.kind, c.weight]), [
-    ['tend_inner', 0.4], ['rest', 0.7], ['contemplate', 0.4],
-  ])
-})
-
-test('探索饥饿棘轮：三条件全立才回菜单（SA-09），KINDS 序在前', () => {
-  const base = { load: 0.8, hunger: 0.7, hourly: 2 }
-  // 全立：断粮 30h
-  assert.deepEqual(
-    buildCandidates(snap({ ...base, explore: { 断粮小时: 30 } })).map((c) => c.kind),
-    ['explore', 'tend_inner', 'rest', 'contemplate'],
-  )
-  // 从未完成过（null）也算断粮
-  assert.deepEqual(
-    buildCandidates(snap({ ...base, explore: { 断粮小时: null } })).map((c) => c.kind),
-    ['explore', 'tend_inner', 'rest', 'contemplate'],
-  )
-  // 恰在阈值 24.0：>= 成立
-  assert.ok(buildCandidates(snap({ ...base, explore: { 断粮小时: 24.0 } }))
-    .some((c) => c.kind === 'explore'))
-  // hunger 恰 0.6：严格大于不成立
-  assert.ok(!buildCandidates(snap({ ...base, hunger: 0.6, explore: { 断粮小时: 30 } }))
-    .some((c) => c.kind === 'explore'))
-  // 断粮不足
-  assert.ok(!buildCandidates(snap({ ...base, explore: { 断粮小时: 5 } }))
-    .some((c) => c.kind === 'explore'))
-  // 小时预算耗尽
-  assert.ok(!buildCandidates(snap({ ...base, hourly: 0, explore: { 断粮小时: 30 } }))
-    .some((c) => c.kind === 'explore'))
-  // SA-10 fail-closed：探索块缺席 → 不凭缺失数据扩菜单
-  assert.ok(!buildCandidates(snap({ ...base, explore: 'missing' }))
-    .some((c) => c.kind === 'explore'))
-  // 棘轮权重仍吃 hunger 加成
-  const explore = buildCandidates(snap({ ...base, explore: { 断粮小时: 30 } }))
-    .find((c) => c.kind === 'explore')!
-  assert.equal(explore.weight, 0.7)
-})
-
 test('正常分支预算裁剪三条；安静四件套任何预算下不裁（SA-11/12）', () => {
   // hourly 0 → 去 explore/queue/initiate
   assert.deepEqual(
@@ -176,18 +123,6 @@ test('G-6：预算读数直读不再另乘（快照侧已折算）——同读�
   assert.ok(buildCandidates(snap({ hourly: 1 })).some((c) => c.kind === 'explore'))
 })
 
-// --- WO-FIX-LOOP-01 D-1c：器官清单如实 → explore 候选看 wired -----------------
-
-test('D-1c：不传 opts.wired → 行为逐字节不变（三分支均照旧允许 explore）', () => {
-  // 正常分支
-  assert.ok(buildCandidates(snap()).some((c) => c.kind === 'explore'))
-  // force_inner_tending 分支本就不含 explore（SA-07），不受影响
-  assert.ok(!buildCandidates(snap({ coherence: 0.3 })).some((c) => c.kind === 'explore'))
-  // prefer_rest + 饥饿棘轮全立 → 仍候选 explore
-  const base = { load: 0.8, hunger: 0.7, hourly: 2, explore: { 断粮小时: 30 } }
-  assert.ok(buildCandidates(snap(base)).some((c) => c.kind === 'explore'))
-})
-
 test('外部动作仅在当前 Runtime 注册时成为候选，内部认知不受影响', () => {
   const wired = new Set(['messenger.send', 'notify.owner'])
   const cands = buildCandidates(snap(), { wired })
@@ -203,7 +138,7 @@ test('外部动作仅在当前 Runtime 注册时成为候选，内部认知不�
   assert.ok(!buildCandidates(snap(), { wired }).some(c => c.kind === 'initiate_chat'))
 })
 
-test('D-1c：wired 不含 read_text → prefer_rest 分支的饥饿棘轮出口也被摘掉（不许摆假泄压口）', () => {
+test('高 load 和探索饥饿不绕过缺失能力的限制', () => {
   const wired = new Set(['messenger.send'])
   const base = { load: 0.8, hunger: 0.7, hourly: 2, explore: { 断粮小时: 30 } }
   // 不传 wired：三条件全立，棘轮应当把 explore 放回来（基线行为）
@@ -217,12 +152,6 @@ test('D-1c：wired 含 research_browser.read_text → explore 候选不受影响
   assert.ok(buildCandidates(snap(), { wired }).some((c) => c.kind === 'explore'))
 })
 
-test('D-1c：force_inner_tending 分支下 wired 缺 read_text 不改变其余两个候选', () => {
-  const wired = new Set(['messenger.send'])
-  const cands = buildCandidates(snap({ coherence: 0.3 }), { wired })
-  assert.deepEqual(cands.map((c) => c.kind), ['tend_inner', 'rest', 'contemplate'])
-})
-
 test('契约破坏读点：缺预算键/缺调节场变量直接抛（SA-12 直取不 fail-closed）', () => {
   const s = snap()
   delete ((s.环境 as Record<string, unknown>).预算 as Record<string, unknown>)['本小时剩余行动数']
@@ -230,4 +159,15 @@ test('契约破坏读点：缺预算键/缺调节场变量直接抛（SA-12 直�
   const s2 = snap()
   delete (s2.调节场 as Record<string, unknown>).exploration_hunger
   assert.throws(() => buildCandidates(s2), /missing 'exploration_hunger'/)
+})
+
+test('low coherence and high load cannot remove otherwise available choices', () => {
+  const wired = new Set(['research_browser.read_text', 'autonomy.queue_notification', 'autonomy.initiate_chat'])
+  const normal = buildCandidates(snap(), { wired }).map(c => c.kind)
+  for (const state of [{ coherence: 0.1 }, { load: 0.99 }, { coherence: 0.1, load: 0.99, hunger: 0 }]) {
+    assert.deepEqual(buildCandidates(snap(state), { wired }).map(c => c.kind), normal)
+    const noBudget = buildCandidates(snap({ ...state, hourly: 0 }), { wired }).map(c => c.kind)
+    assert.deepEqual(noBudget, ['record_note', 'tend_inner', 'rest', 'contemplate'])
+    assert.ok(!buildCandidates(snap({ ...state, notifs: 0 }), { wired }).some(c => c.kind === 'queue_notification'))
+  }
 })

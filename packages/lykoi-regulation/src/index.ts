@@ -1,12 +1,4 @@
-/**
- * 调节状态的纯计算：不做 I/O、不读时钟，持久化由状态层负责。
- * 变量定义包含更新原因、衰减方式和认知出口，registryProblems 检查三者连通。
- * 当前阈值和效果属于可评估的认知策略，历史编号不构成永久架构限制。
- * 迁移说明见 governance/archive/runtime-slimdown-01-history.md。
- */
-
-// ============================== 四变量（SA-76） ==============================
-
+/** Regulation state, decay and model-visible preferences. State does not remove choices or discount actual budgets. */
 export type RegulationVariableName
   = 'coherence' | 'load' | 'relational_tension' | 'exploration_hunger'
 
@@ -27,20 +19,20 @@ export const REGISTRY: Readonly<Record<RegulationVariableName, RegulationVariabl
   coherence: {
     baseline: 0.7,
     decayKind: 'regress',
-    outletEffects: ['force_inner_tending', 'flag_low_coherence'],
-    outletDoc: '低于 0.4:下次唤醒强制把预算优先给"内部整理";快照中标红',
+    outletEffects: ['flag_low_coherence'],
+    outletDoc: '低于 0.4:快照中提示连贯感较低，供自主选择时参考',
   },
   load: {
     baseline: 0.2,
     decayKind: 'regress',
-    outletEffects: ['budget_multiplier', 'prefer_rest', 'trigger_early_integration'],
-    outletDoc: '高于 0.7:唤醒预算减半、倾向 rest;高于 0.9:触发提前整合',
+    outletEffects: ['trigger_early_integration'],
+    outletDoc: '高于 0.9:触发提前整合',
   },
   relational_tension: {
     baseline: 0.3,
     decayKind: 'regress',
     outletEffects: ['relationship_weight_bonus', 'unlock_proactive_contact'],
-    outletDoc: '高于 0.6:意义评估中关系类条目权重加成;解锁"主动联系"候选',
+    outletDoc: '高于 0.6:意义评估中关系类条目权重加成;提示主动联系倾向',
   },
   exploration_hunger: {
     baseline: 0.0,
@@ -49,8 +41,6 @@ export const REGISTRY: Readonly<Record<RegulationVariableName, RegulationVariabl
     outletDoc: '高于 0.6:探索类候选权重加成',
   },
 }
-
-// ============================== 15 CAUSES（SA-74/75） ==============================
 
 /** 调节原因与变化量的集中定义。状态写入方按原因查询，调用点不自行传入变化量。 */
 export const CAUSES: Readonly<Record<string, readonly [RegulationVariableName, number]>> = {
@@ -70,8 +60,6 @@ export const CAUSES: Readonly<Record<string, readonly [RegulationVariableName, n
   concern_lit_unfollowed: ['exploration_hunger', +0.05], // 14 reflow（lit 且 kind ∈ {rest, record_note}）
   explore_completed: ['exploration_hunger', -0.40], //      15 reflow（仅 explore success）
 }
-
-// ============================== 衰减双算法（SA-77/78） ==============================
 
 /** 各变量每小时的衰减或累积速率。 */
 export const DECAY_RATE_PER_HOUR: Readonly<Record<RegulationVariableName, number>> = {
@@ -121,8 +109,6 @@ export function decayCharge(charge: number, beats: number): number {
   return Math.max(0.0, charge - THOUGHT_CHARGE_DECAY * beats)
 }
 
-// ============================== 念头常量（SA-175/177 消费面） ==============================
-
 /** open 念头的容量上限；超出且 charge 不高于最低者时拒绝新建。 */
 export const THOUGHT_OPEN_CAP = 7
 /** charge 低于此值时标记 abandoned 并生成 thought_lapse 经验。 */
@@ -134,30 +120,22 @@ export const THOUGHT_SNAPSHOT_TOP = 3
 /** open question 念头超龄小时数；快照维护将其与超龄悬置线合并为同一个惩罚原因。 */
 export const QUESTION_OVERDUE_HOURS = 48
 
-// ============================== 八 effects（SA-79/80） ==============================
-
 /** 当前认知效果的触发阈值。 */
 export const THRESHOLDS = {
   coherence_low: 0.4,
-  load_high: 0.7,
-  load_high_integration: 0.9, // P4-01: 与 load_high 分离
+  load_high_integration: 0.9,
   tension_high: 0.6,
   hunger_high: 0.6,
 } as const
 
 export const RELATIONSHIP_WEIGHT_BONUS = 0.2
 export const EXPLORATION_WEIGHT_BONUS = 0.2
-/** 高负荷时唤醒预算减半。 */
-export const LOAD_BUDGET_MULTIPLIER = 0.5
 
 export type RegulationValues = Readonly<Record<RegulationVariableName, number>>
 
 /** 认知效果字段；消费方读取这些字段决定当前行为。 */
 export interface CognitiveEffects {
-  force_inner_tending: boolean
   flag_low_coherence: boolean
-  budget_multiplier: number
-  prefer_rest: boolean
   trigger_early_integration: boolean
   relationship_weight_bonus: number
   unlock_proactive_contact: boolean
@@ -166,27 +144,21 @@ export interface CognitiveEffects {
 
 /**
  * 低 coherence 使用严格小于，其余阈值使用严格大于，等于阈值不触发。
- * load 在 (0.7, 0.9] 触发休息偏好与预算折算，高于 0.9 才同时触发提前整合。
+ * load 高于 0.9 触发提前整合；其原始读数供模型解释。
  */
 export function cognitiveEffects(values: RegulationValues): CognitiveEffects {
   const lowCoherence = values.coherence < THRESHOLDS.coherence_low //          严格小于
-  const highLoad = values.load > THRESHOLDS.load_high //                       严格大于
   const highLoadIntegration = values.load > THRESHOLDS.load_high_integration
   const highTension = values.relational_tension > THRESHOLDS.tension_high
   const highHunger = values.exploration_hunger > THRESHOLDS.hunger_high
   return {
-    force_inner_tending: lowCoherence,
     flag_low_coherence: lowCoherence,
-    budget_multiplier: highLoad ? LOAD_BUDGET_MULTIPLIER : 1.0,
-    prefer_rest: highLoad,
     trigger_early_integration: highLoadIntegration,
     relationship_weight_bonus: highTension ? RELATIONSHIP_WEIGHT_BONUS : 0.0,
     unlock_proactive_contact: highTension,
     exploration_weight_bonus: highHunger ? EXPLORATION_WEIGHT_BONUS : 0.0,
   }
 }
-
-// ============================== registry_problems（SA-81） ==============================
 
 /** 可注入的检查对象；省略时检查当前变量、原因和衰减表。 */
 export interface RegistryProblemsSubject {

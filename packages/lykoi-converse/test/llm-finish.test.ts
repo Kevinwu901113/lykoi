@@ -1,3 +1,5 @@
+import { MockAdapter } from 'lykoi-llm/mock'
+import { interpret } from 'lykoi-kernel'
 import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * WO-LLM-FINISH-01 调用点落点实证（converse 侧）。
@@ -77,7 +79,7 @@ function fakeMemory(): LykoiMemoryService {
   }
 }
 
-test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（turn_failed=LlmFinishError），charge 仍发生', async () => {
+async function assemble(adapter: LlmAdapter) {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-finish-'))
   process.env.LYKOI_APPROVAL_RULES = join(dir, 'approval_rules.json')
   process.env.LYKOI_STANDING_GRANTS = join(dir, 'standing_grants.json')
@@ -105,7 +107,6 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
     dailyRouteTokens: {},
   })
   await ctx.plugin(lykoiLlm)
-  const adapter = new FailingFinishAdapter()
   ctx.llm.registerAdapter(['mock'], adapter)
   await ctx.plugin(telegramAdapter, {
     cursorPath: join(dir, 'cursor.json'),
@@ -124,6 +125,12 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
     visionRoute: 'disabled',
     visionModel: 'disabled',
   })
+  return { ctx, audit, transport }
+}
+
+test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（turn_failed=LlmFinishError），charge 仍发生', async () => {
+  const adapter = new FailingFinishAdapter()
+  const { ctx, audit, transport } = await assemble(adapter)
   const telegram = ctx.get('messenger') as TelegramAdapterService
   transport.queueUpdate({
     updateId: 1,
@@ -171,3 +178,26 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
     '根因不再晚两层才以「解码空串」的形态出现',
   )
 })
+
+for (const emptyFinish of [false, true]) {
+  test(`production approval wiring has one protocol retry owner (${emptyFinish ? 'EMPTY_RESPONSE' : 'invalid JSON'})`, async () => {
+    const adapter = emptyFinish ? new class extends LlmAdapter {
+      calls = 0
+      async *stream(): AsyncIterable<StreamChunk> {
+        this.calls++
+        yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 0 } }
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'EMPTY_RESPONSE', message: 'empty response' } } }
+      }
+    }() : new MockAdapter({ replyText: 'invalid JSON', promptTokens: 2, completionTokens: 1 })
+    const { audit } = await assemble(adapter)
+    const result = await interpret('可以考虑', { actionType: 'messenger.send', params: { to: 'owner', content: 'fixture' } })
+    assert.equal(result.verdict, 'unclear')
+    assert.equal(adapter.calls, 3)
+    assert.equal(audit.events.filter(e => e.type === 'budget/charge').length, 3)
+    assert.equal(audit.events.filter(e => e.type === 'approval_interpret_retried').length, 0)
+    const failures = audit.events.filter(e => e.type === 'approval_interpret_failed')
+    assert.equal(failures.length, 1)
+    assert.equal(failures[0]!.attempts, 1)
+    assert.equal(failures[0]!.error_type, emptyFinish ? 'LlmFinishError' : 'LlmJsonError')
+  })
+}

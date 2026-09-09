@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   annotateReceiptBacking, classifyFailure, CONVERSATION_CATALOGUE,
-  CONVERSATION_CONTENT_REQUIRED, CONVERSATION_KINDS, CONVERSATION_SAFE_KIND,
+  CONVERSATION_CONTENT_REQUIRED, CONVERSATION_KINDS,
   cycleRecord, ENVELOPE_FIELDS, FAIL_MISSING_CONTENT, FAIL_NO_DECISION_OBJECT,
   FAIL_NOT_JSON, FAIL_UNKNOWN_KIND, FAILURE_REASONS, firstCharClass, kindToken,
   parseEnvelope, receiptsPresentInContext, sanitizePulse, sanitizeTool,
@@ -17,7 +17,6 @@ import { envelope } from './fixture.ts'
 test('S-35：kinds 恰 4 项 / content 必填恰 2 项 / SAFE=silence / ENVELOPE_FIELDS=(tool,情绪脉冲)', () => {
   assert.deepEqual([...CONVERSATION_KINDS], ['reply', 'silence', 'tool_call', 'promise_followup'])
   assert.deepEqual([...CONVERSATION_CONTENT_REQUIRED], ['reply', 'promise_followup'])
-  assert.equal(CONVERSATION_SAFE_KIND, 'silence')
   assert.deepEqual([...ENVELOPE_FIELDS], ['tool', '情绪脉冲', 'utterances'])
   assert.equal(Object.keys(TOOL_TO_ACTION).length, 10) // S-55
 })
@@ -84,33 +83,6 @@ test('S-42 sanitizePulse：只认 15 CAUSES 名字，去重保序；表外/畸�
   assert.deepEqual(sanitizePulse({ 0: 'rested' }), [])
 })
 
-test('护栏原样继承：S-36 silence 永不降级 / S-37 候选表闸 / S-38/39 grounded 闸 + 清空 ids', () => {
-  // silence 无 reason 无引用 —— 免辩护。
-  const silent = parseEnvelope({
-    content: JSON.stringify({ meaning_assessment: [], decision: { kind: 'silence', reason: '' } }),
-  })
-  assert.equal(silent.kind, 'silence')
-  assert.equal(silent.demoted, false)
-  // reason 未逐字引用 → demote reason_not_grounded → silence。
-  const demoted = parseEnvelope({
-    content: JSON.stringify({
-      meaning_assessment: [{ item: '他问了一个问题', meaning: '他需要答案', pull: 0.5 }],
-      decision: { kind: 'reply', content: '好', reason: '我就是想说' },
-    }),
-  })
-  assert.equal(demoted.kind, 'silence')
-  assert.equal(demoted.demoted, true)
-  assert.equal(demoted.demote_why, 'reason_not_grounded')
-  assert.equal(demoted.original_kind, 'reply')
-  assert.deepEqual(demoted.grounded_concern_ids, [])
-  // 候选表闸：kind 不在传入候选集 → kind_not_in_candidates。
-  const offMenu = parseEnvelope(
-    { content: envelope() },
-    { candidates: CONVERSATION_CATALOGUE.filter((c) => c.kind !== 'reply') },
-  )
-  assert.equal(offMenu.demote_why, 'kind_not_in_candidates')
-})
-
 test('parseEnvelope 的 envelope 出参恰 2 键：{tool, pulse}（情绪脉冲改写）', () => {
   const decision = parseEnvelope({
     content: envelope({
@@ -138,7 +110,7 @@ test('S-46 六归因逐条：not_json(首字符类别)/no_decision(三形态)/un
   assert.deepEqual(classifyFailure(err, '```\n她开口说话\n```'), [FAIL_NOT_JSON, 'first_char:fence'])
   assert.deepEqual(
     classifyFailure(err, '```json\n{}'),
-    [FAIL_NO_DECISION_OBJECT, 'decision:missing'],
+    [FAIL_NOT_JSON, 'first_char:fence'],
   )
   assert.deepEqual(classifyFailure(err, '{"trunc'), [FAIL_NOT_JSON, 'first_char:brace'])
   assert.deepEqual(classifyFailure(err, '好的，我来回答'), [FAIL_NOT_JSON, 'first_char:cjk'])

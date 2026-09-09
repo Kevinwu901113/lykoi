@@ -62,27 +62,24 @@ test('四写顺序逐字（SA-34）：dim/dormant → floor → overdue penalty 
     ['markDimmingDormant', 'createConcern', 'applyRegulationCause', 'decayAllOpenThoughts'].includes(c))
   // 老化把唯一 live 关切放干 → 地板补 2（线派生），随后总压力钳点火一次，最后衰减
   assert.deepEqual(writes, [
-    'markDimmingDormant', 'createConcern', 'createConcern',
+    'markDimmingDormant',
     'applyRegulationCause', 'decayAllOpenThoughts',
   ])
   rw.close()
 })
 
-test('老化流失被地板覆盖：dormant 后 live=0 → 从线派生补到 FLOOR_N=2（SA-173/174）', () => {
+test('maintenance permits zero live concerns and preserves existing rows without manufacturing replacements', () => {
   const path = makeFixture()
   seed(path)
   const rw = new ReadWriteMemory(path)
-  maintain(rw as SnapshotStore, stubDeps(), NOW)
-  const all = rw.listConcerns()
-  assert.equal(all.find((c) => c.title === 'stale-25d')!.status, 'dormant') // 绝不 released
-  const floors = rw.listConcerns(['active', 'dimming']).filter((c) => c.origin === 'floor')
-  // 候选优先序：open/suspended 线在前（标题 = 首个非空行）
-  assert.deepEqual(floors.map((c) => c.title).sort(), ['悬了一个月的承诺', '第一条线'])
-  assert.ok(floors.every((c) => c.weight === 0.25))
-  // 线 kind 映射：open_question→question / commitment→project
-  assert.equal(all.find((c) => c.title === '第一条线')!.kind, 'question')
-  assert.equal(all.find((c) => c.title === '悬了一个月的承诺')!.kind, 'project')
-  rw.close()
+  try {
+    const before = rw.listConcerns().map(c => c.id)
+    maintain(rw as SnapshotStore, stubDeps(), NOW)
+    maintain(rw as SnapshotStore, stubDeps(), NOW)
+    assert.deepEqual(rw.listConcerns().map(c => c.id), before)
+    assert.equal(rw.listConcerns(['active', 'dimming']).length, 0)
+    assert.equal(rw.listConcerns().find(c => c.title === 'stale-25d')!.status, 'dormant')
+  } finally { rw.close() }
 })
 
 test('超龄悬置：线+question 念头共用一条因 + 24h 闸（SA-44 总压力钳）', () => {

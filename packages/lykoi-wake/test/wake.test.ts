@@ -1,6 +1,5 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { JSON_RETRY_NUDGE } from 'lykoi-decide'
 import { wakeOnce, AUTONOMOUS_COGNITION, ORIGIN_AUTONOMOUS_WAKE, type LlmFn } from '../src/index.ts'
 import {
   T0, contemplateReply, fakeDispatch, fakeHeart, fakeLlm, makeStore, makeWakeDeps, rawOpen,
@@ -34,7 +33,7 @@ test('yielded：仲裁让位给对话——beats 已合并取走，无任何账�
   }
 })
 
-test('hourly_cap 早退：零 LLM、autonomy_rest 事件、档案时钟照写（SA-169 仲裁位）', async () => {
+test('hourly_cap 早退：零 LLM、autonomy_budget_exhausted 事件、档案时钟照写（SA-169 仲裁位）', async () => {
   const { store } = makeStore()
   // 预算已满：过去一小时 action_count 合计 20（HOURLY_ACTION_CAP）。
   store.startAutonomyRun('prior', { startedAt: new Date(T0.getTime() - 10 * 60_000) })
@@ -43,10 +42,10 @@ test('hourly_cap 早退：零 LLM、autonomy_rest 事件、档案时钟照写（
   })
   const { deps, llm, log } = makeWakeDeps({ store, reply: '{}' })
   const out = await wakeOnce(deps)
-  assert.equal(out.status, 'rested')
+  assert.equal(out.status, 'budget_exhausted')
   assert.equal(out.reason, 'hourly_cap')
   assert.equal(llm.calls.length, 0)
-  assert.deepEqual(log.names(), ['autonomy_rest'])
+  assert.deepEqual(log.names(), ['autonomy_budget_exhausted'])
   const state = store.autonomyState()!
   assert.ok(state.nextWakeAt, '档案时钟行已写（心脏对外读数）')
 })
@@ -64,7 +63,6 @@ test('端到端一拍（fake LLM，contemplate+接地+inner）：六阶段可观
   assert.equal(out.beats, 2)
   assert.equal(out.run_id, 'run-wake-test')
   assert.equal(out.decision, 'contemplate')
-  assert.equal(out.demoted, false)
 
   // 阶段 4b：一次 AUTONOMOUS_COGNITION 调用，SA-172 归因 + runId 贯穿。D-3b：
   // 这一条调用带 json_object 强制模式。
@@ -122,7 +120,7 @@ test('端到端一拍（fake LLM，contemplate+接地+inner）：六阶段可观
   // 事件序列（logEvent→audit 的注入位，W2 TODO#4）：inner 汇总 + 拍收尾。
   assert.deepEqual(log.names(), ['wake_inner_applied', 'autonomy_wake'])
   assert.deepEqual(log.events.at(-1)![1], {
-    run_id: 'run-wake-test', decision: 'contemplate', demoted: false, actions: 0, status: 'completed',
+    run_id: 'run-wake-test', decision: 'contemplate', actions: 0, status: 'completed',
   })
 })
 
@@ -170,90 +168,16 @@ test('SA-170：一拍失败被完整接住——failed run + {"error"} + bump + 
       .get('run-wake-test') as { status: string; decision: string }
     assert.equal(run.status, 'failed')
     const parsed = JSON.parse(run.decision) as { error: string }
-    assert.match(parsed.error, /autonomous model did not return a decision JSON/)
+    assert.match(parsed.error, /invalid decision JSON/)
     const wakes = db.prepare('SELECT wakes_since FROM integration_state WHERE id = 1').get() as
       { wakes_since: number }
     assert.equal(wakes.wakes_since, 1, '失败拍也 bump_wakes_since（SA-170）')
   } finally {
     db.close()
   }
-  // WO-FIX-LOOP-01 D-3a：两次回包都非 JSON（fakeLlm 同一份 reply 打两次）——
-  // 有界重试打满（恰一次），仍败 → 现行失败路径原样接住，只是账前面多一条
-  // autonomy_wake_retried。
-  assert.equal(llm.calls.length, 2)
-  assert.deepEqual(log.names(), ['autonomy_wake_retried', 'autonomy_wake_failed'])
-})
+  assert.equal(llm.calls.length, 1)
+  assert.ok(log.names().includes('autonomy_wake_failed'))
 
-test('D-3a：首包非 JSON、次包合法 → 有界重试一次后 completed，账上留痕', async () => {
-  const { store } = makeStore()
-  const cid = store.createConcern(
-    'interest', '词源学', { weight: 0.5, origin: 'seed', now: new Date(T0.getTime() - 3_600_000) },
-  )
-  let calls = 0
-  const reply = () => {
-    calls += 1
-    return calls === 1 ? '这不是 JSON' : contemplateReply(cid, '词源学')
-  }
-  const llm = fakeLlm(reply)
-  const { deps, log } = makeWakeDeps({ store, reply: '{}', overrides: { llm } })
-  const out = await wakeOnce(deps)
-  assert.equal(out.status, 'completed')
-  assert.equal(out.decision, 'contemplate')
-  // 恰两次调用（同 runId/route/origin），且都带 json_object 强制模式。
-  assert.equal(llm.calls.length, 2)
-  for (const call of llm.calls) {
-    assert.deepEqual(call.meta, {
-      runId: 'run-wake-test', route: AUTONOMOUS_COGNITION, origin: ORIGIN_AUTONOMOUS_WAKE,
-      responseFormat: { type: 'json_object' },
-    })
-  }
-  // autonomy_wake_retried 先于本拍收尾账；reason=not_json，run_id 贯穿。
-  const retried = log.events.find(([name]) => name === 'autonomy_wake_retried')
-  assert.ok(retried, '重试事件必须存在')
-  assert.equal(retried![1].run_id, 'run-wake-test')
-  assert.equal(retried![1].reason, 'not_json')
-  assert.equal(typeof retried![1].content_len, 'number')
-  // WO-FIX-TOOLSTEP-01 D-2b：fakeLlm 的回包不带 reasoningLength → `?? 0`
-  // 兜底，键仍然在（不是缺席，只是这条用例里恒为 0）。
-  assert.equal(retried![1].reasoning_len, 0)
-  // WO-FIX-NOTJSON-01 D-5：重试那次调用的 messages = 首次 messages + 末尾一条
-  // user 引导（逐字 JSON_RETRY_NUDGE）；首次调用 messages 不含引导。
-  const [first, second] = llm.calls
-  assert.equal(first!.messages.some((m) => m.content === JSON_RETRY_NUDGE), false)
-  assert.deepEqual(second!.messages.slice(0, -1), first!.messages)
-  assert.deepEqual(second!.messages[second!.messages.length - 1], {
-    role: 'user', content: JSON_RETRY_NUDGE,
-  })
-})
-
-test('WO-FIX-TOOLSTEP-01 D-2b：LlmFn 回包带 reasoningLength → 原样透传成 autonomy_wake_retried 的 reasoning_len（假说 E 的观测面）', async () => {
-  const { store } = makeStore()
-  let calls = 0
-  const llm: LlmFn = async (messages, meta) => {
-    calls += 1
-    return calls === 1
-      ? { content: '这不是 JSON', reasoningLength: 137 }
-      : { content: '{"decision":{"kind":"rest","reason":"就想歇着"}}', reasoningLength: 0 }
-  }
-  const { deps, log } = makeWakeDeps({ store, reply: '{}', overrides: { llm } })
-  const out = await wakeOnce(deps)
-  assert.equal(out.status, 'completed')
-  assert.equal(calls, 2)
-  const retried = log.events.find(([name]) => name === 'autonomy_wake_retried')
-  assert.ok(retried)
-  // 首包的 reasoningLength=137 就是触发 not_json 重试那次的账——原样落地，
-  // 不是四舍五入、不是截断、不是被 content_len 顶替。
-  assert.equal(retried![1].reasoning_len, 137)
-})
-
-test('D-3a：两包都非 JSON → 不循环，最多重试一次，仍归入既有失败路径', async () => {
-  const { store } = makeStore()
-  const llm = fakeLlm('这不是 JSON')
-  const { deps, log } = makeWakeDeps({ store, reply: '{}', overrides: { llm } })
-  const out = await wakeOnce(deps)
-  assert.equal(out.status, 'failed')
-  assert.equal(llm.calls.length, 2, '有界重试至多一次——不是循环到成功为止')
-  assert.deepEqual(log.names(), ['autonomy_wake_retried', 'autonomy_wake_failed'])
 })
 
 test('SA-171 接口位：整合/专注只在 completed 后串行驱动；异常被吞成遥测', async () => {
@@ -303,5 +227,4 @@ test('rest 拍端到端：安静合法、demote 不发生、计数为零', async
   const out = await wakeOnce(deps)
   assert.equal(out.status, 'completed')
   assert.equal(out.decision, 'rest')
-  assert.equal(out.demoted, false) // safe kind 永不降级（无接地也合法）
 })

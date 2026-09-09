@@ -20,18 +20,6 @@ import { FIXTURE_PERSONA, FIXTURE_PERSONA_DATA } from './persona-fixture.ts'
 
 const sha256 = (text: string) => createHash('sha256').update(text, 'utf8').digest('hex')
 
-test('G-2：DECIDE_SYSTEM_PROMPT 新 sha 钉死；next_wake_after_minutes 字段行已移除', () => {
-  // 旧（活体 decide.py:244-288）：chars=1634
-  //   sha256=a495848d8abaae9f5e22ec9aaa95688f8928ac1e0b8cca6ec14de5d8f38a636e
-  // 新（移除 `  "next_wake_after_minutes": 45,` 一行后）：
-  assert.equal([...DECIDE_SYSTEM_PROMPT].length, 1605)
-  assert.equal(
-    sha256(DECIDE_SYSTEM_PROMPT),
-    '09e6e9490230b1091b11122eae53a66afe97519758d4847cfa20eab603c7af50',
-  )
-  assert.ok(!DECIDE_SYSTEM_PROMPT.includes('next_wake_after_minutes'))
-})
-
 test('SA-154：persona 内核九段装配 fixture 对拍（chars=367、sha=72b48e63…4f43f）', () => {
   // 旧（第一实例夹具，WO-E4-1 前）：chars=401
   //   sha256=1f5960b79d5e5251ba9be96922806879cd7d434e7ae0e52a6bc57fec1b5bec71

@@ -41,13 +41,12 @@ test('SA-53：recordExperience 是 Phase-2 唯一写入点——每条经验必�
 test('SA-55：_action_summary 模板逐字（降级注记 + url + clip120 + 理由）', () => {
   const longContent = '长'.repeat(130)
   const d = makeDecision({
-    kind: 'rest', demoted: true, original_kind: 'queue_notification',
-    demote_why: 'reason_not_grounded', url: 'https://example.org/a',
+    kind: 'rest', url: 'https://example.org/a',
     content: longContent, reason: '  想说话  ',
   })
   assert.equal(
     actionSummary(d),
-    `[rest] (由 queue_notification 降级:reason_not_grounded) https://example.org/a ${'长'.repeat(120)}… 理由:想说话`,
+    `[rest] https://example.org/a ${'长'.repeat(120)}… 理由:想说话`,
   )
 })
 

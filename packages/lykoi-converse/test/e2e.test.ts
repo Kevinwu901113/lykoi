@@ -248,33 +248,12 @@ test('失败路：契约失败 → 有界重试耗尽 → 系统回执经裸传�
     'telegram/inbound',
     'converse/received',
     'budget/charge', //     第一次调用
-    'u3_cycle_retried', //  D-01/D-3：有界重试至多两次（第 1 条）
     'budget/charge', //     第二次调用（带引导）
-    'u3_cycle_retried', //  第 2 条
     'budget/charge', //     第三次调用（带引导）
-    'u3_cycle_failed', //   仍失败 → 归因 + 元数据
-    'inner_outer_pair', //  回合成立（reply=""）
+    'converse/turn_failed',
   ])
-  const retriedEvents = audit.events.filter((e) => e.type === 'u3_cycle_retried')
-  assert.equal(retriedEvents.length, 2, 'mock LLM 每次都回同一份非 JSON 文本 → 两次重试都打满')
-  assert.equal(retriedEvents[0]!.reason, 'not_json')
-  assert.equal(retriedEvents[0]!.attempt, 1)
-  assert.equal(retriedEvents[1]!.attempt, 2)
-  // mock adapter 不带 reasoningLength → `?? 0` 兜底，键仍在。
-  assert.equal(retriedEvents[0]!.reasoning_len, 0)
-  assert.equal(retriedEvents[1]!.reasoning_len, 0)
-  // WO-FIX-JSONMODE-01 D-2：attempt 0（首次）带 json_object，attempt 1（第一次重试）已去。
-  assert.equal(retriedEvents[0]!.json_mode, true)
-  assert.equal(retriedEvents[1]!.json_mode, false)
-  const failed = audit.events.find((e) => e.type === 'u3_cycle_failed')!
-  assert.equal(failed.reason, 'not_json')
-  assert.equal(failed.detail, 'first_char:cjk')
-  assert.equal(failed.attempts, 3)
-  assert.equal(failed.finish_reason, 'stop')
-  assert.equal(failed.completion_tokens, 34, 'U3 缺陷①消灭：tokens 与失败同事件可关联')
-  assert.equal(failed.reasoning_len, 0)
-  assert.equal(failed.json_mode, false, '最后一次尝试（attempt 2，带引导）已去 json 模式')
-  assert.equal(String(failed.error_type ?? ''), 'Error')
+  assert.equal(audit.events.filter(e => e.type === 'budget/charge').length, 3)
+  assert.equal(audit.events.filter(e => e.type === 'converse/turn_failed').length, 1)
   // 正文零泄漏（detail 只是模板组合）。
   for (const event of audit.events) {
     assert.equal(JSON.stringify(event).includes('直接开口说话'), false)

@@ -244,13 +244,16 @@ test('thoughts 块：Top-3 注入 + 行格式（charge 三位 round）；time �
   assert.equal(time.content, '[当前时间] 2026-08-24 18:00 周一 (北京时间)')
 })
 
-test('D-05（修正版）：undelivered 展示期在**周期成立后**收——重试的第二轮装配仍带着块，标记恰一次', async () => {
+test('D-05（修正版）：undelivered 展示期在**周期成立后**收——失败后下一回合仍带着块，标记恰一次', async () => {
   const undelivered = new MemoryUndelivered()
   undelivered.items.push({ id: 7, ts: '2026-08-24T01:00:00+00:00', text_summary: '昨晚那句' })
   const h = makeConversation({ undelivered })
   h.llm.push({ content: '她直接说话了' }) // not_json → D-01 重试
   h.llm.push({ content: envelope() })
   await h.conversation.send('在吗', { runId: 'r1' })
+  assert.equal(h.llm.calls.length, 1)
+  assert.deepEqual(undelivered.markCalls, [])
+  await h.conversation.send('再试', { runId: 'r2' })
   assert.equal(h.llm.calls.length, 2)
   const inFirst = h.llm.calls[0]!.messages.some((m) => m.content?.startsWith(UNDELIVERED_HEADER.slice(0, 8)))
   const inSecond = h.llm.calls[1]!.messages.some((m) => m.content?.startsWith(UNDELIVERED_HEADER.slice(0, 8)))

@@ -212,8 +212,8 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
   },
   {
     name: '框架抑制 → failed + 确定性系统回执',
-    scenario: { reply: '', cycleKind: 'suppressed', expectedStatus: 'failed',
-      expectedReason: 'decision_suppressed', expectedNotice: true },
+    scenario: { reply: '', cycleKind: 'envelope_failed', expectedStatus: 'failed',
+      expectedReason: 'envelope_failed', expectedNotice: true },
   },
   {
     name: 'reply delivered → replied，sendReply 收到 run_id/turn_id',

@@ -545,3 +545,26 @@ test('revise/悬置解除：suspended 线被 revise → suspension_resolved 因�
     store.close()
   }
 })
+
+test('zero-concern integration can consume an experience into a thread and narrative without a floor', async () => {
+  const { store, log } = makeStore()
+  try {
+    assert.equal(store.listConcerns().length, 0)
+    const eid = seedExperience(store, 'conversation', '讨论了一个尚未解决的问题', T0)
+    const completion = fakeCompletion(JSON.stringify({
+      experience_actions: [{ experience_id: eid, operation: 'suspend', new_thread_kind: 'open_question', note: '这个问题需要更多观察' }],
+      new_concerns: [], concern_releases: [], thought_actions: [],
+      narrative: { content: '我和 Kevin 讨论了一个问题，还需要更多观察。', change_summary: '保留这次讨论产生的疑问' },
+    }))
+    const summary = await runIntegration({ store, logEvent: log.logEvent, now: hoursAfter(T0, 25),
+      persona: PERSONA, completion: completion.completion, integrationIdFn: () => 9001 })
+    assert.equal(summary.experiences_integrated, 1)
+    assert.equal(summary.suspends, 1)
+    assert.equal(summary.narrative_rewritten, true)
+    assert.equal(store.listConcerns().length, 0)
+    assert.equal(store.listThreads(['suspended']).length, 1)
+    assert.equal(store.countIntakePending(), 0)
+    assert.ok(store.currentCognitiveNarrative()?.content.includes('问题'))
+    assert.deepEqual(summary.rejected, [])
+  } finally { store.close() }
+})

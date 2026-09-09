@@ -117,44 +117,16 @@ test('位点①：kind 非字符串同样留痕（wanted 落 nonstring，原始�
   assert.equal(JSON.stringify(events).includes('秘密工具'), false)
 })
 
-test('位点②（候选过滤）：kind 不在本拍候选表 → 降级照旧 + capability_gap 补一笔', () => {
-  const { logEvent, events } = recorder()
-  const d = evaluateMessage(
-    msg({
-      meaning_assessment: GROUNDED_ASSESSMENT,
-      decision: { kind: 'queue_notification', content: 'hi', reason: '积压的经验值得看一眼' },
-    }),
-    CANDS, // 表里没有 queue_notification
-    { injectedConcernIds: [7], logEvent, gap: { source: 'wake', runId: 'run-2' } },
-  )
-  // 原拒绝语义逐字节不变。
-  assert.equal(d.kind, 'rest')
-  assert.equal(d.demoted, true)
-  assert.equal(d.demote_why, 'kind_not_in_candidates')
-  assert.equal(d.original_kind, 'queue_notification')
-  assert.deepEqual(d.grounded_concern_ids, [])
-  // 顺序：护栏账在前，旁路留痕在后。
-  assert.deepEqual(events.map(([n]) => n), ['decision_ungrounded', 'capability_gap'])
-  assert.deepEqual(gaps(events), [{
-    wanted: 'queue_notification', source: 'wake', run_id: 'run-2',
-    reason: 'kind_not_in_candidates',
-  }])
-})
-
-test('gap 情境栏缺席：事件照发，source/run_id 记 null（不编造来源）', () => {
-  const { logEvent, events } = recorder()
-  evaluateMessage(
-    msg({
-      meaning_assessment: GROUNDED_ASSESSMENT,
-      decision: { kind: 'queue_notification', content: 'hi', reason: '积压的经验值得看一眼' },
-    }),
-    CANDS, { injectedConcernIds: [7], logEvent },
-  )
-  assert.deepEqual(gaps(events), [{
-    wanted: 'queue_notification', source: null, run_id: null,
-    reason: 'kind_not_in_candidates',
-  }])
-})
+for (const gap of [{ source: 'wake' as const, runId: 'run-2' }, undefined]) {
+  test(`unavailable selection fails and reports capability gap (${gap?.source ?? 'unknown source'})`, () => {
+    const { logEvent, events } = recorder()
+    assert.throws(() => evaluateMessage(msg({ decision: { kind: 'queue_notification', content: 'hi' } }),
+      CANDS, { logEvent, gap }), /decision is not available/)
+    assert.deepEqual(gaps(events), [{ wanted: 'queue_notification', source: gap?.source ?? null,
+      run_id: gap?.runId ?? null, reason: 'kind_not_in_candidates' }])
+    assert.deepEqual(events.map(([name]) => name), ['capability_gap'])
+  })
+}
 
 test('对照组 A：合法且在候选表的 kind → **零** capability_gap', () => {
   const { logEvent, events } = recorder()
@@ -166,7 +138,6 @@ test('对照组 A：合法且在候选表的 kind → **零** capability_gap', (
     CANDS, { injectedConcernIds: [7], logEvent, gap: { source: 'wake', runId: 'run-3' } },
   )
   assert.equal(d.kind, 'explore')
-  assert.equal(d.demoted, false)
   assert.deepEqual(gaps(events), [], '能力在位就不许报缺口')
 })
 
@@ -179,8 +150,8 @@ test('对照组 B：reason 未接地的降级 → decision_ungrounded 有，capa
     }),
     CANDS, { logEvent, gap: { source: 'wake', runId: 'run-4' } },
   )
-  assert.equal(d.demote_why, 'reason_not_grounded')
-  assert.equal(events.map(([n]) => n).includes('decision_ungrounded'), true)
+  assert.deepEqual(events, [])
+  assert.equal(d.kind, 'explore')
   assert.deepEqual(gaps(events), [], '没接地 ≠ 没有这个能力 —— 两件事不许混成一条账')
 })
 

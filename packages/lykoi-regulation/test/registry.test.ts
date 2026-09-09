@@ -76,7 +76,7 @@ test('破坏：声明了 cognitive_effects 不产出的 outlet key 必报', () =
   const registry = cloneRegistry()
   registry.coherence = {
     ...registry.coherence!,
-    outletEffects: ['force_inner_tending', 'flag_low_coherence', 'no_such_effect'],
+    outletEffects: ['flag_low_coherence', 'no_such_effect'],
   }
   const problems = registryProblems({ registry })
   assert.ok(problems.some((p) => p.includes("'no_such_effect'") && p.includes('not produced')))
@@ -88,7 +88,7 @@ test('SA-81 功能性证明：出口永不点火必报 "outlet never fires (因�
   registry.phantom = {
     baseline: 0.5,
     decayKind: 'regress',
-    outletEffects: ['prefer_rest'],
+    outletEffects: ['trigger_early_integration'],
     outletDoc: '（测试用）',
   }
   const causes = {

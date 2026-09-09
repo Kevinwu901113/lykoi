@@ -1,6 +1,6 @@
 # WO-RUNTIME-SERVICES-01 — P0-B/C 首个结构批次
 
-P0-A 已按用户授权合并并推送 main@5464f5d。本批基于该提交，分支 `wo/runtime-services-01`；未合并、未部署，不代表 P0 全部结束。
+P0-A 已按用户授权合并并推送 main@5464f5d。本批基于该提交，分支 `wo/runtime-services-01`；后经用户授权合并并推送 main@8b81c80；未部署，不代表 P0 全部结束。
 
 ## 实现
 
