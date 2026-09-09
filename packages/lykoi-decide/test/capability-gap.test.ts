@@ -141,7 +141,7 @@ test('对照组 A：合法且在候选表的 kind → **零** capability_gap', (
   assert.deepEqual(gaps(events), [], '能力在位就不许报缺口')
 })
 
-test('对照组 B：reason 未接地的降级 → decision_ungrounded 有，capability_gap **零**', () => {
+test('有能力的动作不因理由未逐字引用而被替换', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({
@@ -166,7 +166,7 @@ test('D-1e：GAP_NOT_WIRED 字面值 = not_wired，且能作为 emitCapabilityGa
   }])
 })
 
-test('对照组 C：safe_kind（rest）永不降级 → 零事件、零 gap', () => {
+test('选择 rest 不产生能力缺口', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({ decision: { kind: 'rest', reason: '' } }), CANDS,

@@ -106,7 +106,7 @@ test('跨 UTC 日复位：昨日打满，今日放行；账本保留两日记录
   assert.equal(ledger.days['2026-08-25']?.totalTokens, 3)
 })
 
-test('账本损坏当空，但当日硬顶继续保护', async () => {
+test('损坏的 token 账本阻止装载，不能重置用量', async () => {
   const audit = fakeAudit()
   const path = join(tmp(), 'budget.json')
   writeFileSync(path, '{"version":1,"days":{"2026-08-24"') // 截断的 JSON
@@ -118,17 +118,10 @@ test('账本损坏当空，但当日硬顶继续保护', async () => {
     caps: { dailyTotalTokens: 50, dailyRouteTokens: {} },
     now: () => DAY1,
   })
-  acct.load()
-  assert.ok(warnings.some((w) => w.includes('corrupt')), '损坏必须告警')
-  assert.equal(acct.usage().totalTokens, 0) // 当空
+  assert.throws(() => acct.load(), SyntaxError)
+  assert.ok(warnings.some(w => w.includes('corrupt')))
+  assert.equal(readFileSync(path, 'utf8'), '{"version":1,"days":{"2026-08-24"')
 
-  await acct.gate('mock') // 当空后放行
-  await acct.charge({ route: 'mock', runId: 'run-1', promptTokens: 50, completionTokens: 0 })
-  // 硬顶保护未被损坏解除：
-  await assert.rejects(() => acct.gate('mock'), BudgetExceeded)
-  // 且持久化已修复为合法 JSON：
-  const ledger = JSON.parse(readFileSync(path, 'utf8')) as { version: number }
-  assert.equal(ledger.version, 1)
 })
 
 test('插件形态：经 cordis 树装载后 ctx.budget 可用，charge 落真 audit 事件', async () => {

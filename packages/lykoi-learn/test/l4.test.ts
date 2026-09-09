@@ -487,13 +487,13 @@ test('派生关切成功：origin=derived + parent_id + 自己的血缘行', asy
   }
 })
 
-test('SA-139 信封收敛：advanced 无 conclusion → no_progress；防御式解析永不抛', () => {
-  assert.equal(parseFocusEnvelope({ outcome: 'advanced', conclusion: null }).outcome, 'no_progress')
-  assert.equal(parseFocusEnvelope({ outcome: 'revised', conclusion: '  ' }).outcome, 'no_progress')
+test('Focus 坏输出明确拒绝，不改写为 no_progress', () => {
+  assert.throws(() => parseFocusEnvelope({ outcome: 'advanced', conclusion: null }), /requires a conclusion/)
+  assert.throws(() => parseFocusEnvelope({ outcome: 'revised', conclusion: '  ' }), /requires a conclusion/)
   assert.equal(parseFocusEnvelope({ outcome: 'advanced', conclusion: '有' }).outcome, 'advanced')
-  assert.equal(parseFocusEnvelope('garbage').outcome, 'no_progress')
-  assert.deepEqual(parseFocusEnvelope({ conflicts: [{ insight_id: true }] }).conflicts, [])
-  assert.deepEqual(parseFocusEnvelope({ cited_experience_ids: [1, true, 'x', 2] }).cited_experience_ids, [1, 2])
+  assert.throws(() => parseFocusEnvelope('garbage'), /must be an object/)
+  assert.deepEqual(parseFocusEnvelope({ outcome: 'no_progress', conflicts: [{ insight_id: true }] }).conflicts, [])
+  assert.deepEqual(parseFocusEnvelope({ outcome: 'no_progress', cited_experience_ids: [1, true, 'x', 2] }).cited_experience_ids, [1, 2])
 })
 
 test('maybeRunFocusCycle：闸没开 → null 零副作用；闸开 → autonomy_focus 事件带账面字段', async () => {
@@ -571,3 +571,16 @@ for (const operation of ['finalizeFocusCycle', 'resetFocusCycle'] as const) {
     }
   })
 }
+
+test('malformed focus progress persists as failed without inventing no_progress', async () => {
+  const { store, log } = makeStore()
+  try {
+    store.createConcern('project', '睡眠质量', { weight: 0.5, origin: 'grown', now: T0 })
+    seedExperience(store, 'conversation', '聊睡眠质量', T0)
+    const { deps, calls } = mkDeps(store, log, hoursAfter(T0, 1), JSON.stringify({ outcome: 'advanced' }))
+    const summary = await runFocusCycle(deps)
+    assert.equal(summary.outcome, 'failed')
+    assert.equal(summary.insight_id, null)
+    assert.equal(calls.length, 1)
+  } finally { store.close() }
+})

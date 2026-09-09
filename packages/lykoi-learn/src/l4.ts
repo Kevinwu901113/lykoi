@@ -224,12 +224,11 @@ export function parseFocusEnvelope(raw: unknown): FocusEnvelope {
     outcome: 'no_progress', conclusion: null, revises_insight_id: null,
     conflicts: [], cited_experience_ids: [], new_concern: null, note: '',
   }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return result
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new TypeError('focus envelope must be an object')
   const r = raw as Record<string, unknown>
 
-  if ((FOCUS_OUTCOMES as readonly unknown[]).includes(r.outcome)) {
-    result.outcome = r.outcome as FocusEnvelope['outcome']
-  }
+  if (!(FOCUS_OUTCOMES as readonly unknown[]).includes(r.outcome)) throw new TypeError('invalid focus outcome')
+  result.outcome = r.outcome as FocusEnvelope['outcome']
 
   if (typeof r.conclusion === 'string' && r.conclusion.trim()) {
     result.conclusion = r.conclusion.trim()
@@ -273,7 +272,7 @@ export function parseFocusEnvelope(raw: unknown): FocusEnvelope {
   }
 
   if ((result.outcome === 'advanced' || result.outcome === 'revised') && !result.conclusion) {
-    result.outcome = 'no_progress'
+    throw new TypeError('focus progress requires a conclusion')
   }
   return result
 }

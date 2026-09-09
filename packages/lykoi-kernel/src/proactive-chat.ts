@@ -16,13 +16,11 @@ const LEDGER_MAX_KEEP = 50
 function _load(): string[] {
   const path = proactiveChatLedgerPath()
   if (!existsSync(path)) return []
-  let data: unknown
-  try {
-    data = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return []
+  const data: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (!Array.isArray(data) || data.some(value => typeof value !== 'string' || !Number.isFinite(Date.parse(value)))) {
+    throw new TypeError('proactive chat ledger must contain valid timestamps')
   }
-  return Array.isArray(data) ? data as string[] : []
+  return data as string[]
 }
 
 function _todayCount(sent: readonly string[], now: Date): number {
@@ -37,7 +35,6 @@ function _throttleReason(sent: readonly string[], now: Date): string | null {
   if (sent.length > 0) {
     const last = new Date(String(sent[sent.length - 1]))
 
-    if (Number.isNaN(last.getTime())) return null
     if ((now.getTime() - last.getTime()) / 1000 < PROACTIVE_CHAT_COOLDOWN_H * 3600) {
       return 'cooldown'
     }

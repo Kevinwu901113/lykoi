@@ -84,7 +84,7 @@ test('红测 5：content 必填缺失 → raise；contemplate 刻意豁免（SA-
   ]).kind, 'contemplate')
 })
 
-test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/21）', () => {
+test('理由未逐字引用时仍保留模型选择', () => {
   const { logEvent, events } = recorder()
   const d = evaluateMessage(
     msg({
@@ -97,7 +97,7 @@ test('红测 7：reason 未逐字引用 → demote(reason_not_grounded)（SA-20/
   assert.deepEqual(events, [])
 })
 
-test('safe_kind 免疫：rest 未接地也永不降级（SA-03）', () => {
+test('rest 不需要逐字引用理由', () => {
   const d = evaluateMessage(
     msg({ decision: { kind: 'rest', reason: '随便一个没引用的理由' } }),
     CANDS,

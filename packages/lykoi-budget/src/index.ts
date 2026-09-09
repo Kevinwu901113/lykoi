@@ -113,10 +113,7 @@ export class BudgetAccountant implements BudgetService {
     return (this.#ledger.days[day] ??= { totalTokens: 0, routes: {} })
   }
 
-  /**
-   * 启动时装载账本。损坏（读不出/解析不了/形状不对）一律当空——
-   * 但当日硬顶继续生效：当空只清历史计数，不解除任何闸。
-   */
+  /** Load persisted usage; only a missing ledger starts empty. */
   load(): void {
     let raw: string
     try {
@@ -124,7 +121,8 @@ export class BudgetAccountant implements BudgetService {
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       if (code !== 'ENOENT') {
-        this.#warn(`lykoi-budget: ledger unreadable (${String(err)}); treating as empty`)
+        this.#warn(`lykoi-budget: ledger unreadable (${String(err)})`)
+        throw err
       }
       this.#ledger = emptyLedger()
       return
@@ -132,7 +130,7 @@ export class BudgetAccountant implements BudgetService {
     try {
       const parsed = JSON.parse(raw) as Ledger
       if (parsed === null || typeof parsed !== 'object' || parsed.version !== 1
-        || parsed.days === null || typeof parsed.days !== 'object') {
+        || parsed.days === null || typeof parsed.days !== 'object' || Array.isArray(parsed.days)) {
         throw new Error('unexpected ledger shape')
       }
       for (const bucket of Object.values(parsed.days)) {
@@ -140,11 +138,13 @@ export class BudgetAccountant implements BudgetService {
           || typeof bucket.routes !== 'object') {
           throw new Error('unexpected day bucket shape')
         }
+        assertTokenCount(bucket.totalTokens, 'persisted totalTokens')
+        for (const value of Object.values(bucket.routes)) assertTokenCount(value, 'persisted route tokens')
       }
       this.#ledger = parsed
     } catch (err) {
-      this.#warn(`lykoi-budget: ledger corrupt (${String(err)}); treating as empty`)
-      this.#ledger = emptyLedger()
+      this.#warn(`lykoi-budget: ledger corrupt (${String(err)})`)
+      throw err
     }
   }
 
