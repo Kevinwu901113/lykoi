@@ -1,16 +1,8 @@
 /**
- * lykoi-regulation — 调节场纯函数（M2 波次 1 交付②）。
- *
- * 规格正本：治理仓库 WO-M2-SPEC-MIND §4（SA-73..SA-82）。
- * 移植自活体 `mind/regulation.py`（HEAD 4463ae8）。
- *
- * SA-73（模块纪律，regulation.py:3-4 逐字）：PURE module —— no sqlite, no I/O,
- * no clock reads。持久化独占归 lykoi-memory 写层（mind/store.py 的对应物）。
- * 本文件 import 面为零、不读 Date.now()、不碰进程环境。
- *
- * 建构规则（regulation.py:7-8 逐字）：每个变量必须有 (a) 更新规则 (b) 衰减规则
- * (c) 对认知的因果出口。三者缺一就不许建 —— 没有因果出口的状态是装饰，
- * 宪法明令禁止。可执行判据 = registryProblems()（SA-81）。
+ * 调节状态的纯计算：不做 I/O、不读时钟，持久化由状态层负责。
+ * 变量定义包含更新原因、衰减方式和认知出口，registryProblems 检查三者连通。
+ * 当前阈值和效果属于可评估的认知策略，历史编号不构成永久架构限制。
+ * 迁移说明见 governance/adr/runtime-slimdown-01-history.md。
  */
 
 // ============================== 四变量（SA-76） ==============================
@@ -26,11 +18,11 @@ export interface RegulationVariable {
   decayKind: DecayKind
   /** 声明的因果出口 key —— 必须由 cognitiveEffects 真实产出（registryProblems 反查）。 */
   outletEffects: readonly string[]
-  /** 蓝图原文（SPEC-MIND §4.1 表，逐字）。 */
+  /** 当前认知出口的说明。 */
   outletDoc: string
 }
 
-/** SA-76：四变量四元组（regulation.py:111-136 逐字）。 */
+/** 调节变量及其基线、衰减方式与效果映射。 */
 export const REGISTRY: Readonly<Record<RegulationVariableName, RegulationVariable>> = {
   coherence: {
     baseline: 0.7,
@@ -60,12 +52,7 @@ export const REGISTRY: Readonly<Record<RegulationVariableName, RegulationVariabl
 
 // ============================== 15 CAUSES（SA-74/75） ==============================
 
-/**
- * SA-74：15 条 CAUSES 的变量与 delta 逐字（regulation.py:27-47，SPEC-MIND §4.2 表）。
- * SA-75：delta 只从这张表查 —— "so a call site cannot invent its own magnitude"
- * （regulation.py:24-25 逐字）。lykoi-memory 写层的 applyRegulationCause 只收 cause
- * 名，接口上不存在 delta 参数；这是移植时最不可妥协的一张表。
- */
+/** 调节原因与变化量的集中定义。状态写入方按原因查询，调用点不自行传入变化量。 */
 export const CAUSES: Readonly<Record<string, readonly [RegulationVariableName, number]>> = {
   integration_completed: ['coherence', +0.15], //  1 integrator（仅 integrated_now 非空，红线 #1）
   suspension_resolved: ['coherence', +0.10], //    2 integrator（revise 解开一条 suspended 线）
@@ -86,7 +73,7 @@ export const CAUSES: Readonly<Record<string, readonly [RegulationVariableName, n
 
 // ============================== 衰减双算法（SA-77/78） ==============================
 
-/** SA-77：DECAY_RATE_PER_HOUR 四值逐字（regulation.py:53-58）。 */
+/** 各变量每小时的衰减或累积速率。 */
 export const DECAY_RATE_PER_HOUR: Readonly<Record<RegulationVariableName, number>> = {
   coherence: 0.01, //           缓慢回归 —— 半衰期约 69 小时
   load: 0.03,
@@ -94,21 +81,19 @@ export const DECAY_RATE_PER_HOUR: Readonly<Record<RegulationVariableName, number
   exploration_hunger: 0.008, // 累积:0→0.6 约 3 天
 }
 
-/** clamp01（regulation.py:139-140 逐字）：min(1.0, max(0.0, value))。 */
+/** 将调节值限制在 [0, 1]。 */
 export function clamp01(value: number): number {
   return Math.min(1.0, Math.max(0.0, value))
 }
 
-/** apply_delta_value（regulation.py:156-158 逐字）：clamp01(value + delta)。 */
+/** 应用变化量并保持调节值的取值范围。 */
 export function applyDeltaValue(value: number, delta: number): number {
   return clamp01(value + delta)
 }
 
 /**
- * SA-77 decay_value（regulation.py:143-153 逐字）—— 懒衰减，读时从 updated_at 起算：
- *   hours_elapsed <= 0 → clamp01(value)（不外推未来）；
- *   regress    → clamp01(baseline + (value - baseline) * exp(-rate * hours))；
- *   accumulate → clamp01(value + rate * hours)（只升不降）。
+ * 按经过的小时数计算调节值：regress 指数回归基线，accumulate 线性累积。
+ * 非正时间间隔不向未来外推；结果保持在 [0, 1]。
  */
 export function decayValue(
   name: RegulationVariableName,
@@ -124,15 +109,12 @@ export function decayValue(
   return clamp01(value + rate * hoursElapsed) // accumulate: 只升不降
 }
 
-/** 念头 charge 线性衰减速率（regulation.py，SPEC-MIND §4.3）。 */
+/** 念头 charge 每拍的线性衰减速率。 */
 export const THOUGHT_CHARGE_DECAY = 0.04
 
 /**
- * SA-78 decay_charge（regulation.py:161-177 逐字）—— 与 decayValue 是两个函数，
- * 签名与不变量真不相同（"signatures and invariants are genuinely different, so this
- * is its own function"），新体不得合并：
- *   beats <= 0 → no-op 而非返还 —— "attention can only be paid forward, never refunded"；
- *   否则 max(0.0, charge - THOUGHT_CHARGE_DECAY * beats)。
+ * 按拍数衰减念头 charge，最低为零；非正拍数不返还注意力。
+ * 它与按小时回归基线的 decayValue 使用不同的时间单位与状态含义。
  */
 export function decayCharge(charge: number, beats: number): number {
   if (beats <= 0) return charge
@@ -141,27 +123,20 @@ export function decayCharge(charge: number, beats: number): number {
 
 // ============================== 念头常量（SA-175/177 消费面） ==============================
 
-/** SA-175：open 念头容量软上限（超出且 charge 不严格大于最低者 → 拒建）。 */
+/** open 念头的容量上限；超出且 charge 不高于最低者时拒绝新建。 */
 export const THOUGHT_OPEN_CAP = 7
-/** SA-177：charge 跌破此值 → abandoned + thought_lapse（regulation.py:84 一带）。 */
+/** charge 低于此值时标记 abandoned 并生成 thought_lapse 经验。 */
 export const ABANDON_THRESHOLD = 0.15
-/**
- * SA-177：thought_lapse 经验的 salience（regulation.py:86 逐字：
- * `THOUGHT_LAPSE_SALIENCE = 0.2  # 速朽落痕经验的 salience`）——
- * 常量名与 Python 同名（W1 TODO#2 对拍销账）。
- */
+/** thought_lapse 经验的 salience。 */
 export const THOUGHT_LAPSE_SALIENCE = 0.2
-/** 快照念头块 Top-N（SPEC-MIND §2.2：regulation.THOUGHT_SNAPSHOT_TOP = 3）。 */
+/** 快照中呈现的念头数量上限。 */
 export const THOUGHT_SNAPSHOT_TOP = 3
-/**
- * SA-44：question 类念头 open 超时（小时）→ 悬决压力（出口 ②，regulation.py:85 逐字）。
- * W2 快照的 _apply_lazy_overdue_penalty 消费（与 thread 30 天超龄共用 suspension_overdue 因）。
- */
+/** open question 念头超龄小时数；快照维护将其与超龄悬置线合并为同一个惩罚原因。 */
 export const QUESTION_OVERDUE_HOURS = 48
 
 // ============================== 八 effects（SA-79/80） ==============================
 
-/** SA-79：THRESHOLDS 五值逐字（regulation.py:61-69）。 */
+/** 当前认知效果的触发阈值。 */
 export const THRESHOLDS = {
   coherence_low: 0.4,
   load_high: 0.7,
@@ -177,7 +152,7 @@ export const LOAD_BUDGET_MULTIPLIER = 0.5
 
 export type RegulationValues = Readonly<Record<RegulationVariableName, number>>
 
-/** 八个效果键（SA-80；key 逐字，消费方按字符串取）。 */
+/** 认知效果字段；消费方读取这些字段决定当前行为。 */
 export interface CognitiveEffects {
   force_inner_tending: boolean
   flag_low_coherence: boolean
@@ -190,11 +165,8 @@ export interface CognitiveEffects {
 }
 
 /**
- * SA-79/80 cognitive_effects（regulation.py:180-204 逐字）。
- * 比较符号是契约：coherence 严格 **<** 0.4，其余三个严格 **>**（恰等于阈值不触发）。
- * P4-01（regulation.py:64-65 逐字）：early-integration trigger isolated above the
- * shared high-load band; prefer_rest / budget_multiplier stay on load_high=0.7 ——
- * 所以 load ∈ (0.7, 0.9] 只被推向休息，不触发提前整合；> 0.9 才两者兼有。
+ * 低 coherence 使用严格小于，其余阈值使用严格大于，等于阈值不触发。
+ * load 在 (0.7, 0.9] 触发休息偏好与预算折算，高于 0.9 才同时触发提前整合。
  */
 export function cognitiveEffects(values: RegulationValues): CognitiveEffects {
   const lowCoherence = values.coherence < THRESHOLDS.coherence_low //          严格小于
@@ -216,10 +188,7 @@ export function cognitiveEffects(values: RegulationValues): CognitiveEffects {
 
 // ============================== registry_problems（SA-81） ==============================
 
-/**
- * 测试注入面（SA-81 标【等价】：本移植把被检对象参数化，缺省即真注册表；
- * Python 版直接读模块全局，语义相同）。
- */
+/** 可注入的检查对象；省略时检查当前变量、原因和衰减表。 */
 export interface RegistryProblemsSubject {
   registry?: Readonly<Record<string, RegulationVariable>>
   causes?: Readonly<Record<string, readonly [string, number]>>
@@ -227,16 +196,9 @@ export interface RegistryProblemsSubject {
 }
 
 /**
- * SA-81 registry_problems（regulation.py:219-266 全套移植）——
- * "没有因果出口的状态是装饰"这条宪法的可执行判据。空列表 == 注册表遵守蓝图。
- *
- * 对每个变量检查（§4.6）：baseline ∈ [0,1]；decay_kind 合法；有 decay rate 且 > 0；
- * accumulate 变量必须有显式泄压因（delta < 0 的 cause）；有升因；有降因；
- * 有 outlet_effects；每个声明的 outlet key 确实由 cognitive_effects 产出。
- * 功能性证明（:247-258）：把变量推到 0.0 / 1.0 两个极值，其声明的效果必须相对
- * neutral（全体取各自 baseline）至少动一个，否则报 "outlet never fires (因果出口不通)"。
- * 反向检查（:259-265）：effect_keys - claimed → "effect {key!r} claimed by no variable"；
- * 每条 cause 的目标变量必须存在、delta 非零。
+ * 检查变量取值范围、衰减率、升降原因和认知出口。
+ * 将变量推向两个极值，验证声明的效果确实变化，并检查无主效果与无效原因。
+ * 返回空列表表示未发现注册定义问题。
  */
 export function registryProblems(subject: RegistryProblemsSubject = {}): string[] {
   const registry = subject.registry ?? REGISTRY
@@ -320,7 +282,7 @@ export function registryProblems(subject: RegistryProblemsSubject = {}): string[
   return problems
 }
 
-/** Python `{key!r}` 的输出形态（单引号包裹）—— 消息片段是契约（§4.6 逐字）。 */
+/** 在诊断文本中用单引号包裹名称。 */
 function quoted(key: string): string {
   return `'${key}'`
 }

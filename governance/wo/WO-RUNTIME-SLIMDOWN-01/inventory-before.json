@@ -1,0 +1,525 @@
+{
+  "sourceHead": "cd5bfadba2264624656ec9e310f6c1a2f2c398da",
+  "method": "Static source inventory; value edges include mixed imports. Comments and defensive names are leads, not semantic verdicts. Dynamic imports, runtime registration and profile ordering require manual inspection.",
+  "packages": [
+    {
+      "package": "lykoi-adapter-telegram",
+      "sourceFiles": 10,
+      "lines": 3136,
+      "legacyComments": 35,
+      "catches": 22,
+      "defenseIdentifiers": 16
+    },
+    {
+      "package": "lykoi-audit",
+      "sourceFiles": 1,
+      "lines": 188,
+      "legacyComments": 1,
+      "catches": 2,
+      "defenseIdentifiers": 0
+    },
+    {
+      "package": "lykoi-budget",
+      "sourceFiles": 1,
+      "lines": 300,
+      "legacyComments": 1,
+      "catches": 2,
+      "defenseIdentifiers": 0
+    },
+    {
+      "package": "lykoi-converse",
+      "sourceFiles": 12,
+      "lines": 4531,
+      "legacyComments": 49,
+      "catches": 31,
+      "defenseIdentifiers": 32
+    },
+    {
+      "package": "lykoi-decide",
+      "sourceFiles": 9,
+      "lines": 2404,
+      "legacyComments": 65,
+      "catches": 14,
+      "defenseIdentifiers": 15
+    },
+    {
+      "package": "lykoi-gate",
+      "sourceFiles": 8,
+      "lines": 1531,
+      "legacyComments": 22,
+      "catches": 23,
+      "defenseIdentifiers": 0
+    },
+    {
+      "package": "lykoi-heart",
+      "sourceFiles": 1,
+      "lines": 518,
+      "legacyComments": 4,
+      "catches": 5,
+      "defenseIdentifiers": 7
+    },
+    {
+      "package": "lykoi-ingress",
+      "sourceFiles": 4,
+      "lines": 966,
+      "legacyComments": 0,
+      "catches": 5,
+      "defenseIdentifiers": 2
+    },
+    {
+      "package": "lykoi-kernel",
+      "sourceFiles": 20,
+      "lines": 6200,
+      "legacyComments": 99,
+      "catches": 32,
+      "defenseIdentifiers": 5
+    },
+    {
+      "package": "lykoi-learn",
+      "sourceFiles": 7,
+      "lines": 2677,
+      "legacyComments": 45,
+      "catches": 19,
+      "defenseIdentifiers": 14
+    },
+    {
+      "package": "lykoi-llm",
+      "sourceFiles": 2,
+      "lines": 342,
+      "legacyComments": 7,
+      "catches": 2,
+      "defenseIdentifiers": 0
+    },
+    {
+      "package": "lykoi-llm-deepseek",
+      "sourceFiles": 1,
+      "lines": 29,
+      "legacyComments": 1,
+      "catches": 0,
+      "defenseIdentifiers": 0
+    },
+    {
+      "package": "lykoi-memory",
+      "sourceFiles": 6,
+      "lines": 4136,
+      "legacyComments": 12,
+      "catches": 8,
+      "defenseIdentifiers": 8
+    },
+    {
+      "package": "lykoi-organ-browser",
+      "sourceFiles": 6,
+      "lines": 2098,
+      "legacyComments": 6,
+      "catches": 30,
+      "defenseIdentifiers": 17
+    },
+    {
+      "package": "lykoi-reflow",
+      "sourceFiles": 1,
+      "lines": 667,
+      "legacyComments": 21,
+      "catches": 2,
+      "defenseIdentifiers": 2
+    },
+    {
+      "package": "lykoi-regulation",
+      "sourceFiles": 1,
+      "lines": 330,
+      "legacyComments": 24,
+      "catches": 0,
+      "defenseIdentifiers": 5
+    },
+    {
+      "package": "lykoi-snapshot",
+      "sourceFiles": 5,
+      "lines": 1133,
+      "legacyComments": 36,
+      "catches": 9,
+      "defenseIdentifiers": 16
+    },
+    {
+      "package": "lykoi-wake",
+      "sourceFiles": 2,
+      "lines": 751,
+      "legacyComments": 25,
+      "catches": 6,
+      "defenseIdentifiers": 7
+    }
+  ],
+  "edges": [
+    {
+      "from": "lykoi-adapter-telegram",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-adapter-telegram/src/index.ts:19"
+      ]
+    },
+    {
+      "from": "lykoi-adapter-telegram",
+      "to": "lykoi-decide",
+      "value": [
+        "packages/lykoi-adapter-telegram/src/production.ts:24"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-adapter-telegram",
+      "to": "lykoi-ingress",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-adapter-telegram/src/index.ts:20"
+      ]
+    },
+    {
+      "from": "lykoi-adapter-telegram",
+      "to": "lykoi-kernel",
+      "value": [
+        "packages/lykoi-adapter-telegram/src/device.ts:25",
+        "packages/lykoi-adapter-telegram/src/index.ts:21",
+        "packages/lykoi-adapter-telegram/src/resources.ts:15"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-adapter-telegram",
+      "to": "lykoi-memory",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-adapter-telegram/src/index.ts:22"
+      ]
+    },
+    {
+      "from": "lykoi-budget",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-budget/src/index.ts:16"
+      ]
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-adapter-telegram",
+      "value": [
+        "packages/lykoi-converse/src/failure.ts:6",
+        "packages/lykoi-converse/src/index.ts:33"
+      ],
+      "typeOnly": [
+        "packages/lykoi-converse/src/continuation.ts:19",
+        "packages/lykoi-converse/src/continuation.ts:25",
+        "packages/lykoi-converse/src/index.ts:31",
+        "packages/lykoi-converse/src/sequencer.ts:1"
+      ]
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-decide",
+      "value": [
+        "packages/lykoi-converse/src/contract.ts:24",
+        "packages/lykoi-converse/src/contract.ts:137",
+        "packages/lykoi-converse/src/conversation.ts:34",
+        "packages/lykoi-converse/src/index.ts:38",
+        "packages/lykoi-converse/src/prompts.ts:117"
+      ],
+      "typeOnly": [
+        "packages/lykoi-converse/src/deadline.ts:35"
+      ]
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-ingress",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-converse/src/index.ts:32",
+        "packages/lykoi-converse/src/outcome.ts:6"
+      ]
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-kernel",
+      "value": [
+        "packages/lykoi-converse/src/exemption.ts:10",
+        "packages/lykoi-converse/src/index.ts:42"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-learn",
+      "value": [
+        "packages/lykoi-converse/src/conversation.ts:39",
+        "packages/lykoi-converse/src/index.ts:41"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-llm",
+      "value": [
+        "packages/lykoi-converse/src/failure.ts:7",
+        "packages/lykoi-converse/src/index.ts:30"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-memory",
+      "value": [
+        "packages/lykoi-converse/src/index.ts:53"
+      ],
+      "typeOnly": [
+        "packages/lykoi-converse/src/continuation.ts:20"
+      ]
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-reflow",
+      "value": [
+        "packages/lykoi-converse/src/conversation.ts:40",
+        "packages/lykoi-converse/src/index.ts:54"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-regulation",
+      "value": [
+        "packages/lykoi-converse/src/contract.ts:28",
+        "packages/lykoi-converse/src/conversation.ts:44"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-converse",
+      "to": "lykoi-snapshot",
+      "value": [
+        "packages/lykoi-converse/src/conversation.ts:45",
+        "packages/lykoi-converse/src/index.ts:55"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-decide",
+      "to": "lykoi-regulation",
+      "value": [
+        "packages/lykoi-decide/src/index.ts:31"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-decide",
+      "to": "lykoi-snapshot",
+      "value": [
+        "packages/lykoi-decide/src/index.ts:37"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-gate",
+      "to": "lykoi-kernel",
+      "value": [
+        "packages/lykoi-gate/src/verify.ts:25"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-heart",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-heart/src/index.ts:46"
+      ]
+    },
+    {
+      "from": "lykoi-ingress",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-ingress/src/index.ts:5"
+      ]
+    },
+    {
+      "from": "lykoi-learn",
+      "to": "lykoi-regulation",
+      "value": [
+        "packages/lykoi-learn/src/l2.ts:20"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-llm",
+      "to": "lykoi-budget",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-llm/src/index.ts:23"
+      ]
+    },
+    {
+      "from": "lykoi-memory",
+      "to": "lykoi-learn",
+      "value": [
+        "packages/lykoi-memory/src/rw.ts:39"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-memory",
+      "to": "lykoi-regulation",
+      "value": [
+        "packages/lykoi-memory/src/rw.ts:40"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-organ-browser",
+      "to": "lykoi-adapter-telegram",
+      "value": [
+        "packages/lykoi-organ-browser/src/index.ts:28"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-organ-browser",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-organ-browser/src/index.ts:26"
+      ]
+    },
+    {
+      "from": "lykoi-organ-browser",
+      "to": "lykoi-kernel",
+      "value": [
+        "packages/lykoi-organ-browser/src/driver.ts:18",
+        "packages/lykoi-organ-browser/src/index.ts:27"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-reflow",
+      "to": "lykoi-decide",
+      "value": [
+        "packages/lykoi-reflow/src/index.ts:30"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-reflow",
+      "to": "lykoi-memory",
+      "value": [
+        "packages/lykoi-reflow/src/index.ts:33"
+      ],
+      "typeOnly": [
+        "packages/lykoi-reflow/src/index.ts:34"
+      ]
+    },
+    {
+      "from": "lykoi-reflow",
+      "to": "lykoi-snapshot",
+      "value": [
+        "packages/lykoi-reflow/src/index.ts:35"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-snapshot",
+      "to": "lykoi-memory",
+      "value": [
+        "packages/lykoi-snapshot/src/floor.ts:19",
+        "packages/lykoi-snapshot/src/index.ts:21",
+        "packages/lykoi-snapshot/src/index.ts:29",
+        "packages/lykoi-snapshot/src/restart.ts:26"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-snapshot",
+      "to": "lykoi-regulation",
+      "value": [
+        "packages/lykoi-snapshot/src/index.ts:37"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-adapter-telegram",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:67"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-audit",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-wake/src/index.ts:53"
+      ]
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-decide",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:54"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-heart",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:61"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-kernel",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:62"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-learn",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:70"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-llm",
+      "value": [],
+      "typeOnly": [
+        "packages/lykoi-wake/src/index.ts:71"
+      ]
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-memory",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:72"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-reflow",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:73"
+      ],
+      "typeOnly": []
+    },
+    {
+      "from": "lykoi-wake",
+      "to": "lykoi-snapshot",
+      "value": [
+        "packages/lykoi-wake/src/index.ts:77"
+      ],
+      "typeOnly": []
+    }
+  ]
+}
