@@ -186,6 +186,8 @@ export class OutboundOrgan {
   #deps: OutboundOrganDeps
   /** 首次消费时定初值（账本此刻的 max id）。 */
   #outboxCursor: number | null = null
+  #outboxLock: Promise<unknown> = Promise.resolve()
+  #closed = false
 
   constructor(deps: OutboundOrganDeps) {
     this.#deps = deps
@@ -423,7 +425,7 @@ export class OutboundOrgan {
    * （专用动作名 / 按 exemption 类别扩 handler 契约 / 维持现状）是治理判断，不是
    * 构建判断。现状 = **收紧**（宁可她少说一条，也不凭空给自己开额度）。
    */
-  async deliverOutboxItem(item: OutboxItem, chatId: string): Promise<void> {
+  async deliverOutboxItem(item: OutboxItem, chatId: string): Promise<OutboundReplyOutcome> {
     const text = item.content ?? ''
     const observation = await this.#deps.dispatch(
       // reply_to=null：这是**主动发言**，不是应答 —— 不拿 reply_to 撒谎换额度。
@@ -438,7 +440,7 @@ export class OutboundOrgan {
       this.#log('chat_outbox_delivered_telegram', {
         id: item.id, kind: item.kind, message_id: messageId, chars: text.length,
       })
-      return
+      return 'delivered'
     }
     if (data.undelivered_recorded !== true) {
       // transport 自己没记账 —— 补上，好让"一条出站消息要么有 message_id，要么在
@@ -450,6 +452,7 @@ export class OutboundOrgan {
         source: 'chat_outbox',
       })
     }
+    return 'undelivered'
   }
 
   /**
@@ -464,7 +467,42 @@ export class OutboundOrgan {
    * §forbidden：这里只投递"从未出过站的"（游标之后的账本条目），**绝不碰未送达
    * 账本** —— 重说是她的认知决定，不是这条循环的机械行为。
    */
-  async consumeOutboxOnce(): Promise<number> {
+  #serialOutbox<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.#outboxLock.then(() => {
+      if (this.#closed) throw new Error('outbound_closed')
+      return run()
+    })
+    this.#outboxLock = result.catch(() => {})
+    return result
+  }
+
+  async close(): Promise<void> {
+    this.#closed = true
+    await this.#outboxLock
+  }
+
+  /** 入队和消费共享一把锁；先持久化，再等待该条实际投递结果。 */
+  deliverFollowup(content: string): Promise<OutboundReplyOutcome> {
+    return this.#serialOutbox(async () => {
+      if (!this.#deps.ownerChannelKey()) return 'undelivered'
+      // 首启游标必须先定，再入队，不能把刚产生的跟进当历史跳过。
+      this.#outboxCursor ??= initOutboxCursor(this.#deps.logEvent)
+      const item = appendOutbox(content, 'followup', { logEvent: this.#deps.logEvent })
+      let outcome: OutboundReplyOutcome = 'undelivered'
+      while (this.#outboxCursor < item.id) {
+        const before: number = this.#outboxCursor
+        await this.#consumeOutbox((id, result) => { if (id === item.id) outcome = result })
+        if (this.#outboxCursor === before) break
+      }
+      return outcome
+    })
+  }
+
+  consumeOutboxOnce(): Promise<number> {
+    return this.#serialOutbox(() => this.#consumeOutbox())
+  }
+
+  async #consumeOutbox(onDelivery?: (id: number, result: OutboundReplyOutcome) => void): Promise<number> {
     let cursor = this.#outboxCursor
     if (cursor === null) cursor = initOutboxCursor(this.#deps.logEvent)
     const page = readOutboxAfter(cursor, OUTBOX_BATCH_LIMIT, {
@@ -498,7 +536,8 @@ export class OutboundOrgan {
         this.#outboxCursor = cursor
         return cursor
       }
-      await this.deliverOutboxItem(item, chatId)
+      const result = await this.deliverOutboxItem(item, chatId)
+      onDelivery?.(itemId, result)
       cursor = itemId
       saveOutboxCursor(cursor)
     }

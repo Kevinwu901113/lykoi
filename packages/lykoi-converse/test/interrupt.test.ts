@@ -31,7 +31,8 @@ function harness(deps: Partial<ConverseDeps> = {}) {
   const audit = { async record(event: AuditEvent) { events.push(event) } }
   const sent: { text: string; anchor: string }[] = []
   const telegram = {
-    async routeOwnerMessage() { return null }, outboundWired() { return false },
+    async routeOwnerMessage() { return null }, outboundWired() { return true },
+    async sendReply(_peer: string, text: string, anchor: string) { sent.push({ text, anchor }); return { outcome: 'delivered' } },
     async send(_peer: string, text: string, anchor: string) { sent.push({ text, anchor }); return { sent: true } },
   }
   const ctx = { audit, get(name: string) { return name === 'messenger' ? telegram : undefined } } as unknown as Context

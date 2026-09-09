@@ -111,7 +111,7 @@ function fakeTelegram(opts: { throws?: boolean } = {}) {
   return { telegram, sends }
 }
 
-function harness(conv: ConvOptions, opts: { telegram?: 'ok' | 'throws' | 'absent'; clock?: () => Date } = {}) {
+function harness(conv: ConvOptions, opts: { telegram?: 'ok' | 'throws' | 'absent'; clock?: () => Date; ready?: () => boolean; deliver?: (text: string) => Promise<'delivered' | 'undelivered'> } = {}) {
   const store = new FakeStore()
   const events: ({ type: string } & Record<string, unknown>)[] = []
   const progress: string[] = []
@@ -123,7 +123,8 @@ function harness(conv: ConvOptions, opts: { telegram?: 'ok' | 'throws' | 'absent
     conversation: c.conversation as never,
     audit: { async record(e) { events.push(e) } },
     messenger: () => (opts.telegram === 'absent' ? undefined : tg.telegram),
-    postProgress: (content) => { progress.push(content) },
+    canDeliver: opts.ready ?? (() => true),
+    deliver: opts.deliver ?? (async (content) => { progress.push(content); return 'delivered' }),
     now: opts.clock ?? (() => T0),
     onError: (where) => { errors.push(where) },
   })
@@ -170,14 +171,14 @@ test('(a) 登记 → 扫描认领 → 后台回合（background/runId/turnId）�
   assertNoBody(h.events)
 })
 
-test('(b) 沉默回合 → completed、零产出、不回执', async () => {
+test('(b) 沉默不证明承诺完成 → failed/no_result、回执', async () => {
   const h = harness({ reply: '', cycleKind: 'silence' })
   const id = h.runner.register({ originTurnId: 'tg:1', originRunId: null, goal: GOAL })!
   await h.runner.scan(T0)
-  assert.equal(h.store.rows.get(id)!.state, 'completed')
+  assert.equal(h.store.rows.get(id)!.state, 'failed')
   assert.deepEqual(h.progress, [])
   assert.equal(terminals(h.events)[0]!.reply_chars, 0)
-  assert.equal(h.tg.sends.length, 0)
+  assert.equal(h.tg.sends.length, 1)
 })
 
 test('(c) send 抛错 → failed + failureReason 代号 + owner 回执（不回灌经历）', async () => {
@@ -195,13 +196,13 @@ test('(c) send 抛错 → failed + failureReason 代号 + owner 回执（不回�
   assertNoBody(h.events)
 })
 
-test('(d) 周期结局映射：envelope_failed / missing_tool / tool_budget → failed；ask_pending → completed(approval_pending)', async () => {
+test('(d) 周期结局映射：envelope_failed / missing_tool / tool_budget → failed；ask_pending → failed(approval_pending)', async () => {
   const cases: [CycleOutcome['kind'], string, string | null, number][] = [
     ['envelope_failed', 'failed', 'envelope_failed', 1],
     ['missing_tool', 'failed', 'missing_tool', 1],
     ['tool_budget', 'failed', 'tool_budget_exhausted', 1],
-    ['ask_pending', 'completed', 'approval_pending', 0],
-    ['followup', 'completed', null, 0],
+    ['ask_pending', 'failed', 'approval_pending', 1],
+    ['followup', 'failed', 'chained_request', 1],
   ]
   for (const [kind, state, reason, notices] of cases) {
     const h = harness({ reply: '', cycleKind: kind })
@@ -219,7 +220,7 @@ test('(e) 续跑里再答应"稍后做" → chained_request=true，取走丢弃�
   const id = h.runner.register({ originTurnId: 'tg:1', originRunId: null, goal: GOAL })!
   await h.runner.scan(T0)
   assert.equal(h.store.rows.size, 1)
-  assert.equal(h.store.rows.get(id)!.state, 'completed')
+  assert.equal(h.store.rows.get(id)!.state, 'failed')
   assert.equal(terminals(h.events)[0]!.chained_request, true)
   assert.equal(h.conv.taken(), 1)
   assertNoBody(h.events)
@@ -275,7 +276,7 @@ test('(h) 互斥与上限：扫描进行中再扫 → skipped 并在收尾补扫
   assert.equal(summary.skipped, false)
   // 4 条种子 + 1 条新登记 = 5，全部由第一次扫描（含补扫）认领完。
   assert.equal(summary.claimed, CONTINUATION_SCAN_LIMIT + 2)
-  assert.equal([...h.store.rows.values()].every((r) => r.state === 'completed'), true)
+  assert.equal([...h.store.rows.values()].every((r) => r.state === 'failed' && r.terminal_reason === 'no_result'), true)
   // 认领序 = due_at 升序。
   assert.deepEqual(h.conv.sends.slice(0, 3).map((s) => s.opts.turnId), ['c-0', 'c-1', 'c-2'])
 })
@@ -393,4 +394,31 @@ test('handleTurn：failed 回合的 followup 不登记；无 followup 不登记�
   const unwiredResult = await handleTurn(unwired.ctx, unwired.conversation, TURN, TURN_RUN_ID)
   assert.equal(unwiredResult.terminal.followup_registered, true)
   assert.equal(unwiredResult.terminal.continuation_id, null)
+})
+
+
+test('投递完成前不收账；投递失败只能 failed', async () => {
+  let release!: (value: 'delivered' | 'undelivered') => void
+  const gate = new Promise<'delivered' | 'undelivered'>(r => { release = r })
+  const h = harness({ reply: REPLY, cycleKind: 'reply' }, { deliver: () => gate })
+  const id = h.runner.register({ originTurnId: 't', originRunId: null, goal: GOAL })!
+  const scan = h.runner.scan(T0)
+  await new Promise(r => setImmediate(r))
+  assert.equal(h.store.rows.get(id)!.state, 'running')
+  assert.equal(terminals(h.events).length, 0)
+  release('undelivered')
+  await scan
+  assert.equal(h.store.rows.get(id)!.state, 'failed')
+  assert.equal(terminals(h.events)[0]!.reason, 'delivery_failed')
+})
+
+test('设备尚未接线不认领；接线后原 pending 仍可完成', async () => {
+  let ready = false
+  const h = harness({ reply: REPLY, cycleKind: 'reply' }, { ready: () => ready })
+  const id = h.runner.register({ originTurnId: 't', originRunId: null, goal: GOAL })!
+  assert.equal((await h.runner.scan(T0)).skipped, true)
+  assert.equal(h.store.rows.get(id)!.state, 'pending')
+  ready = true
+  await h.runner.scan(T0)
+  assert.equal(h.store.rows.get(id)!.state, 'completed')
 })

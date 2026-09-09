@@ -237,8 +237,8 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
   item(尽量原文)、meaning(这对我意味着什么)、concern_id(没有就省略)、
   pull(0~1,它对你的牵引力)。
 - decision.reason 必须逐字引用(原样复制)meaning_assessment 里至少一条的 item
-  或 meaning 文本 —— 不引用任何评估条目的非 silence 决定会被确定性地降级为
-  silence。被降级的 tool_call 不会执行那个工具。
+  或 meaning 文本 —— reply 与 promise_followup 未通过引用校验时不会发送，
+  本轮记为框架抑制。tool_call 免引用校验，但仍受候选动作表与工具参数校验约束。
 - reply: utterances 是你要逐条说的话的非空字符串数组,按数组顺序逐字发送;不需要分段时也可只给 content。
 - silence: 选择这一轮不说话。**这是一个正当的动作,不是失败**;它会落账,
   你不需要为它辩护。

@@ -71,8 +71,8 @@ const LIVE_GROUNDING_BULLET
   + '  silence。\n'
 const AMENDED_GROUNDING_BULLET
   = '- decision.reason 必须逐字引用(原样复制)meaning_assessment 里至少一条的 item\n'
-  + '  或 meaning 文本 —— 不引用任何评估条目的非 silence 决定会被确定性地降级为\n'
-  + '  silence。被降级的 tool_call 不会执行那个工具。\n'
+  + '  或 meaning 文本 —— reply 与 promise_followup 未通过引用校验时不会发送，\n'
+  + '  本轮记为框架抑制。tool_call 免引用校验，但仍受候选动作表与工具参数校验约束。\n'
 const LIVE_TOOL_CALL_BULLET
   = '- tool_call: 需要 tool.name 与 tool.arguments。工具照旧分级 —— 需要他点头的\n'
   + '  工具不会因为你同时说了话就免了。\n'
@@ -98,18 +98,18 @@ test('新 raw sha 记录（旧 9d4f169e… → 新；随 G-2 sha 变更表同一
   // 实算钉死：任何后续改动都会让这两行变红 —— 修正版文本从此就是契约。
   // 旧（活体 raw）：chars=1677 sha=9d4f169eb3ea368be6cf46e44445fc0ea943a4d7052a3c03744ea63bdf869eb7
   // 新（G-10 D-02①/D-03）：chars=1748 sha=88587c8e…（{causes}/{tools} 未展开口径）
-  assert.equal(cps(ENVELOPE_SYSTEM_PROMPT), 1788)
+  assert.equal(cps(ENVELOPE_SYSTEM_PROMPT), 1806)
   assert.equal(
     sha(ENVELOPE_SYSTEM_PROMPT),
-    'dee3cff2ba2e4ff7cbc3e6765b6b62980e13039bef8f84e0535aad131245010c',
+    '3ef1e8f789b5588ab583591bbcc356bae892f9f95a4b58b2f39286f9f772e18b',
   )
   // 渲染后（causes+tools 已代入）：旧 1960/739494ec… → G-10 2245/f063714f… →
   // WO-FIX-TOOLSPEC-01 D-2（{tools} 从裸名 join 变成带签名与用途的表）
   // 2984/29f13777…。契约文本变了 = 稳定前缀缓存失效一次，属预期。
-  assert.equal(cps(envelopeSystemPrompt()), 3038)
+  assert.equal(cps(envelopeSystemPrompt()), 3056)
   assert.equal(
     sha(envelopeSystemPrompt()),
-    'efe7926c0cc5ffd4530a555aa191c3cb9bd743729a6e01da28aadfdcdd198a71',
+    '487ea1c77c2713ffddf55ed8d56cc566a008f7281875866103f1063f647316a2',
   )
 })
 
@@ -263,7 +263,7 @@ test('E4-3：合成实例渲染 SHA；信封装配保留用户原文中的模板
     [SYSTEM_PROMPT, '8bf1e9c9826be882f625f8fbec14123501218355e4c8ce06fc25711bfb4ea664'],
     [SUMMARIZE_SYSTEM_PROMPT, 'ab022ba969dae24ff6435eb6f0cfa18c57c1b085296e29e825c079b571e81ea0'],
     [UNDELIVERED_HEADER, '6c78b143ddf19c7294502001e6eb18ce47fe1e030c5dd0329399e1b45e0c7242'],
-    [envelopeSystemPrompt(), '2bc8f52f3a4cf78c4350035961ff8c26ea338c9e39b3c04ec9f528a05dc14810'],
+    [envelopeSystemPrompt(), 'ded772ebad4eff5c3e640b2137a223d719e67cad27c033154df49b191fe874e1'],
   ]) assert.equal(sha(renderOwnerTemplate(template!, FIXTURE_PERSONA)), expected)
   const raw = '请逐字保留 {owner}、{owner_name}、{self} 和 Kevin'
   const messages = buildEnvelopeMessages([{ role: 'user', content: raw }], undefined, undefined, FIXTURE_PERSONA)

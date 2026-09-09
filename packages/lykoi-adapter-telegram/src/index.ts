@@ -28,6 +28,7 @@ import type {
   DelegatedAsk,
   OutboundOrgan,
   OutboundReplyResult,
+  OutboundReplyOutcome,
   OutboundTurnContext,
 } from './device.ts'
 import { setTransport as setMessengerTransport, type MessengerTransport } from './messenger.ts'
@@ -139,7 +140,8 @@ export interface MessengerAdapterService {
    * 之后递进来）。**晚绑定**是刻意的：设备层与认知层互为对方的下游，活体用
    * `messenger._TRANSPORT = transport` 的同一手法在启动时打通。
    */
-  wireOutbound(organ: OutboundOrgan): void
+  deliverFollowup(content: string): Promise<OutboundReplyOutcome>
+  wireOutbound(organ: OutboundOrgan): () => void | Promise<void>
   /** SK-78：她的回复 —— 经 dispatch、盖 E2 章、四态结局原样返回。未接线即抛。 */
   sendReply(
     contextId: string,
@@ -235,6 +237,10 @@ async function writeJsonAtomic(path: string, value: unknown, seq: number): Promi
 
 // ============================== 适配器实现 ==============================
 
+export class OutboundUnavailableError extends Error {
+  constructor() { super('outbound organ is not wired'); this.name = 'OutboundUnavailableError' }
+}
+
 export class TelegramAdapter implements MessengerAdapterService {
   readonly channel = 'telegram'
   #transport: TelegramTransport
@@ -293,8 +299,16 @@ export class TelegramAdapter implements MessengerAdapterService {
 
   // --- M3-W3 出站器官面 ------------------------------------------------------
 
-  wireOutbound(organ: OutboundOrgan): void {
+  async deliverFollowup(content: string): Promise<OutboundReplyOutcome> {
+    return this.#requireOutbound().deliverFollowup(content)
+  }
+
+  wireOutbound(organ: OutboundOrgan): () => void | Promise<void> {
     this.#outbound = organ
+    return async () => {
+      if (this.#outbound === organ) this.#outbound = null
+      await organ.close()
+    }
   }
 
   outboundWired(): boolean {
@@ -313,9 +327,7 @@ export class TelegramAdapter implements MessengerAdapterService {
 
   #requireOutbound(): OutboundOrgan {
     if (this.#outbound === null) {
-      throw new Error(
-        'lykoi-adapter-telegram: outbound organ is not wired (call wireOutbound first)',
-      )
+      throw new OutboundUnavailableError()
     }
     return this.#outbound
   }
@@ -352,9 +364,8 @@ export class TelegramAdapter implements MessengerAdapterService {
    * 让它少转一圈（§forbidden：嘴哑了不许把耳朵也带聋）。
    */
   async consumeOutboxOnce(): Promise<void> {
-    if (this.#outbound === null) return
     try {
-      await this.#outbound.consumeOutboxOnce()
+      await this.#requireOutbound().consumeOutboxOnce()
     } catch (err) {
       await this.#audit.record({
         type: 'chat_outbox_consume_error',

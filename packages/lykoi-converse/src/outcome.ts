@@ -8,6 +8,8 @@ import type { TurnTerminalStatus } from 'lykoi-ingress'
 export type TurnStatus = TurnTerminalStatus
 
 export type TurnFailReason =
+  | 'decision_suppressed'
+  | 'outbound_unavailable'
   | 'envelope_failed'
   | 'missing_tool'
   | 'tool_budget_exhausted'
@@ -30,6 +32,7 @@ export interface TurnOutcome {
 }
 
 export type CycleOutcomeKind =
+  | 'suppressed'
   | 'reply'
   | 'silence'
   | 'followup'
@@ -38,9 +41,19 @@ export type CycleOutcomeKind =
   | 'tool_budget'
   | 'ask_pending'
 
-export interface CycleOutcome {
-  kind: CycleOutcomeKind
-  step: number
+export type CycleOutcome =
+  | { kind: Exclude<CycleOutcomeKind, 'suppressed'>; step: number }
+  | { kind: 'suppressed'; step: number; originalKind: string; reason: string }
+
+/** 两个 surface 共用认知失败投影，不能把框架拒绝误记为主动沉默。 */
+export function cycleFailure(outcome: CycleOutcome | null): TurnFailReason | null {
+  switch (outcome?.kind) {
+    case 'suppressed': return 'decision_suppressed'
+    case 'envelope_failed': return 'envelope_failed'
+    case 'missing_tool': return 'missing_tool'
+    case 'tool_budget': return 'tool_budget_exhausted'
+    default: return null
+  }
 }
 
 /** 技术失败给 owner 的确定性、无供应商正文回执。 */

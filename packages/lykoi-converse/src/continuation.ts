@@ -20,7 +20,9 @@ import type { MessengerAdapterService } from 'lykoi-adapter-telegram'
 import type { PendingContinuationRow } from 'lykoi-memory/rw'
 import type { Conversation, CycleResult } from './conversation.ts'
 import { failureReason } from './failure.ts'
-import type { TurnFailReason } from './outcome.ts'
+import { cycleFailure, type TurnFailReason } from './outcome.ts'
+import { sequenceUtterances } from './sequencer.ts'
+import type { OutboundReplyOutcome } from 'lykoi-adapter-telegram'
 
 /** D-5：pending 行超过这个时长还没跑上就作废（6 h）。 */
 export const CONTINUATION_TTL_S = 21600
@@ -34,7 +36,7 @@ export const CONTINUATION_FAILURE_NOTICE = (reason: string): string =>
   `[系统] 上一轮答应的跟进没有完成（代号 ${reason}）。`
 
 export type ContinuationTerminalState = 'completed' | 'failed' | 'expired'
-export type ContinuationReason = TurnFailReason | 'approval_pending' | 'interrupted' | null
+export type ContinuationReason = TurnFailReason | 'approval_pending' | 'interrupted' | 'no_result' | 'chained_request' | null
 
 export interface ContinuationStore {
   registerContinuation(row: {
@@ -68,8 +70,9 @@ export interface ContinuationRunnerDeps {
   audit: ContinuationAudit
   /** 晚绑定：telegram 插件可能 disabled，每次要用时再取。 */
   messenger: () => Pick<MessengerAdapterService, 'transportSend'> | undefined
-  /** 她的续跑产出走 chat_outbox followup 通道（与 postProgress 同一条路）。 */
-  postProgress: (content: string) => void
+  /** 出站就绪才认领；持久 followup 经设备唯一消费者返回实际投递结果。 */
+  canDeliver: () => boolean
+  deliver: (content: string) => Promise<OutboundReplyOutcome>
   now: () => Date
   /** 后台错误的兜底出口（kick / 启动效应里的 promise 拒绝）。 */
   onError?: (where: string, err: unknown) => void
@@ -145,6 +148,7 @@ export class ContinuationRunner implements ContinuationsService {
    * skipped），正在跑的那次结束前会再扫一圈把新登记的行捡起来。
    */
   async scan(now: Date): Promise<ScanSummary> {
+    if (!this.#deps.canDeliver()) return { skipped: true, claimed: 0, expired: 0 }
     if (this.#scanning !== null) {
       this.#rescan = true
       return { skipped: true, claimed: 0, expired: 0 }
@@ -218,21 +222,23 @@ export class ContinuationRunner implements ContinuationsService {
       }
       chained = result.followup !== null
       const kind = result.outcome?.kind ?? null
-      if (reply.trim().length > 0) {
+      const failure = cycleFailure(result.outcome)
+      if (failure) { state = 'failed'; reason = failure }
+      else if (kind === 'ask_pending') { state = 'failed'; reason = 'approval_pending' }
+      else if (chained || kind === 'followup') { state = 'failed'; reason = 'chained_request' }
+      else if (kind !== 'reply' || result.utterances.length === 0) { state = 'failed'; reason = 'no_result' }
+      else {
         replyChars = reply.length
-        for (const part of result.utterances) this.#deps.postProgress(part)
+        const delivery = await sequenceUtterances(result.utterances, this.#deps.deliver)
+        if (delivery.outcome !== 'delivered') { state = 'failed'; reason = 'delivery_failed' }
       }
-      if (kind === 'envelope_failed') { state = 'failed'; reason = 'envelope_failed' }
-      else if (kind === 'missing_tool') { state = 'failed'; reason = 'missing_tool' }
-      else if (kind === 'tool_budget') { state = 'failed'; reason = 'tool_budget_exhausted' }
-      else if (kind === 'ask_pending') { reason = 'approval_pending' }
     } catch (err) {
       state = 'failed'
       reason = failureReason(err)
     }
     const now = this.#deps.now()
     const elapsedMs = Math.max(0, Math.round(performance.now() - started))
-    this.#deps.store.finishContinuation(row.id, state, reason, now)
+    if (!this.#deps.store.finishContinuation(row.id, state, reason, now)) return
     await this.#terminal({ ...row, run_id: runId }, { state, reason, elapsedMs, replyChars, chained })
     if (state === 'failed') await this.#notice(reason ?? 'unknown')
   }
@@ -279,9 +285,10 @@ export class ContinuationRunner implements ContinuationsService {
       return
     }
     try {
-      await messenger.transportSend(chatId, CONTINUATION_FAILURE_NOTICE(reason), null, {
+      const result = await messenger.transportSend(chatId, CONTINUATION_FAILURE_NOTICE(reason), null, {
         recordUndeliveredExperience: false,
       })
+      if (!result.sent) throw new Error('notice_not_delivered')
     } catch (err) {
       await this.#deps.audit.record({
         type: 'continuation/notice_failed',

@@ -80,6 +80,7 @@ function fakeConversation(options: FakeConversationOptions): {
 }
 
 interface FakeTelegramOptions {
+  unwired?: boolean
   delivery?: 'delivered' | 'undelivered' | 'needs_approval' | 'dispatch_failed'
   askStatus?: string
   askThrows?: boolean
@@ -126,8 +127,9 @@ function fakeTelegram(options: FakeTelegramOptions = {}): TelegramAdapterService
       return { asked: true, status: options.askStatus ?? 'asked', pending_id: 'p-1' }
     },
     async routeOwnerMessage() { return null },
-    outboundWired: () => true,
-    wireOutbound() {},
+    outboundWired: () => !options.unwired,
+    wireOutbound() { return () => {} },
+    async deliverFollowup() { return 'delivered' },
     async pollOnce() { return 0 },
     counters: () => ({
       polls: 0, inbound: 0, droppedUnbound: 0, droppedMalformed: 0,
@@ -203,6 +205,16 @@ const llmError = new LlmFinishError({
 })
 
 const handleScenarios: { name: string; scenario: HandleScenario }[] = [
+  {
+    name: '出站未接线拒绝备用裸发送，只发系统失败回执',
+    scenario: { reply: '原始答复', cycleKind: 'reply', unwired: true, expectedStatus: 'failed',
+      expectedReason: 'outbound_unavailable', expectedNotice: true },
+  },
+  {
+    name: '框架抑制 → failed + 确定性系统回执',
+    scenario: { reply: '', cycleKind: 'suppressed', expectedStatus: 'failed',
+      expectedReason: 'decision_suppressed', expectedNotice: true },
+  },
   {
     name: 'reply delivered → replied，sendReply 收到 run_id/turn_id',
     scenario: {
@@ -330,7 +342,7 @@ for (const { name, scenario } of handleScenarios) {
   test(name, async () => {
     const result = await runHandleScenario(scenario)
     const terminal = result.terminal
-    if (scenario.reply !== undefined && scenario.reply.trim() !== '') {
+    if (!scenario.unwired && scenario.reply !== undefined && scenario.reply.trim() !== '') {
       assert.ok(Number(terminal.reply_chars) > 0)
     }
     if (scenario.expectedNotice) {
@@ -340,7 +352,7 @@ for (const { name, scenario } of handleScenarios) {
         replyTo: '100',
       }])
       assert.deepEqual(result.telegram?.bareSendOptions, [{ recordUndeliveredExperience: false }])
-      assert.deepEqual(result.conversation.messages, [TURN.parts[0]!.text],
+      assert.deepEqual(result.conversation.messages, scenario.unwired ? [] : [TURN.parts[0]!.text],
         '系统回执不得写入 Conversation messages/history')
     }
     if (name.startsWith('reply delivered')) {

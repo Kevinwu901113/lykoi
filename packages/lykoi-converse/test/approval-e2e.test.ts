@@ -99,7 +99,7 @@ function outboundTexts(transport: MemoryTelegramTransport): string[] {
   return transport.sends.map((s) => s.text)
 }
 
-async function assemble(replyText: string) {
+async function assemble(replyText: string, lateTelegram = false) {
   const dir = mkdtempSync(join(tmpdir(), 'lykoi-converse-approval-db-'))
   const dbPath = join(dir, 'state.db')
   createStateFixture(dbPath)
@@ -121,12 +121,13 @@ async function assemble(replyText: string) {
   await ctx.plugin(mockAdapter, {
     provider: 'mock', replyText, promptTokens: 210, completionTokens: 34,
   })
-  await ctx.plugin(telegramAdapter, {
+  const startTelegram = () => ctx.plugin(telegramAdapter, {
     cursorPath: join(dir, 'cursor.json'),
     archivePath: join(dir, 'inbound.json'),
     autoStart: false,
     pollTimeoutS: 25,
   })
+  let telegramFiber = lateTelegram ? undefined : await startTelegram()
   await ctx.plugin(converse, {
     dbPath,
     personaToml: PERSONA_TOML,
@@ -145,7 +146,10 @@ async function assemble(replyText: string) {
     visionRoute: "disabled",
     visionModel: "disabled",
   })
+  if (lateTelegram) telegramFiber = await startTelegram()
+  await new Promise(resolve => setImmediate(resolve))
   return {
+    ctx, telegramFiber: telegramFiber!,
     audit,
     transport,
     telegram: ctx.get('messenger') as TelegramAdapterService,
@@ -437,4 +441,18 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
   assert.equal(envelopeEvent.dispatch_gate, 'not_wired')
   assert.equal(envelopeEvent.tool_named, 'terminal_exec')
   assert.equal(envelopeEvent.dispatched, null)
+})
+
+
+test('真实装配：设备晚到与重启时出站器官随依赖重接', async () => {
+  isolateKernelFiles()
+  const h = await assemble(envelope(), true)
+  assert.equal(h.telegram.outboundWired(), true)
+  const old = h.telegram
+  await h.telegramFiber.restart()
+  await new Promise(resolve => setImmediate(resolve))
+  const replacement = h.ctx.get('messenger') as TelegramAdapterService
+  assert.notEqual(replacement, old)
+  assert.equal(old.outboundWired(), false)
+  assert.equal(replacement.outboundWired(), true)
 })
