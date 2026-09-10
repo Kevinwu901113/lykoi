@@ -226,8 +226,8 @@ test('成功路：入站 → 装配 → 信封 reply → 回站(reply_to) → �
     assert.equal(exp[0]!.source, 'conversation')
     const causes = store.recentRegulationEvents(null, 10).map((r) => r.cause)
     assert.ok(causes.includes('normal_interaction'))
-    // seedPersona 出生证：恰一条 preference（SA-168）。
-    assert.equal(store.getInsights('preference').length, 1)
+    // Restoring a conversation must not apply the instance package's birth seeds.
+    assert.equal(store.getInsights('preference').length, 0)
   } finally {
     store.close()
   }

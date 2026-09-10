@@ -1,7 +1,8 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import { BodySchemaRegistry, KNOWN_ACTION_LIST, isHardGated, unwiredResources } from 'lykoi-kernel'
 import type {
-  CapabilityRegistration, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
+  CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
 } from 'lykoi-contracts'
 
 /** A read-only, live set. Consumers cannot mutate registration through the view. */
@@ -29,6 +30,9 @@ export class CapabilityRuntime implements RuntimeService {
   #schema: BodySchemaRegistry
   #revision = 0
   #closed = false
+  #accepting = true
+  #work = new Set<Promise<unknown>>()
+  #admission = new AsyncLocalStorage<{ active: boolean }>()
   #log: RuntimeLog
   #events: Array<[string, Record<string, unknown>]> = []
   readonly resources: ResourceRegistry
@@ -36,7 +40,10 @@ export class CapabilityRuntime implements RuntimeService {
   readonly bodySchema: RuntimeService['bodySchema']
   readonly catalog: RuntimeService['catalog']
 
-  constructor(log: RuntimeLog = () => {}) {
+  readonly instance: CharacterInstance | undefined
+
+  constructor(log: RuntimeLog = () => {}, instance?: CharacterInstance) {
+    this.instance = instance
     this.#log = (name, fields) => {
       // Telemetry cannot prevent resource retirement or leak a half-registration.
       try { log(name, fields) } catch { /* Dispatch's immutable audit gate remains independent. */ }
@@ -62,6 +69,22 @@ export class CapabilityRuntime implements RuntimeService {
     })
   }
 
+  async run<T>(work: () => Promise<T>): Promise<T> {
+    if (this.#closed || (!this.#accepting && !this.#admission.getStore()?.active)) {
+      throw new Error('instance runtime is stopping')
+    }
+    const admission = { active: true }
+    const task = this.#admission.run(admission, () => Promise.resolve().then(work))
+    this.#work.add(task)
+    try { return await task } finally { admission.active = false; this.#work.delete(task) }
+  }
+
+  async quiesce(): Promise<void> {
+    if (this.#admission.getStore()?.active) throw new Error('cannot drain runtime from its own work')
+    this.#accepting = false
+    while (this.#work.size) await Promise.allSettled([...this.#work])
+  }
+
   get revision() { return this.#revision }
 
   register({ organId, handlers, sideEffects }: CapabilityRegistration): () => void {
@@ -77,7 +100,10 @@ export class CapabilityRuntime implements RuntimeService {
     for (const [action, handler] of entries) {
       const guarded: ResourceHandler = async params => {
         if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
-        return handler(params)
+        return this.run(async () => {
+          if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
+          return handler(params)
+        })
       }
       owned.set(action, guarded)
       this.#handlers.set(action, guarded)
@@ -129,7 +155,7 @@ export class CapabilityRuntime implements RuntimeService {
 
 export const name = 'lykoi-runtime'
 export function apply(ctx: Context) {
-  const runtime = new CapabilityRuntime((event, fields) => ctx.logger.debug('%s %o', event, fields))
+  const runtime = new CapabilityRuntime((event, fields) => ctx.logger.debug('%s %o', event, fields), ctx.get('lykoiInstance'))
   ctx.provide('lykoiRuntime', runtime)
   ctx.effect(() => () => runtime.dispose(), 'runtime capability lifetime')
 }

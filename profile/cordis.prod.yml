@@ -141,10 +141,9 @@
   # 启用
   config:
     tokenEnv: LYKOI_TELEGRAM_BOT_TOKEN
-    # 代理属于实例部署事实，缺失即拒起；不从环境读取、不静默直连。
-    # deploy.toml 的 [telegram].proxy 与实例文件一并受完整性门钉住。
-    proxy: instance
-    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
+    # 代理由 instance.prod.json 的 deploymentFile 独立定位，缺失即拒起。
+    # 部署文件单独受 Gate 保护；Telegram 不读取角色目录。
+    proxy: deployment
 - id: telegram
   name: lykoi-adapter-telegram
   # 启用
@@ -163,7 +162,6 @@
   # 启用
   config:
     dbPath: /home/lykoi/state/memory.db
-    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
     # route 名必须 = vendor 注册常量 `deepseek-official`（vendor/index.js:1628
     # 写死，配置面无改名位）；对不上 = dsh-llm NO_ADAPTER 被归一成空回复，
     # 全体调用无声失败（WO-INC-LLM-ROUTE 事故正本）。model 取 vendor 目录
@@ -210,7 +208,6 @@
     # 人格 TOML：与 converse 段**同一个文件**（D-FIX-1）—— 醒着的她和聊天的她
     # 读同一份先天内核，装配面只给路径，数据本身只有 owner 域 TOML 一个事实源。
     # root 属主 444、父目录 root；完整性门检查项②③⑤三处核它。
-    personaToml: /home/lykoi/runtime/persona/lykoi_base.toml
     # route/model 约束同 converse 段（vendor 常量 deepseek-official，
     # WO-INC-LLM-ROUTE 事故正本）。
     route: deepseek-official

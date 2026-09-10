@@ -2,10 +2,11 @@
   "name": "lykoi-profile",
   "version": "0.1.0",
   "private": true,
-  "description": "Cordis 启动 profile：loader+include+timer 拉起 cordis.yml 插件树",
+  "description": "Cordis \u542f\u52a8 profile\uff1aloader+include+timer \u62c9\u8d77 cordis.yml \u63d2\u4ef6\u6811",
   "type": "module",
   "scripts": {
-    "start": "node index.ts"
+    "start": "node index.ts",
+    "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
@@ -22,6 +23,9 @@
     "lykoi-llm": "0.1.0",
     "lykoi-memory": "0.1.0",
     "lykoi-organ-browser": "0.1.0",
-    "lykoi-runtime": "0.1.0"
+    "lykoi-runtime": "0.1.0",
+    "js-yaml": "4.3.1",
+    "lykoi-contracts": "0.1.0",
+    "lykoi-decide": "0.1.0"
   }
 }

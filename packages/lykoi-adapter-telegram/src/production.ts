@@ -1,4 +1,5 @@
-import { loadInstancePackage } from 'lykoi-decide'
+import { readFileSync } from 'node:fs'
+import { parseDeploy } from './deployment.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createFetchHttpPost } from './http.ts'
@@ -106,27 +107,27 @@ export interface Config {
   tokenEnv: string
 
   proxy: string
-  /** proxy=instance 时定位同一实例包；其余模式不读。 */
-  personaToml?: string
+  /** proxy=deployment 时定位部署文件；其余模式不读。 */
+  deploymentFile?: string
 }
 
 export const Config: Schema<Config> = Schema.object({
   tokenEnv: Schema.string().default('LYKOI_TELEGRAM_BOT_TOKEN'),
   proxy: Schema.string().default(''),
-  personaToml: Schema.string().default(''),
+  deploymentFile: Schema.string().default(''),
 })
 
-export function resolveInstanceProxy(config: Pick<Config, 'proxy' | 'personaToml'>): string {
-  if (config.proxy !== 'instance') return config.proxy
-  if (!config.personaToml) throw new Error('deploy.toml: personaToml is required for instance proxy')
-  const proxy = loadInstancePackage(config.personaToml).deploy.telegram_proxy
-  if (!proxy) throw new Error('deploy.toml: [telegram].proxy is required for instance proxy')
+export function resolveDeploymentProxy(config: Pick<Config, 'proxy' | 'deploymentFile'>): string {
+  if (config.proxy !== 'deployment') return config.proxy
+  if (!config.deploymentFile) throw new Error('deploy.toml: deploymentFile is required for deployment proxy')
+  const proxy = parseDeploy(readFileSync(config.deploymentFile, 'utf8'), config.deploymentFile).telegram_proxy
+  if (!proxy) throw new Error('deploy.toml: [telegram].proxy is required for deployment proxy')
   return proxy
 }
 
 export function apply(ctx: Context, config: Config) {
   const transport = new ProductionTelegramTransport(process.env[config.tokenEnv], {
-    proxy: resolveInstanceProxy(config),
+    proxy: resolveDeploymentProxy(config),
   })
   ctx.provide('telegramTransport', transport)
 }

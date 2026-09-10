@@ -1,0 +1,5 @@
+{
+  "registry": "/home/lykoi/runtime/instances",
+  "id": "lykoi",
+  "deploymentFile": "/home/lykoi/runtime/deployment/telegram.toml"
+}

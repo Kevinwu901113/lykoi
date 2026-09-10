@@ -19,9 +19,20 @@
  */
 import { Context, Logger } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import Include from '@deepseek-ai/cordis-plugin-include'
+import { fileURLToPath } from 'node:url'
+import { instanceEntries, drainInstance } from './assembly.ts'
+import { readFileSync } from 'node:fs'
+import { restoreInstance } from './instance-state.ts'
+
+const selection = JSON.parse(readFileSync(new URL('./instance.prod.json', import.meta.url), 'utf8'))
+const instance = restoreInstance(selection.registry, selection.id)
+if (instance.stateRoot !== '/home/lykoi/state') {
+  throw new Error('production instance storage must match the protected production state path')
+}
 
 const root = new Context()
+root.provide('lykoiInstance', instance)
+
 
 // cordis 默认 logger 只进内存 buffer；接 stdout exporter，journald 才看得见。
 const stdoutExporter = {
@@ -36,7 +47,8 @@ root.logger.exporter(stdoutExporter)
 // Include 的 ctx 链看不到，所以根上必须直接给。
 root.baseUrl = import.meta.url
 await root.plugin(Loader, { baseUrl: import.meta.url })
-await root.plugin(Include, { path: './cordis.prod.yml', enableLogs: true })
+const entries = instanceEntries(fileURLToPath(new URL('./cordis.prod.yml', import.meta.url)), instance, selection.deploymentFile)
+await root.loader.root.update(entries)
 await root.loader.await()
 
 // 治理地基花名册（地板检查）：这五件与器官启用无关，缺一件都不算「起来了」。
@@ -49,3 +61,9 @@ if (roster.includes('MISSING')) {
   process.exit(1)
 }
 console.log('[lykoi] running (production); systemd owns the lifecycle')
+
+let shutdown: Promise<void> | undefined
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => {
+  shutdown ??= drainInstance(root)
+  shutdown.then(() => process.exit(0), error => { console.error(error); process.exit(1) })
+})

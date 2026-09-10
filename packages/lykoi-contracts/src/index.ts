@@ -54,6 +54,9 @@ export interface CapabilityRegistration {
   sideEffects: readonly SideEffectDeclaration[]
 }
 export interface RuntimeService {
+  readonly instance?: CharacterInstance
+  run<T>(work: () => Promise<T>): Promise<T>
+  quiesce(): Promise<void>
   readonly resources: ResourceRegistry
   readonly actions: ReadonlySet<string>
   readonly catalog: ReadOnlyActionCatalog
@@ -64,4 +67,18 @@ export interface RuntimeService {
 }
 declare module '@deepseek-ai/cordis' {
   interface Context { lykoiRuntime: RuntimeService }
+}
+
+/** Immutable ownership for one running character. Configuration does not own these paths. */
+export interface CharacterInstance {
+  readonly version: 1
+  readonly id: string
+  readonly origin: 'created' | 'adopted'
+  readonly createdAt: string
+  readonly definitionHash: string
+  readonly personaPath: string
+  readonly stateRoot: string
+}
+declare module '@deepseek-ai/cordis' {
+  interface Context { lykoiInstance: CharacterInstance }
 }

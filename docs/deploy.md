@@ -447,15 +447,16 @@ unit 的 env 面里唯一该有的 `LYKOI_*` 是 `LYKOI_TELEGRAM_BOT_TOKEN`。
 | `telegram-transport` | unit env 里 `LYKOI_TELEGRAM_BOT_TOKEN` 非空；`proxy` 值按你的网络填 |
 | `telegram` | transport 位在位（它从 `telegramTransport` 服务取传输） |
 
-**代理值**：生产 profile 使用 `proxy: instance`，从 persona 所在目录的
-`deploy.toml` 读取 `[telegram] proxy = "http://192.0.2.10:7890"`。
-这里的地址仅为文档示例，请填部署网络的真实代理；缺文件、缺值或 URL 非 HTTP(S)
-都会拒绝启动，不会静默直连。需要直连的部署可以把受签名 profile 的 proxy 明确改为
-空串；dev profile 仍以空串直连。
+**代理值**：生产 profile 使用 `proxy: deployment`，由 `profile/instance.prod.json`
+的 `deploymentFile` 明确定位 `/home/lykoi/runtime/deployment/telegram.toml`，读取
+`[telegram] proxy = "http://192.0.2.10:7890"`。此地址仅为示例；请保留部署网络的真实代理。
+Telegram 不读取 persona 路径或角色出生目录。缺文件、缺值、坏 TOML 或非 HTTP(S) URL
+均拒绝启动。直连仍可在受签名配置中明确设 `proxy: ""`。
 
-安装 `deploy.toml` 时使用与 persona 相同的 `root:root`、0444 文件权限，目录0755；
-可选 `seeds.toml` 同法。两个文件只要存在，就与 persona 一起进入 manifest 的哈希及
-属主/不可写校验；新增、改动或删除都需重新签署。没有新环境变量。
+部署文件采用 `root:root`、0444，父目录0755，独立纳入 Gate。当前实例身份只以
+所选实例的 `definition.toml` 为正本，Gate 同时保护其归属描述符；旧角色源模板与
+出生 seeds 不再参与运行期 manifest。更新它们不会改写已有实例。
+首次 P1 接管和旧部署文件的复制步骤见 [P1 接管说明](p1-instance.md)。
 浏览器独立宿主仍读它自己的 host JSON 配置，不读取这里的 Telegram 代理。
 
 `api.deepseek.com` 那一跳**没有代理旋钮**（`ProxyAgent` 只接在 telegram 传输层）。

@@ -125,3 +125,52 @@ test('telemetry observes a complete registration and retirement', () => {
   assert.deepEqual(observed, [true, false])
   runtime.dispose()
 })
+
+test('quiesce refuses new work and waits for a late result before retirement', async () => {
+  const runtime = new CapabilityRuntime()
+  let finish!: (value: string) => void
+  const outcome = runtime.run(() => new Promise<string>(resolve => { finish = resolve }))
+  await Promise.resolve()
+  let drained = false
+  const closing = runtime.quiesce().then(() => { drained = true })
+  await assert.rejects(runtime.run(async () => 'new'), /stopping/)
+  assert.equal(drained, false)
+  finish('owned result')
+  assert.equal(await outcome, 'owned result')
+  await closing
+  assert.equal(drained, true)
+})
+
+test('an admitted turn can finish nested work during shutdown; outside admission remains closed', { timeout: 2000 }, async () => {
+  const runtime = new CapabilityRuntime()
+  let resume!: () => void
+  const gate = new Promise<void>(resolve => { resume = resolve })
+  const original = runtime.run(async () => {
+    await gate
+    return runtime.run(async () => 'original instance result')
+  })
+  await Promise.resolve()
+  const stopping = runtime.quiesce()
+  await assert.rejects(runtime.run(async () => 'new turn'), /stopping/)
+  resume()
+  assert.equal(await original, 'original instance result')
+  await stopping
+})
+
+test('direct capability work is drained and new calls after quiesce are refused', { timeout: 2000 }, async () => {
+  const runtime = new CapabilityRuntime()
+  let resume!: (value: string) => void
+  runtime.register({ organId: 'test-browser', sideEffects: [], handlers: {
+    'browser.navigate': () => new Promise<string>(resolve => { resume = resolve }),
+  } })
+  const result = runtime.resources.browser!.navigate!({})
+  await Promise.resolve()
+  let drained = false
+  const stopping = runtime.quiesce().then(() => { drained = true })
+  await Promise.resolve()
+  assert.equal(drained, false)
+  await assert.rejects(runtime.resources.browser!.navigate!({}), /stopping/)
+  resume('late result')
+  assert.equal(await result, 'late result')
+  await stopping
+})
