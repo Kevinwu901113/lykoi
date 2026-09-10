@@ -287,3 +287,7 @@
     model: deepseek-v4-flash
     maxActions: 6
     intervalMs: 10000
+
+# Private methods use the selected Runtime instance; no configurable storage path.
+- id: skills
+  name: lykoi-skill

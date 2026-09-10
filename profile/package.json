@@ -29,7 +29,8 @@
     "lykoi-decide": "0.1.0",
     "lykoi-organ-workspace": "0.1.0",
     "lykoi-task": "0.1.0",
-    "lykoi-runner-pi": "0.1.0"
+    "lykoi-runner-pi": "0.1.0",
+    "lykoi-skill": "0.1.0"
   },
   "devDependencies": {
     "lykoi-llm-deepseek": "0.1.0",

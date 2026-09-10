@@ -1,0 +1,7 @@
+{
+  "name": "lykoi-skill", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { ".": "./src/index.ts", "./store": "./src/store.ts" },
+  "scripts": { "test": "node --test test/*.test.ts" },
+  "dependencies": { "@deepseek-ai/cordis": "4.0.1", "lykoi-contracts": "0.1.0" },
+  "devDependencies": { "lykoi-runtime": "0.1.0" }
+}
