@@ -77,7 +77,7 @@ test('handleTurn的部分交付不是replied，每条沿用原turn/run/anchor且
       return { outcome: sends.length === 2 ? 'undelivered' : 'delivered' }
     },
   }
-  const ctx = { get: () => messenger, audit: { record: async (e: Record<string, unknown>) => { events.push(e) } } } as unknown as Context
+  const ctx = { get: (name: string) => name === 'messenger' ? messenger : undefined, audit: { record: async (e: Record<string, unknown>) => { events.push(e) } } } as unknown as Context
   try {
     h.llm.push({ content: reply(parts) })
     const result = await handleTurn(ctx, h.conversation, turn, 'run:test:1')
@@ -125,7 +125,7 @@ test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局�
     routeOwnerMessage: async () => null, outboundWired: () => true,
     sendReply: async () => ({ outcome: 'delivered' }),
   }
-  const ctx = { get: () => messenger, audit: { record: async () => {} } } as unknown as Context
+  const ctx = { get: (name: string) => name === 'messenger' ? messenger : undefined, audit: { record: async () => {} } } as unknown as Context
   try {
     h.llm.push({ content: reply(['稍后给你。'], 'promise_followup') })
     const first = handleTurn(ctx, h.conversation, turn, 'first-run')

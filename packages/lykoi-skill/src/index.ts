@@ -54,6 +54,7 @@ export function apply(ctx: Context) {
   const instance = ctx.lykoiRuntime.instance
   if (!instance) throw new Error('skills require a Character Instance')
   const store = new SkillStore(join(instance.stateRoot, 'skills'))
+  ctx.provide('skills', { recent: () => store.recent() })
   ctx.effect(() => ctx.lykoiRuntime.register({ organId: 'skill', capabilities: skillCapabilities(store, instance.id),
     sideEffects: [{ kind: 'state_file', target: store.root, reversible: false }] }), 'skill capabilities')
 }

@@ -29,7 +29,7 @@ test('Wake reads an actual observation, chooses a next action, and persists its 
 })
 
 
-for (const maxActions of [0, 1]) for (const closingKind of ['rest', 'record_note', 'tool_call']) {
+for (const maxActions of [0, 1]) for (const closingKind of ['record_note', 'tool_call']) {
   test(`budget ${maxActions}: unexecuted closing ${closingKind} is not persisted as the actual decision`, async () => {
     const { store, path } = makeStore()
     const id = store.createConcern('interest', '观察试验', { weight: 0.5, origin: 'seed', now: T0 })

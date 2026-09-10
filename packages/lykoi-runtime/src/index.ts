@@ -1,4 +1,7 @@
 import type { CapabilityExecutionContext, Capability, CapabilityRecovery } from 'lykoi-contracts'
+import { MindStore } from './mind.ts'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { validateInput } from './capability.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -230,6 +233,18 @@ export class CapabilityRuntime implements RuntimeService {
 export const name = 'lykoi-runtime'
 export function apply(ctx: Context) {
   const runtime = new CapabilityRuntime((event, fields) => ctx.logger.debug('%s %o', event, fields), ctx.get('lykoiInstance'))
+  if (runtime.instance) {
+    const mind = new MindStore(join(runtime.instance.stateRoot, 'mind.sqlite'))
+    const memoryPath = join(runtime.instance.stateRoot, 'memory.db')
+    if (existsSync(memoryPath)) mind.migrate(memoryPath)
+    ctx.provide('mind', mind)
+    ctx.effect(() => runtime.register({ organId: 'mind', sideEffects: [], capabilities: [{
+      name: 'mind.read', description: 'Read persistent questions and contextual user understanding. Search older or resolved records by plain text or ID; use their revision for updates.',
+      inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+      handler: async p => mind.view(p.query as string | undefined, p.limit as number | undefined),
+    }] }), 'mind read capability')
+    ctx.effect(() => () => mind.close(), 'mind storage')
+  }
   ctx.provide('lykoiRuntime', runtime)
   ctx.effect(() => () => runtime.dispose(), 'runtime capability lifetime')
 }

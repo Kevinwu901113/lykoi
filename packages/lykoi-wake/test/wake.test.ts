@@ -33,19 +33,18 @@ test('yielded：仲裁让位给对话——beats 已合并取走，无任何账�
   }
 })
 
-test('hourly_cap 早退：零 LLM、autonomy_budget_exhausted 事件、档案时钟照写（SA-169 仲裁位）', async () => {
+test('hourly action cap permits pure cognition and keeps the wake clock', async () => {
   const { store } = makeStore()
   // 预算已满：过去一小时 action_count 合计 20（HOURLY_ACTION_CAP）。
   store.startAutonomyRun('prior', { startedAt: new Date(T0.getTime() - 10 * 60_000) })
   store.finishAutonomyRun('prior', {
     status: 'completed', finishedAt: new Date(T0.getTime() - 9 * 60_000), actionCount: 20,
   })
-  const { deps, llm, log } = makeWakeDeps({ store, reply: '{}' })
+  const { deps, llm, log } = makeWakeDeps({ store, reply: JSON.stringify({ decision: { kind: 'rest', reason: '保留理解' } }) })
   const out = await wakeOnce(deps)
-  assert.equal(out.status, 'budget_exhausted')
-  assert.equal(out.reason, 'hourly_cap')
-  assert.equal(llm.calls.length, 0)
-  assert.deepEqual(log.names(), ['autonomy_budget_exhausted'])
+  assert.equal(out.status, 'completed')
+  assert.equal(llm.calls.length, 1)
+  assert.ok(!log.names().includes('autonomy_budget_exhausted'))
   const state = store.autonomyState()!
   assert.ok(state.nextWakeAt, '档案时钟行已写（心脏对外读数）')
 })
@@ -74,17 +73,9 @@ test('端到端一拍（fake LLM，contemplate+接地+inner）：六阶段可观
   assert.ok(llm.calls[0]!.messages.length >= 3, 'persona 内核 + decide 契约 + user 快照')
   assert.equal(llm.calls[0]!.messages.at(-1)!.role, 'user')
 
-  // 阶段 5：contemplate 零 dispatch；关切被点亮（接地）。
+  // Pure thought produces no fabricated action experience.
   assert.equal(dispatch.calls.length, 0)
-  const concern = store.listConcerns('active').find((c) => c.id === cid)!
-  assert.equal(concern.litCount, 1)
-
-  // 两条强制经验（SA-52）：wake_action + action_result，共用 primary=cid。
-  const exps = store.recentExperiences(2)
-  assert.equal(exps[0]!.source, 'action_result')
-  assert.equal(exps[0]!.content, 'contemplate 完成:向内的一拍,没有对外发声')
-  assert.equal(exps[1]!.source, 'wake_action')
-  assert.equal(exps[1]!.relatedConcernId, cid)
+  assert.equal(store.recentExperiences(2).length, 0)
 
   // 阶段 6：inner 落地（在 execute 之后）——新念头已建。
   const thoughts = store.openThoughts()

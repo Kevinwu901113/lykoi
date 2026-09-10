@@ -129,7 +129,25 @@ declare module '@deepseek-ai/cordis' {
   interface Context { lykoiInstance: CharacterInstance }
 }
 
+export interface MindEvent { id: string; source: string; reference: string; content: string; createdAt: string }
+export interface MindRecord {
+  id: string; revision: number; kind: 'thought' | 'preference'; topic: string; understanding: string; open: string
+  evidence: string[]; links: string[]; status: 'open' | 'waiting' | 'resolved' | 'released'; reconsiderAt: string | null
+  basis: 'explicit' | 'inferred'; scope: string; updatedAt: string
+}
+export interface MindPatch { records?: Omit<MindRecord, 'updatedAt'>[]; acknowledge?: string[]; continue?: boolean }
+export interface MindView { records: MindRecord[]; events: MindEvent[] }
+declare module '@deepseek-ai/cordis' { interface Context { skills: { recent(): unknown[] } } }
+export interface CharacterMind {
+  receive(event: MindEvent): void
+  view(query?: string, limit?: number): MindView
+  context(): string
+  commit(patch: unknown, source: string, seen: MindView): void
+}
+declare module '@deepseek-ai/cordis' { interface Context { mind: CharacterMind } }
+
 export interface TaskSummary {
+  origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string; result?: string; finding?: string
   id: string; goal: string; requirements: string; status: string; checkpoint: string
   wait: { kind: string; detail: string; until?: string; operationId?: string } | null
   delivery: { state: string; content: string; error: string | null } | null
@@ -144,7 +162,7 @@ export interface CharacterTasks {
   command(text: string): Promise<string | null>
   bindInteractions(interactions: TaskInteractions): () => void
   approve(operationId: string, action?: { name: string; args: Record<string, unknown> }): Promise<boolean>
-  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string }): TaskSummary
+  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
   get(id: string): TaskSummary
   list(): TaskSummary[]
   update(id: string, requirements: string, criteria?: string): TaskSummary

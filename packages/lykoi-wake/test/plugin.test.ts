@@ -103,7 +103,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
     assert.equal(run.status, 'completed')
     assert.equal(llmCalls[0]!.runId, run.id, 'budget runId 贯穿（SA-172）')
     const n = (db.prepare('SELECT COUNT(*) AS n FROM experiences').get() as { n: number }).n
-    assert.equal(n, 2, 'wake_action + action_result')
+    assert.equal(n, 0, 'pure thought does not fabricate action experiences')
   } finally {
     db.close()
   }
@@ -207,4 +207,48 @@ test('W5 接线：restart 权威源（SA-165 第一拍浮出、第二拍消化�
   assert.equal(captured[1]!.userText.includes('刚刚醒来'), false)
 
   await fiber.dispose()
+})
+
+test('Mind protocol reaches provider system slot and continuation preserves assistant role', async t => {
+  const { MindStore } = await import('lykoi-runtime/mind')
+  const { dirname, join } = await import('node:path')
+  const { store, path } = makeStore()
+  const old = store.createThought('退休历史', 'question', 'wake', { now: new Date() })!
+  store.resolveThought(old, [old])
+  store.recordExperience('conversation', '需要整合的新经历', { now: new Date() })
+  const raw = new DatabaseSync(path)
+  const before = raw.prepare('SELECT * FROM thoughts').all()
+  store.close()
+  const mind = new MindStore(join(dirname(path), 'mind.sqlite'))
+  const ctx = new Context(), audit = fakeAudit()
+  ctx.provide('mind', mind)
+  ctx.provide('lykoiRuntime', new CapabilityRuntime())
+  ctx.provide('audit', audit)
+  let pending = 1, calls = 0
+  ctx.provide('heart', { claim: () => { const beats = pending; pending = 0; return { beats } }, nextAt: null, pending: 1 })
+  const captured: Parameters<LykoiLlmService['call']>[0][] = []
+  ctx.provide('lykoiLlm', {
+    async call(options) {
+      if (options.system?.includes('整合期')) {
+        assert.ok(options.system.includes('thought_actions 留空'))
+        assert.ok(!JSON.stringify(options.messages).includes('退休历史'))
+        return { text: JSON.stringify({ thought_actions: [{ thought_id: old, operation: 'settle' }, { thought_id: old, operation: 'archive' }] }), reasoningLength: 0 }
+      }
+      captured.push(options)
+      calls++
+      return { text: JSON.stringify({ decision: { kind: 'contemplate', reason: '继续' }, mind: { records: [], acknowledge: [], continue: calls === 1 } }), reasoningLength: 0 }
+    },
+  } satisfies Pick<LykoiLlmService, 'call'>)
+  const fiber = await ctx.plugin(wake, { dbPath: path, personaToml: PERSONA_TOML, route: 'mock', model: 'mock', checkIntervalMs: 3_600_000 })
+  t.after(async () => { await fiber.dispose(); mind.close(); raw.close() })
+  ctx.emit('heart/beat', { source: 'interval', pending: 1, at: new Date().toISOString() })
+  await waitUntil(() => audit.events.some(e => e.type === 'autonomy_integrate'))
+  assert.deepEqual(raw.prepare('SELECT * FROM thoughts').all(), before)
+  assert.equal(captured.length, 2)
+  for (const options of captured) {
+    assert.ok(options.system?.includes('顶层加入 mind'))
+    assert.ok(!options.system?.includes('"inner":'))
+    assert.ok(options.messages.some(m => m.role === 'user' && JSON.stringify(m.content).includes('共享心智工作集')))
+  }
+  assert.ok(captured[1]!.messages.some(m => m.role === 'assistant'))
 })

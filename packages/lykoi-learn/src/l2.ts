@@ -16,40 +16,6 @@ export const THREAD_KINDS = ['open_question', 'commitment', 'suspended_tension',
 
 export type TriggerReason = 'no_pending' | 'scheduled' | 'early' | 'not_yet'
 
-const REL_MARKERS = ['伴侣', '对象', '男朋友', '女朋友', '恋人', 'partner', 'boyfriend', 'girlfriend'] as const
-// P5-06: 只用完整分离短语。"不再/结束了/和别人/不爱"是日常高频词组 —
-// "不再被动等待"这种正常叙事都会撞线, 而门控误伤 = 静默阻断身份回路
-// (经验消化了却不许写进自我)。兜底红线宁窄勿宽; LLM 纪律仍是第一道。
-const SEPARATION_CUES = ['分手', '不再爱', '不爱我', '离开我', '离开了我', '爱上别人',
-  '属于别人', '和别人在一起', '关系结束', 'no longer love', 'broke up', 'left me'] as const
-const IDENTITY_DENIALS = ['不是 lykoi', '不叫 lykoi', '不再是 lykoi', 'not lykoi',
-  '另一个 ai', 'another ai'] as const
-const NAME_STOPWORDS = new Set(['I', 'A', 'An', 'My', 'The', 'And', 'But', 'She', 'He', 'It'])
-
-export function violatesFidelity(persona: PersonaLike, content: string): boolean {
-  const low = content.toLowerCase()
-  if (IDENTITY_DENIALS.some((d) => low.includes(d))) return true
-  if (SEPARATION_CUES.some((c) => low.includes(c))) return true
-  if (REL_MARKERS.some((m) => low.includes(m))) {
-    const named = new Set(content.match(/[A-Z][A-Za-z]+/g) ?? [])
-    for (const n of named) {
-      if (!NAME_STOPWORDS.has(n) && n !== persona.relationship.partner) return true
-    }
-  }
-  return false
-}
-
-export function narrativeContinuityOk(old: string | null, newContent: string, newSummary: string): boolean {
-  if (old === null || !old.trim()) return true
-  const cps = [...old]
-  const blob = (newContent || '') + '\n' + (newSummary || '')
-  for (let i = 0; i <= Math.max(0, cps.length - 4); i += 1) {
-    const anchor = cps.slice(i, i + 4).join('')
-    if (anchor.trim() && blob.includes(anchor)) return true
-  }
-  return false
-}
-
 // --- 触发闸 ------------------------------------------------------------------
 
 /** L2 的 store 面（结构化接口；ReadWriteMemory 结构性满足）。 */
@@ -114,7 +80,8 @@ function hoursSince(ts: string, now: Date): number {
   return (now.getTime() - new Date(ts).getTime()) / 3_600_000
 }
 
-export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她的睡眠)。下面是你过去一段时间积压的经验、当前关切、当前叙事、念头流。
+function integrationSystemPrompt(legacyThoughts = true): string {
+  return `你正在进入整合期(整合 = 她的睡眠)。下面是你过去一段时间积压的经验、当前关切、当前叙事、念头流。
 你的任务是把经验消化进自我叙事,并对关切/念头做相应操作。
 
 只输出一个 JSON 对象。结构:
@@ -130,7 +97,7 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
                          "title": <str>, "description": <str>, "weight": <float, 0-1>,
                          "owner_directed": <bool>, "source_experience_id": <int|null>}],
   "narrative":        {"content": <str>, "change_summary": <str>},
-  "thought_actions":  [{"thought_id": <int>, "operation": "settle|archive"}]
+${legacyThoughts ? '  "thought_actions":  [{"thought_id": <int>, "operation": "settle|archive"}]' : '  "thought_actions": []'}
 }
 
 四种叙事操作 (每条经验必须选一种):
@@ -150,12 +117,14 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
     (必须来自 pending_experiences 里 source="conversation" 的那些)。
     不是他说的, 就填 null 并让 owner_directed=false。
 - narrative: 新版本必须能引用旧版本的要素。无来由跳变会被拒绝。
-- thought_actions: settle 只适用于 thoughts_to_clear 里 status='resolved' 的念头(吸收进叙事, 物理闸强制); archive 适用于 resolved/abandoned。open_thoughts 只是上下文, 不是操作目标。
+${legacyThoughts ? "- thought_actions: settle 只适用于 thoughts_to_clear 里 status='resolved' 的念头(吸收进叙事, 物理闸强制); archive 适用于 resolved/abandoned。open_thoughts 只是上下文, 不是操作目标。" : "- Thought 由持续 Mind 维护，本次只整合经历与叙事，thought_actions 留空。"}
 
 不许:
 - 改写身份内核 (你是谁, 谁是你的伴侣)。
 - 凭空人格跳变。
 - 输出 JSON 之外的任何文字。`
+}
+export const INTEGRATION_SYSTEM_PROMPT = integrationSystemPrompt()
 
 export function integrationIdentityGuard(persona: PersonaLike): string {
   return `你的内核身份: ${persona.identity.name}; 你的伴侣: ${persona.relationship.partner}. `
@@ -308,7 +277,6 @@ const REJECTION_OPS = ['absorb', 'reinterpret', 'revise', 'suspend', 'settle', '
 const REJECTION_DETAIL_CODES: Record<string, string> = { 'no concern': 'no_concern', 'no target': 'no_target' }
 const REJECTION_EXACT_CODES: Record<string, [string | null, string]> = {
   not_in_window: [null, 'not_in_window'],
-  continuity_or_fidelity: [null, 'continuity_or_fidelity'],
 }
 const LIST_SECTIONS = ['experience_actions', 'concern_releases', 'new_concerns', 'thought_actions'] as const
 
@@ -430,6 +398,7 @@ export interface IntegrationSummary {
 }
 
 export interface IntegrateDeps {
+  legacyThoughts?: boolean
   store: IntegratorStore
   persona: PersonaLike
   completion: CompletionFn
@@ -482,23 +451,13 @@ function buildPayload(deps: {
   }
 }
 
-function buildMessages(persona: PersonaLike, payload: Record<string, unknown>): ChatMessage[] {
+function buildMessages(persona: PersonaLike, payload: Record<string, unknown>, legacyThoughts = true): ChatMessage[] {
 
   return [
-    { role: 'system', content: INTEGRATION_SYSTEM_PROMPT },
+    { role: 'system', content: integrationSystemPrompt(legacyThoughts) },
     { role: 'system', content: integrationIdentityGuard(persona) },
     { role: 'user', content: JSON.stringify(payload) },
   ]
-}
-
-export function narrativeRetryFeedback(oldContent: string | null): string {
-  return (
-    '你的叙事改写被连续性/忠实性门控拒绝。本次整合的其他操作已全部生效, 不要重发。\n'
-    + `当前叙事全文:\n${oldContent || '(无)'}\n\n`
-    + '重写一版新叙事: content 或 change_summary 必须包含旧叙事中一段逐字原文片段(至少 4 字), '
-    + '且不得否认身份内核(你是谁、谁是你的伴侣)。\n'
-    + '只输出一个 JSON 对象: {"narrative": {"content": <str>, "change_summary": <str>}}'
-  )
 }
 
 function defaultIntegrationId(): number {
@@ -527,8 +486,8 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     return summary
   }
 
-  const openThoughts = store.getOpenThoughts()
-  const settled = store.thoughtsAwaitingClearance()
+  const openThoughts = deps.legacyThoughts === false ? [] : store.getOpenThoughts()
+  const settled = deps.legacyThoughts === false ? [] : store.thoughtsAwaitingClearance()
 
   const payload = buildPayload({
     experiences: pending,
@@ -538,7 +497,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     openThoughts,
     settledThoughts: settled,
   })
-  const messages = buildMessages(deps.persona, payload)
+  const messages = buildMessages(deps.persona, payload, deps.legacyThoughts)
 
   const rawMessage = await deps.completion(messages)
   const parsedRaw = extractJsonOrNull(rawMessage.content ?? '')
@@ -592,6 +551,10 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
 
   // 5. 念头清算（settle 仅 resolved→absorbed=红线 #3 的物理面；失败 → rejected）。
   for (const ta of envelope.thought_actions) {
+    if (deps.legacyThoughts === false) {
+      summary.rejected.push({ section: 'thought_actions', id: ta.thought_id, reason: 'legacy_thoughts_retired' })
+      continue
+    }
     if (ta.operation === 'settle') {
       try {
         store.settleThought(ta.thought_id, integrationId)
@@ -609,41 +572,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     }
   }
 
-  if (envelope.narrative) {
-    const current = store.currentCognitiveNarrative()
-    const oldContent = current ? current.content : null
-    const firstNew = envelope.narrative
-    if (!gateAndPersistNarrative(firstNew, deps, oldContent, summary)) {
-
-      let retryNew: { content: string; change_summary: string } | null = null
-      try {
-        const retryMessages: ChatMessage[] = [
-          ...messages,
-          { role: 'assistant', content: rawMessage.content ?? '' },
-          { role: 'user', content: narrativeRetryFeedback(oldContent) },
-        ]
-        const retryRaw = await deps.completion(retryMessages)
-        const retryParsed = extractJsonOrNull(retryRaw.content ?? '')
-        if (retryParsed !== null) {
-          retryNew = parseIntegrationEnvelope(retryParsed).narrative
-        }
-      } catch (exc) {
-        logEvent('integration_narrative_retry_error', { error: errStr(exc) })
-      }
-      if (retryNew && gateAndPersistNarrative(retryNew, deps, oldContent, summary)) {
-        summary.narrative_retried = true
-        logEvent('integration_narrative_retry_accepted', {})
-      } else {
-        logEvent('integration_narrative_rejected', {
-          reason: 'continuity_or_fidelity',
-          change_summary: cpSlice(firstNew.change_summary, 200),
-        })
-        summary.rejected.push({ section: 'narrative', reason: 'continuity_or_fidelity' })
-
-        store.applyRegulationCause('narrative_conflict', { now })
-      }
-    }
-  }
+  if (envelope.narrative) persistNarrative(envelope.narrative, deps, summary)
 
   // 7. 收尾：标记 + 因 + 积压 + reset + 遥测。
   if (integratedNow.length > 0) {
@@ -673,17 +602,11 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
   return summary
 }
 
-function gateAndPersistNarrative(
+function persistNarrative(
   neu: { content: string; change_summary: string },
   deps: IntegrateDeps,
-  oldContent: string | null,
   summary: IntegrationSummary,
 ): boolean {
-  if (!(narrativeContinuityOk(oldContent, neu.content, neu.change_summary)
-    && !violatesFidelity(deps.persona, neu.content))) {
-    return false
-  }
-
   const expOps = summary.absorbs + summary.reinterprets + summary.revises + summary.suspends
   const acceptedOps = expOps + summary.concerns_released + summary.concerns_created
     + summary.thoughts_settled + summary.thoughts_archived

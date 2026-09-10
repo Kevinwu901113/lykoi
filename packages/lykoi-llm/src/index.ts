@@ -1,4 +1,5 @@
 /** Budgeted LLM service. JSON protocol recovery is bounded here; every provider attempt is gated and charged. */
+import { RequestSlots } from './scheduler.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { extractJson, repairTrailingClosers, JSON_RETRY_NUDGE } from './json.ts'
 
@@ -13,6 +14,7 @@ import type {
 import type {} from 'lykoi-budget'
 
 export interface LlmCallMeta {
+  lane?: 'foreground' | 'background'
   /** run 归因：这次调用属于哪一次运行/决策周期（budget.charge 的 runId）。 */
   runId: string
 }
@@ -122,6 +124,7 @@ export class LlmJsonError extends Error {
 }
 
 class LykoiLlm implements LykoiLlmService {
+  #slots = new RequestSlots()
   #ctx: Context
 
   constructor(ctx: Context) {
@@ -129,6 +132,10 @@ class LykoiLlm implements LykoiLlmService {
   }
 
   async call(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {
+    return this.#slots.run(meta.lane === 'background', options.signal, () => this.#generate(options, meta))
+  }
+
+  async #generate(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {
     const attempts = options.responseFormat?.type === 'json_object' ? JSON_MAX_ATTEMPTS : 1
     for (let attempt = 0; attempt < attempts; attempt++) {
       options.signal?.throwIfAborted()

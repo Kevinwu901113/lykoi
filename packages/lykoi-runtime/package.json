@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./instance": "./src/instance.ts",
+    "./mind": "./src/mind.ts",
     "./cognition": "./src/cognition.ts"
   },
   "scripts": {

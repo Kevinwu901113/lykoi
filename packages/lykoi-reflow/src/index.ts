@@ -200,6 +200,10 @@ function tendInner(
   return outcome
 }
 
+export function applyInternalReflow(kind: 'rest' | 'contemplate', store: Pick<ReflowStore, 'applyRegulationCause'>, now: Date): void {
+  if (kind === 'rest') store.applyRegulationCause('rested', { now })
+}
+
 export async function executeAndReflow(
   decision: Decision,
   runId: string,
@@ -218,7 +222,7 @@ export async function executeAndReflow(
   let status: 'completed' | 'failed' = 'completed'
   let result: string
   if (decision.kind === 'rest') {
-    store.applyRegulationCause('rested', { now })
+    applyInternalReflow('rest', store, now)
     result = 'rest:这一拍我休息,load 泄压'
   } else {
 
@@ -410,8 +414,9 @@ export function cheapTick(opts: {
   const out = { contact_unanswered: false, silence_anomaly: false }
 
   const pending = pendingContactTs(store, notifications)
-  if (pending !== null && hoursBetween(pending, now) > CONTACT_RESPONSE_TIMEOUT_H) {
-    store.applyRegulationCause('contact_unanswered', { now })
+  const observedSilence = store.latestExperienceTs('silence')
+  if (pending !== null && hoursBetween(pending, now) > CONTACT_RESPONSE_TIMEOUT_H
+    && (observedSilence === null || observedSilence < pending)) {
     recordExperience(
       store,
 'silence',
@@ -445,7 +450,6 @@ export function cheapTick(opts: {
           + `(这个时段通常有互动,典型间隔约 ${pyFloat1(typical)} 小时)`,
           { salience: SILENCE_SALIENCE, now },
         )
-        store.applyRegulationCause('owner_silence_anomaly', { now })
         logEvent?.('mind_silence_anomaly', { hours_quiet: roundDecimal(hoursQuiet, 1) })
         out.silence_anomaly = true
       }

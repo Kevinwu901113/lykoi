@@ -7,8 +7,8 @@ import test from 'node:test'
 import { formatPyIso } from 'lykoi-memory/rw'
 import {
   BACKLOG_PRESSURE_THRESHOLD, INTEGRATION_CAPACITY_K, INTEGRATION_EVERY_HOURS,
-  integrationTelemetry, narrativeContinuityOk, parseIntegrationEnvelope, runIntegration,
-  shouldIntegrate, violatesFidelity,
+  integrationTelemetry, parseIntegrationEnvelope, runIntegration,
+  shouldIntegrate,
 } from '../src/l2.ts'
 import {
   PERSONA, T0, changedTables, fakeCompletion, hoursAfter, makeStore, minutesAfter,
@@ -149,19 +149,6 @@ test('信封防御式解析：畸形节降级为空；SA-97 owner_directed 只�
   const empty = parseIntegrationEnvelope([1, 2])
   assert.deepEqual(empty.experience_actions, [])
   assert.equal(empty.narrative, null)
-})
-
-test('SA-102/103 两道门单元：4 字窗口连续性（首版免检）+ 忠实性词表（宁窄勿宽）', () => {
-  assert.equal(narrativeContinuityOk(null, '任意', '任意'), true)
-  assert.equal(narrativeContinuityOk('我在照看他的项目', '继续照看他的项目推进', 's'), true)
-  assert.equal(narrativeContinuityOk('我在照看他的项目', '全然无关新篇章', '摘要也无关'), false)
-  // 忠实性：完整分离短语才撞线；"不再被动等待"这种正常叙事不许被误伤（P5-06）。
-  assert.equal(violatesFidelity(PERSONA, '我不再被动等待，主动照看他的节奏。'), false)
-  assert.equal(violatesFidelity(PERSONA, '我们关系结束了。'), true)
-  assert.equal(violatesFidelity(PERSONA, 'i am not lykoi anymore'), true)
-  // 伴侣名不符：REL 标记 + 内核外的名字。
-  assert.equal(violatesFidelity(PERSONA, `我的 partner 是 ${PERSONA.relationship.partner}。`), false)
-  assert.equal(violatesFidelity(PERSONA, '我的 partner 是 Alice。'), true)
 })
 
 // ---------------------------------------------------------------- 完整周期
@@ -351,66 +338,18 @@ test('SA-96 owner_directed 降级两路：source 非对话 / 窗口无对话—�
   }
 })
 
-test('SA-104/105/106 叙事双门+有界重试：首拒→重试一次成功；两拒→narrative_conflict+旧叙事站着', async () => {
-  const { store, path, log } = makeStore()
+test('narrative changes retain evidence without keyword or four-character gates', async () => {
+  const { store, log } = makeStore()
   try {
-    // 旧叙事（trusted seed：acceptedOps=null 旁路计数闸——owner 写入缝）。
-    const seeded = store.addNarrativeVersion({
-      content: '我在照看 Kevin 的项目并整理自己的节律。', changeSummary: 'seed',
-      trigger: 'integration', now: T0,
-    })
-    assert.ok(seeded !== null)
-    const cid = store.createConcern('project', '项目', { weight: 0.5, origin: 'grown', now: T0 })
-    const e1 = seedExperience(store, 'conversation', '聊了项目', minutesAfter(T0, 1))
-
-    const opsEnvelope = (narrative: unknown) => JSON.stringify({
-      experience_actions: [{ experience_id: e1, operation: 'absorb', concern_id: cid, note: 'n' }],
-      concern_releases: [], new_concerns: [], narrative, thought_actions: [],
-    })
-    const badNarrative = { content: '全新篇章开始', change_summary: '断裂' }
-    const goodRetry = JSON.stringify({
-      narrative: { content: '我继续照看 Kevin 的项目，并把节律交给心脏。', change_summary: '延续' },
-    })
-
-    // ① 首拒 → 重试成功：narrative_retried + 事件 + 新版本落库。
-    {
-      const { completion, calls } = fakeCompletion(opsEnvelope(badNarrative), goodRetry)
-      const summary = await runIntegration({
-        store, persona: PERSONA, completion, logEvent: log.logEvent, now: hoursAfter(T0, 25),
-      })
-      assert.equal(calls.length, 2)
-      // 重试轮：assistant 原文 + user 反馈（骨架含旧叙事全文与两条硬规则）。
-      const retryMsgs = calls[1]!
-      assert.equal(retryMsgs.at(-2)!.role, 'assistant')
-      assert.match(retryMsgs.at(-1)!.content, /当前叙事全文:\n我在照看 Kevin 的项目并整理自己的节律。/)
-      assert.equal(summary.narrative_rewritten, true)
-      assert.equal(summary.narrative_retried, true)
-      assert.equal(log.of('integration_narrative_retry_accepted').length, 1)
-    }
-
-    // ② 两拒 → 终拒：narrative_conflict 因 + rejected 记录 + 认知当前叙事不变。
-    const e2 = seedExperience(store, 'conversation', '再聊一次', minutesAfter(T0, 2))
-    {
-      const currentBefore = store.currentCognitiveNarrative()!.content
-      const envelope2 = JSON.stringify({
-        experience_actions: [{ experience_id: e2, operation: 'absorb', concern_id: cid, note: 'n' }],
-        concern_releases: [], new_concerns: [],
-        narrative: badNarrative, thought_actions: [],
-      })
-      const { completion } = fakeCompletion(envelope2, JSON.stringify({ narrative: badNarrative }))
-      const summary = await runIntegration({
-        store, persona: PERSONA, completion, logEvent: log.logEvent, now: hoursAfter(T0, 50),
-      })
-      assert.equal(summary.narrative_rewritten, false)
-      assert.deepEqual(summary.rejected, [{ section: 'narrative', reason: 'continuity_or_fidelity' }])
-      assert.equal(log.of('integration_narrative_rejected').length, 1)
-      assert.ok(store.recentRegulationEvents(null, 20).some((r) => r.cause === 'narrative_conflict'))
-      assert.equal(store.currentCognitiveNarrative()!.content, currentBefore)
-    }
-    void path
-  } finally {
-    store.close()
-  }
+    const eid = seedExperience(store, 'conversation', '讨论了关系结束这个词的含义', T0)
+    const { completion } = fakeCompletion(JSON.stringify({
+      experience_actions: [{ experience_id: eid, operation: 'suspend', new_thread_kind: 'open_question', note: '区分讨论和事实' }],
+      narrative: { content: '讨论过关系结束的含义，并不等于事件发生。', change_summary: '依据对话重新表述' },
+    }))
+    const summary = await runIntegration({ store, persona: PERSONA, completion, logEvent: log.logEvent, now: hoursAfter(T0, 25) })
+    assert.equal(summary.narrative_rewritten, true)
+    assert.equal(store.currentCognitiveNarrative()!.content, '讨论过关系结束的含义，并不等于事件发生。')
+  } finally { store.close() }
 })
 
 test('SA-99 物理闸：strict-empty 整合的叙事 INSERT 被跳过（行不进表）；absorb-lie 拒绝——纯计数不读文本', async () => {
@@ -580,4 +519,28 @@ test('learning JSON parser does not duplicate provider framing recovery', async 
   assert.deepEqual(extractJsonOrNull('{"ok":true}'), { ok: true })
   assert.equal(extractJsonOrNull('prefix {"ok":true} suffix'), null)
   assert.equal(extractJsonOrNull('{"ok":true'), null)
+})
+
+
+test('Mind integration neither reads nor settles or archives retired Thought rows', async () => {
+  const { store, path, log } = makeStore()
+  try {
+    seedExperience(store, 'conversation', '新的实际经历', T0)
+    const id = store.createThought('退休历史内容不可进入整合', 'question', 'wake', { now: T0 })!
+    store.resolveThought(id, [id])
+    const before = tableDigests(path)
+    store.getOpenThoughts = () => { throw new Error('retired read') }
+    store.thoughtsAwaitingClearance = () => { throw new Error('retired read') }
+    const { completion, calls } = fakeCompletion(JSON.stringify({ thought_actions: [
+      { thought_id: id, operation: 'settle' }, { thought_id: id, operation: 'archive' },
+    ] }))
+    const summary = await runIntegration({ store, persona: PERSONA, completion, logEvent: log.logEvent,
+      now: hoursAfter(T0, 25), legacyThoughts: false })
+    assert.equal(summary.thoughts_settled, 0)
+    assert.equal(summary.thoughts_archived, 0)
+    assert.equal(summary.rejected.filter(r => r.reason === 'legacy_thoughts_retired').length, 2)
+    assert.ok(!changedTables(before, tableDigests(path)).includes('thoughts'))
+    assert.ok(!JSON.stringify(calls).includes('退休历史内容不可进入整合'))
+    assert.ok(calls[0]!.some(m => m.role === 'system' && m.content.includes('thought_actions 留空')))
+  } finally { store.close() }
 })

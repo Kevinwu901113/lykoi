@@ -40,6 +40,7 @@ function arbitrationOnlyDeps(shouldYield: () => boolean): WakeDeps {
   }
   return {
     store: {
+      startAutonomyRun: explode,
       autonomyActionsLastHour: explode,
     } as unknown as WakeDeps['store'],
     clock: { now: () => T('2026-08-25T10:00:00Z') },
