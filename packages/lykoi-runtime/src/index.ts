@@ -239,7 +239,7 @@ export function apply(ctx: Context) {
     if (existsSync(memoryPath)) mind.migrate(memoryPath)
     ctx.provide('mind', mind)
     ctx.effect(() => runtime.register({ organId: 'mind', sideEffects: [], capabilities: [{
-      name: 'mind.read', description: 'Read persistent questions and contextual user understanding. Search older or resolved records by plain text or ID; use their revision for updates.',
+      name: 'mind.read', description: 'Read persistent questions and contextual user understanding. Search older or resolved records by plain text or ID; searched records are refreshed in the next cognition snapshot before updates.',
       inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
       handler: async p => mind.view(p.query as string | undefined, p.limit as number | undefined),
     }] }), 'mind read capability')

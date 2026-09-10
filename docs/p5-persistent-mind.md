@@ -10,13 +10,19 @@
 
 `mind_events` 保存稳定 ID、来源、关联对象、内容与处理状态。入站用户消息和 Task 结果可重放，不会因对话活跃、Wake 让位或一次模型失败而消失。事件的确认与新的理解在同一 SQLite 事务提交。`mind_commits` 记录提交来源与状态变化，不记录模型原始思维链。
 
-旧记录更新使用自身 revision 比较；冲突显式失败，整个提交回滚，事件保留。不会因为无关 Thought 变化而拒绝其他问题的更新。下次调用可读取最新版本重新决定，框架不自行合并语义。
+模型只写 MindUpdate 的语义字段，不写 revision/status/updatedAt。运行时用传给该次模型的 MindView 中实际 revision 与数据库比较；冲突显式失败，整个提交回滚，事件保留。不会因为无关 Thought 变化而拒绝其他问题的更新。下次调用可读取最新版本重新决定，框架不自行合并语义。mind.read 的成功查询保存在本次认知上下文，下一次模型调用前重新读取并加入工作集；不会跨会话共享读缓存。
+
+open 是未决事项的唯一真相：非空字符串表示原问题仍未解决，null 表示已经解决。status 是运行时派生的读元数据。原案例缺少事实时，即使对照研究或 Task 已完成，也要保留 open。工作集优先展示待处理事件关联记录、未决问题及持续偏好，剩余位置展示最近的已解决记录。偏好不会因 open=null 失效；历史 released 记录仍只在搜索中出现。
+
+旧 mind.sqlite 首次打开执行一次语义迁移并增加记录版本：保留非空未决事项，修正与之矛盾的旧 resolved 状态；旧 open/waiting 的空事项回退为原 topic；旧 released 保持退出工作集。保留理解和来源，不改旧 memory.db。
 
 首次启动只读迁入旧 memory.db 中 open thoughts，保留原 ID 引用和关切联系，原表不修改。迁移有一次性标记，后续理解不会被旧资料覆盖。装配 Mind 后 Conversation/Wake 不再读写旧 inner 思考通道；Wake 不再衰减旧 Thought，Integration 不再读取、settle 或 archive 旧 Thought，也不由其生成 thought_lapse。旧表仅保留为历史迁移来源。没有实例绑定的历史测试入口保留原协议；正式实例只使用新写入口。
 
 ## 思考、工作和计算额度
 
 Conversation 的最终 system 信封和 Wake 的前导 system 协议均使用同一 MIND_PROTOCOL，输出示例只展示 mind；工作集作为资料单独注入。Wake 适配器保留后续消息的 system/user/assistant 角色。
+
+Mind 模式不再提供旧 record_note/tend_inner 动作；思考、进度和笔记统一写 mind，叙事整合继续由 Integration 负责。每一步候选动作展示本拍实际剩余执行步数；额度耗尽时只展示 rest/contemplate，不再展示可调用工具。
 
 Wake 的纯思考不消耗外部行动次数；外部小时额度用完后仍可以更新理解。`mind.continue` 允许在同一醒来中继续纯思考，默认最多三个片段，每次调用仍经过原 LLM 预算。内部回流独立于外部执行：rest 实际应用 rested 调节原因降低 load，不增加行动计数或伪造行动经历。跨片段更新可持久化；到期记录在下一次工作集选择时优先出现。没有独立的毫秒级 Thought 定时器：新的事件和再考虑时间在后续正常心跳消费。
 
@@ -44,7 +50,7 @@ Telegram 和实例控制台支持 `/mind`，返回持久问题、情境偏好和
 
 自动测试覆盖重启续接、事务冲突、事件重放、真实 Conversation 信封、真实 Cordis Task + kernel 来源边界、并行取消、请求槽隔离以及既有 Runner/交付恢复。它们证明机制和接线，不能代替模型泛化能力或真实 Telegram 体验。
 
-本环境没有 DEEPSEEK_API_KEY，未运行真实模型对照，也未核实线上部署或发送样本。启用前在隔离实例中进行以下同模型对照：
+已用用户授权的 deepseek-flash 凭据运行隔离合成实例的对话、纯思考、运行时重开、反例和自主 Task 样本，详见工单的 structural-review.md。它不等于 P4 同预算对照、线上部署或 Telegram 实收验收。其余启用前对照仍包括：
 
 1. P4 和当前分支使用相同模型、工具与总预算；记录所有模型用量，包括后台。
 2. 保存未解决问题、重启实例、提供相反的新证据；核对旧版本实际进入上下文且新版本有实质变化。
