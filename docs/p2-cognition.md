@@ -1,6 +1,6 @@
 # P2：共享认知与动态能力
 
-当前状态：P2-A/B 的实现与本地验证完成，P2-C 的真实模型验收待运行。尚未合并、部署或接管生产状态。阶段完成以真实模型验收为准。
+当前状态：P2-A/B/C 实现与验收完成。尚未 push、合并或部署；生产角色状态未修改。
 
 Conversation 与 Wake 共用 `lykoi-runtime/cognition` 的有界 reason → act → observe 循环。调用方保留上下文、prompt、状态写入和交付；异常不由循环重试或替换成休息。正常结束、调用失败、主动沉默和预算耗尽分别保留实际结果。JSON recovery 继续由 LLM adapter 单独负责。
 
@@ -33,8 +33,19 @@ Node 24 本地结果：typecheck 通过；1200 项测试中 1189 通过、0 失�
 - 页面索引中的随机链接 → 实测报告 → Conversation 回答；答案不在用户输入中。
 - 已有 concern → 多步阅读 → Wake 写入包含实际观察的 thought 和 experience。
 - 工作区索引 → 实际目标文件 → 回答。
-- 临时未知 capability → 真实调用 → 卸载 → 旧 handler/派发拒绝 → 下一次模型调用不可用。
+- 临时未知 Cordis capability plugin → 真实调用 → fiber.dispose → 旧 handler/派发拒绝 → 下一次模型调用不可用。
 
 脚本将输入、调用、observation、回复、状态写入和 token 用量保存到临时 evidence.json。只使用合成资料，不读取生产记忆。验收预算为 200,000 tokens；不修改线上服务。
 
-远端验收尚未开始：自动审批拒绝将源码压缩包上传到 lapw1ng.com，要求该具体目的地的明确授权。待授权后运行上述脚本，再根据真实结果收敛；本地测试通过不代替此项。
+## 2026-09-10 实测结果
+
+经用户授权，在 lapw1ng.com 独立临时目录使用 deepseek-v4-flash 和真实 Chrome 验收：
+
+- Conversation 连续执行 navigate → get_text → navigate → get_text，最终正确回答第二页随机色标 `青色-77bc1da2` 和 21.7 摄氏度。
+- Wake 两次读取后选择 record_note 正常结束，实际 thought 和 experience 包含该色标。
+- 工作区连续读取索引及随机文件，正确回答 `文件-349656f2`。
+- 真实 Cordis 临时插件返回 `标本-aff89dda`；dispose 后 BodySchema、模型工具描述与派发均撤销。模型明确表示无法重新查询，旧编号只是历史回执。
+
+完整验收 14 次模型调用，真实 Cordis 生命周期补验 3 次。最初另有 1 次因隔离配置只放行 research、未放行 navigate 而停在审批；仅补齐测试只读权限后通过。三次运行共 33,291 tokens，低于 200,000 上限。生产仍为 cd5bfadb，active，NRestarts=0。
+
+机器证据不进入 Git：完整链为服务器 `/tmp/lykoi-p2-live-RM4KrJ/evidence.json`，Cordis 补验为 `/tmp/lykoi-p2-live-M1Fzia/evidence.json`。本地归档在 `/Users/wukevin/lykoi/p2-evidence-20260910/`，包括初始失败，便于复核。
