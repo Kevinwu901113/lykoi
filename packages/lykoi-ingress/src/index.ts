@@ -254,7 +254,7 @@ export class DurableIngress implements IngressService {
           terminal = {
             status: 'failed', reason: 'unknown', followup_registered: false,
             ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0,
-            continuation_id: null,
+            task_id: null,
           }
           if (!this.#store.revisionPending(claimed.turn.turnId)) this.#onError('executor', err)
         } finally {

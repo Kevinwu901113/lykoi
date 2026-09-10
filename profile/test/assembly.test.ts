@@ -15,6 +15,9 @@ test('production YAML is bound to the selected state and definition; model/chann
     for (const name of ['lykoi-memory', 'lykoi-converse', 'lykoi-wake']) {
       assert.equal(entries.find(e => e.name === name)?.config.dbPath, join(instance.stateRoot, 'memory.db'))
     }
+    const task = entries.find(e => e.name === 'lykoi-task')!
+    assert.equal(task.config.dbPath, join(instance.stateRoot, 'tasks.sqlite'))
+    assert.equal(task.config.memoryPath, join(instance.stateRoot, 'memory.db'))
     for (const name of ['lykoi-converse', 'lykoi-wake']) assert.equal(entries.find(e => e.name === name)?.config.personaToml, instance.personaPath)
     assert.ok(!('auditPath' in instance)); assert.ok(!('requiredFiles' in instance))
     const telegram = entries.find(e => e.name === 'lykoi-adapter-telegram/production')!

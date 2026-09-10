@@ -1,3 +1,4 @@
+import type { CapabilityExecutionContext, Capability, CapabilityRecovery } from 'lykoi-contracts'
 import { randomUUID } from 'node:crypto'
 import { validateInput } from './capability.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -27,6 +28,7 @@ function actionView(set: Set<string>): ReadonlySet<string> {
 export class CapabilityRuntime implements RuntimeService {
   #definitions = new Map<string, CapabilityDefinition>()
   #resources: Record<string, Record<string, ResourceHandler>> = Object.create(null)
+  #recovery = new Map<string, Capability>()
   #handlers = new Map<string, ResourceHandler>()
   #actions = new Set<string>()
   #disposers = new Map<string, () => void>()
@@ -86,10 +88,21 @@ export class CapabilityRuntime implements RuntimeService {
 
   get revision() { return this.#revision }
 
-  async invoke(name: string, params: Record<string, unknown>): Promise<unknown> {
+  async #reconcile(kind: 'recover' | 'cancel', name: string, params: Record<string, unknown>, context: CapabilityExecutionContext): Promise<CapabilityRecovery> {
+    const capability = this.#recovery.get(name), hook = capability?.[kind]
+    if (!hook) return { status: 'unknown', detail: `No installed capability can ${kind} this operation` }
+    try {
+      if (context.instanceId !== this.instance?.id) throw new Error('operation belongs to another instance')
+      validateInput(capability.inputSchema, params)
+      return await hook(params, context)
+    } catch (error) { return { status: 'unknown', detail: error instanceof Error ? error.message : String(error) } }
+  }
+  recover(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext) { return this.#reconcile('recover', name, params, context) }
+  cancel(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext) { return this.#reconcile('cancel', name, params, context) }
+  async invoke(name: string, params: Record<string, unknown>, context?: CapabilityExecutionContext): Promise<unknown> {
     const handler = this.#handlers.get(name)
     if (!handler) throw new Error(`capability not registered: ${name}`)
-    return handler(params)
+    return handler(params, context)
   }
 
   capabilities(): readonly CapabilityDefinition[] { return Object.freeze([...this.#definitions.values()]) }
@@ -132,25 +145,29 @@ export class CapabilityRuntime implements RuntimeService {
           set() { throw new TypeError('read-only resources') }, deleteProperty() { throw new TypeError('read-only resources') }, defineProperty() { throw new TypeError('read-only resources') },
         })
       }
-      const guarded: ResourceHandler = async params => {
+      const guarded: ResourceHandler = async (params, context) => {
         if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
         return this.run(async () => {
           if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
           const id = randomUUID()
-          this.#publish({ id, name: action, phase: 'started' })
+          const ownership = context ? { taskId: context.taskId, operationId: context.operationId, instanceId: context.instanceId } : {}
+          this.#publish({ id, ...ownership, name: action, phase: 'started' })
           try {
             validateInput(inputSchema, params)
-            const result = await handler(params)
-            this.#publish({ id, name: action, phase: 'result', result })
+            context?.signal?.throwIfAborted()
+            if (context && context.instanceId !== this.instance?.id) throw new Error('capability invocation belongs to another instance')
+            const result = await handler(params, context)
+            this.#publish({ id, ...ownership, name: action, phase: 'result', result })
             return result
           } catch (error) {
-            this.#publish({ id, name: action, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
+            this.#publish({ id, ...ownership, name: action, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
             throw error
           }
         })
       }
       owned.set(action, guarded)
       this.#handlers.set(action, guarded)
+      this.#recovery.set(action, capabilities[index]!)
       this.#actions.add(action)
     }
     let disposed = false
@@ -161,6 +178,7 @@ export class CapabilityRuntime implements RuntimeService {
       for (const [action, handler] of owned) {
         if (this.#handlers.get(action) === handler) {
           this.#handlers.delete(action)
+          this.#recovery.delete(action)
           this.#actions.delete(action)
           this.#definitions.delete(action)
         }

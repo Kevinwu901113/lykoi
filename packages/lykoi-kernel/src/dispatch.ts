@@ -65,6 +65,7 @@ export type DispatchOrigin = 'interactive' | 'autonomous' | 'scheduler' | 'syste
 
 export interface DispatchContext {
   origin: DispatchOrigin
+  execution?: CapabilityExecutionContext
   /**
    * D-2d：认知回合关联的 snake_case ID。`runId` 保留给既有调用方；当两种
    * 拼法同时出现时，snake_case 值只作为审计透传的显式新值（包括 null）。
@@ -82,7 +83,7 @@ export interface Observation {
   error: string | null
 }
 
-import type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
+import type { CapabilityExecutionContext, ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
 export type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
 
 /** Derive the dispatch view from installed handlers. Permissions remain independent. */
@@ -207,6 +208,7 @@ async function _executeDecision(
   safeParams: Record<string, unknown>,
   actionId: string,
   correlationId: string,
+  execution?: CapabilityExecutionContext,
 ): Promise<Observation> {
   if (decision === 'deny') {
     // hard/rule deny wins even over an owner approval
@@ -226,7 +228,7 @@ async function _executeDecision(
   }
   let data: unknown
   try {
-    data = await handler(action.params)
+    data = await handler(action.params, execution)
   } catch (exc) {
     // resource-boundary failure -> normal failed observation
     return { success: false, data: {}, error: redact(exc instanceof Error ? exc.message : String(exc)) }
@@ -330,7 +332,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
     _clearDegraded()
 
     const observation = await _executeDecision(
-      decision, action, handler, safeParams, actionId, correlationId,
+      decision, action, handler, safeParams, actionId, correlationId, context.execution,
     )
 
     const result = {

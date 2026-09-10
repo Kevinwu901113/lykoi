@@ -1,0 +1,29 @@
+{
+  "name": "lykoi-task",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./store": "./src/store.ts",
+    "./runtime": "./src/runtime.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-runtime": "0.1.0",
+    "lykoi-contracts": "0.1.0",
+    "lykoi-memory": "0.1.0",
+    "lykoi-llm": "0.1.0",
+    "lykoi-kernel": "0.1.0",
+    "lykoi-decide": "0.1.0",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2"
+  },
+  "devDependencies": {
+    "lykoi-organ-workspace": "0.1.0",
+    "lykoi-adapter-telegram": "0.1.0"
+  }
+}

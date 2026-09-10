@@ -25,7 +25,7 @@ import {
   check as checkCapabilityPermission, createApprovalConversation, createDispatch, createSuggestionConversation,
   getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
-  APPROVAL_RUN_PREFIX,
+  APPROVAL_RUN_PREFIX, upstreamBudgetedDelivery,
   setApprovalAuditSink,
   setApprovalInterpretLlm, setIdentityBindingLookup, setOwnerBindingLookup, setKernelLogEvent,
   setNotificationOutboxDelivery,
@@ -42,13 +42,12 @@ import {
 import {
   VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
 } from './vision.ts'
-import { ContinuationRunner, type ContinuationsService } from './continuation.ts'
 import { failureReason, isTransientInterpretFailure } from './failure.ts'
 import { type ConverseMessage } from './contract.ts'
 import { D01_DEFAULTS, runInterpretWithDeadline, RunAbortedError } from './deadline.ts'
 import { stripMarkup } from './hygiene.ts'
 import {
-  cycleFailure, type CycleOutcome, SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome, type TurnStatus,
+  cycleFailure, type CycleOutcome, SYSTEM_FAILURE_NOTICE, type TurnFailReason, type TurnOutcome,
 } from './outcome.ts'
 
 export * from './contract.ts'
@@ -56,7 +55,6 @@ export * from './conversation.ts'
 export * from './deadline.ts'
 export * from './exemption.ts'
 export * from './hygiene.ts'
-export * from './continuation.ts'
 export * from './failure.ts'
 export * from './outcome.ts'
 export * from './prompts.ts'
@@ -136,7 +134,6 @@ declare module'@deepseek-ai/cordis' {
   interface Context {
     converse: ConverseService
 
-    continuations: ContinuationsService
   }
 }
 
@@ -316,7 +313,14 @@ export function apply(ctx: Context, config: Config) {
 
   // 而这一条必须**看得见且被 manifest 钉住**：它改的是通知怎么到达 Kevin。
   setNotificationOutboxDelivery(config.notificationOutboxDelivery)
-  const kernelDispatch = createDispatch({ sink: ctx.audit, resources })
+  const baseDispatch = createDispatch({ sink: ctx.audit, resources })
+  const kernelDispatch: ReturnType<typeof createDispatch> = async (action, options) => {
+    if (options.preApproved && options.actionId?.startsWith('op-')) {
+      if (!await ctx.get('tasks')?.approve(options.actionId, { name: action.type, args: action.params })) throw new Error('task operation is no longer available')
+      return { success: true, data: { task_queued: true }, error: null }
+    }
+    return baseDispatch(action, options)
+  }
   let conversation!: Conversation
   const dispatchFn: ConverseDispatchFn = async (action, context) => {
     const observation = await kernelDispatch(
@@ -443,6 +447,15 @@ export function apply(ctx: Context, config: Config) {
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
     // The action gate reads current Runtime registration on each dispatch.
     wiredActions: ctx.lykoiRuntime.actions,
+    createTask: input => {
+      const tasks = ctx.get('tasks')
+      if (!tasks) throw new Error('persistent task service unavailable')
+      return tasks.create(input)
+    },
+    taskContext: () => {
+      const tasks = ctx.get('tasks')?.list()
+      return tasks?.length ? '[我的持续任务：补充同一目标时用 task.update，不另建任务]\n' + JSON.stringify(tasks) : ''
+    },
     capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
     invokeCapability: (name, params) => ctx.lykoiRuntime.invoke(name, params),
     capabilityRevision: () => ctx.lykoiRuntime.revision,
@@ -525,38 +538,26 @@ export function apply(ctx: Context, config: Config) {
   })
 
   ctx.provide('converse', { conversation, approval, suggestion })
-
-  // 登记发生在 handleTurn.finally（回合终局之后）；扫描由 wake 的 cheap tick
-  // （600 s）与登记后的 kick 驱动；启动时先把上个进程留下的 running 行收账。
-  const continuations = new ContinuationRunner({
-    runOwned: work => ctx.lykoiRuntime.run(work),
-    store,
-    conversation,
-    audit: ctx.audit,
-    messenger: () => ctx.get('messenger') as MessengerAdapterService | undefined,
-    canDeliver: () => (ctx.get('messenger') as MessengerAdapterService | undefined)?.outboundWired() === true,
-    deliver: async (content) => {
-      const messenger = ctx.get('messenger') as MessengerAdapterService | undefined
-      if (!messenger?.outboundWired()) return 'dispatch_failed'
-      return messenger.deliverFollowup(content)
-    },
-    now: () => new Date(),
-    onError: (where, err) => {
-      ctx.logger.error('lykoi-converse: continuation %s failed: %s', where, String(err))
-      logEvent('continuation/runner_failed', { where, error_name: err instanceof Error ? err.name : 'unknown' })
-    },
+  ctx.inject(['tasks', 'messenger'], scope => {
+    scope.effect(() => scope.tasks.bindInteractions({
+      requestApproval: async action => {
+        const owner = store.ownerBinding()
+        if (!owner) throw new Error('task approval requires an owner channel binding')
+        const result = await approval.requestApproval(action.name, action.args, { contextId: owner.channel_key, actionId: action.operationId, correlationId: action.taskId, origin: 'interactive' })
+        if (result.status !== 'asked' && result.status !== 'already_pending') throw new Error(`task approval question: ${result.status}`)
+      },
+      deliver: async task => {
+        const owner = store.ownerBinding()
+        if (!owner) return { state: 'failed', error: 'no owner channel binding' }
+        const observation = await baseDispatch({ type: 'messenger.send', params: { context_id: owner.channel_key, text: task.delivery!.content, reply_to: null } },
+          { context: { origin: 'autonomous', exemption: upstreamBudgetedDelivery() }, correlationId: task.id })
+        const data = observation.data
+        if (observation.success && data?.message_id != null) return { state: 'sent', receipt: data }
+        return { state: data?.ambiguous === true ? 'unknown' : 'failed', receipt: data, error: String(data?.reason ?? data?.error ?? observation.error ?? 'not delivered') }
+      },
+    }), 'task Telegram interactions')
   })
-  ctx.provide('continuations', continuations)
-  ctx.effect(() => {
-    const now = new Date()
-    ctx.lykoiRuntime.run(() => continuations.recoverOnStartup(now)
-      .then(() => continuations.scan(new Date())))
-      .catch((err) => {
-        ctx.logger.error('lykoi-converse: continuation startup failed: %s', String(err))
-        logEvent('continuation/runner_failed', { where: 'startup', error_name: err instanceof Error ? err.name : 'unknown' })
-      })
-    return () => {}
-  }, 'lykoi-converse continuation startup')
+
 
   // transport` 的同一手法在启动时打通）。telegram 默认 disabled 时这段整段不跑，
   // 本插件照常挂载、安静待命。
@@ -570,7 +571,6 @@ export function apply(ctx: Context, config: Config) {
         suggestion,
         logEvent,
       }))
-      continuations.kick()
       return unwire
     }, 'converse outbound binding')
   })
@@ -580,7 +580,7 @@ export function apply(ctx: Context, config: Config) {
     interrupt: runId => conversation.interrupt(runId),
   })
   ctx.ingress.registerExecutor(async (turn, { runId }) =>
-    await handleTurn(ctx, conversation, turn, runId, continuations))
+    await handleTurn(ctx, conversation, turn, runId))
 }
 
 type TurnResolution =
@@ -616,9 +616,6 @@ const NOTICE_REASONS = new Set<TurnFailReason>([
 'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown',
 ])
 
-const CONTINUATION_ELIGIBLE_STATUSES: ReadonlySet<TurnStatus>
-  = new Set<TurnStatus>(['completed', 'intentional_silence', 'deferred'])
-
 /** 保留每条原文，时间戳是投影元数据；不回写 parts 正本。 */
 export function renderTurnParts(parts: UserTurn['parts'], replay = false): string {
   if (parts.length === 1 && !replay) return parts[0]!.text
@@ -630,7 +627,6 @@ export async function handleTurn(
   conversation: Conversation,
   turn: UserTurn,
   runId: string,
-  continuations?: ContinuationsService,
 ): Promise<TurnExecutionResult> {
   const started = performance.now()
   const turnId = turn.turnId
@@ -686,6 +682,17 @@ export async function handleTurn(
     const messenger = ctx.get('messenger') as MessengerAdapterService | undefined
     if (messenger && !messenger.outboundWired()) throw new OutboundUnavailableError()
 
+    if (turn.isOwner && turn.parts.length === 1 && /^\/task(?:\s|$)/.test(turn.parts[0]!.text)) {
+      const tasks = ctx.get('tasks')
+      if (!tasks) throw new Error('persistent task service unavailable')
+      let content: string
+      try { content = (await tasks.command(turn.parts[0]!.text))! }
+      catch (error) { content = `任务命令失败：${error instanceof Error ? error.message : String(error)}` }
+      const delivered = await messenger?.sendReply(turn.contextId, content, replyAnchor, { run_id: runId, turn_id: turnId })
+      return { terminal: { status: delivered?.outcome === 'delivered' ? 'completed' : 'failed', reason: delivered?.outcome === 'delivered' ? null : 'delivery_failed',
+        followup_registered: false, ask_sent: false, notice_sent: false, reply_chars: content.length, elapsed_ms: Math.round(performance.now() - started) } }
+    }
+
     // 不进入 cognition。parts[] 本身不改写，terminal 仍能反查整轮所有外界输入。
     const conversationalParts = [] as UserTurn['parts']
     let consumedReason: 'approval_answer' | 'suggestion_answer' | null = null
@@ -722,7 +729,7 @@ export async function handleTurn(
       const reply = await conversation.send(rendered, { runId, turnId, onCycleResult: result => {
         captured = result
         if (messenger?.outboundWired()) conversation.takeDelegatedAsk()
-        if (continuations !== undefined) conversation.takeFollowupRequest()
+        conversation.takeFollowupRequest()
       } })
       // Compatibility for external test doubles/older Conversation implementations.
       const result: CycleResult = captured ?? {
@@ -859,15 +866,6 @@ export async function handleTurn(
   }
   const outcome = terminal ?? resolveTurnOutcome({ kind: 'failure', reason: 'unknown' })
 
-  // runner 自己落账并返回 null，终局照常。唯一 terminal 由 ingress 持久化后落审计。
-  let continuationId: string | null = null
-  if (continuations !== undefined && CONTINUATION_ELIGIBLE_STATUSES.has(outcome.status)) {
-    const goal = followupGoal
-    if (goal !== null) {
-      continuationId = continuations.register({ originTurnId: turnId, originRunId: runId, goal })
-    }
-  }
-  if (continuationId !== null) continuations!.kick()
   return {
     terminal: {
       status: outcome.status,
@@ -877,7 +875,7 @@ export async function handleTurn(
       notice_sent: noticeSent,
       reply_chars: replyChars,
       elapsed_ms: Math.max(0, Math.round(performance.now() - started)),
-      continuation_id: continuationId,
+      task_id: followupGoal,
     },
   }
 }

@@ -44,7 +44,7 @@ function terminal(status: TurnTerminalPayload['status'] = 'completed'): TurnTerm
     notice_sent: false,
     reply_chars: 2,
     elapsed_ms: 3,
-    continuation_id: null,
+    task_id: null,
   }
 }
 

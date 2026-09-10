@@ -269,7 +269,7 @@ test('missing_tool / 工具预算烧完：安全侧收场（S-46 #7/#8）', asyn
   assert.ok(closingCall.messages.some((m) => m.content === CYCLE_CLOSING_NOTE))
 })
 
-test('promise_followup：登记 + takeFollowupRequest 取走即清（S-60）；后台回合 continuation 口径', async () => {
+test('promise_followup 持久接受任务并返回任务 ID', async () => {
   const h = makeConversation()
   h.llm.push({
     content: envelope({
@@ -281,7 +281,7 @@ test('promise_followup：登记 + takeFollowupRequest 取走即清（S-60）；�
   assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'followup', step: 0 })
   assert.equal(h.conversation.hasFollowupRequest(), true)
   assert.ok(eventNames(h.events).includes('followup_requested'))
-  assert.equal(h.conversation.takeFollowupRequest(), '把赛程查完再告诉他')
+  assert.match(h.conversation.takeFollowupRequest()!, /^task-/)
   assert.equal(h.conversation.takeFollowupRequest(), null, '取走即清')
   // 后台回合：continuation_requested（挂起等批，无递归续跑）。
   const bg = makeConversation()
@@ -292,7 +292,7 @@ test('promise_followup：登记 + takeFollowupRequest 取走即清（S-60）；�
   })
   await bg.conversation.send('继续', { runId: 'r1', background: true })
   assert.deepEqual(bg.conversation.lastCycleOutcome(), { kind: 'followup', step: 0 })
-  assert.ok(eventNames(bg.events).includes('continuation_requested'))
+  assert.ok(eventNames(bg.events).includes('followup_requested'))
 })
 
 test('D-4：审批门返回非空 ask 载荷时，周期结局为 ask_pending', async () => {

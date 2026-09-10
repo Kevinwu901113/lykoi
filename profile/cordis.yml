@@ -88,3 +88,17 @@
     route: mock
     model: mock-model
     restartMarker: var/restart-marker.json
+
+# Persistent tasks require a selected Character Instance; assembly supplies owned paths.
+- id: tasks
+  name: lykoi-task
+  disabled: true
+  config:
+    dbPath: var/tasks.sqlite
+    memoryPath: var/dev-state.db
+    root: var/tasks
+    personaToml: ""
+    route: mock
+    model: mock-model
+    maxActions: 6
+    intervalMs: 10000
