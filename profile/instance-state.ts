@@ -11,7 +11,7 @@ const INITIAL_JSON: Record<string, unknown> = {
   'budget.json': { version: 1, days: {} },
   'approval_rules.json': { always_allow: [], always_deny: [], ask: [] },
   'standing_grants.json': { grants: [], denials: [] }, 'pending_actions.json': [],
-  'proactive_chat.json': [], 'messenger_outbound.json': [],
+  'proactive_chat.json': [],
   'chat_outbox.json': { version: 2, next_id: 1, items: [] },
   'notifications.json': { version: 2, next_id: 1, items: [] },
   'telegram-inbound.json': { version: 2, next_id: 1, items: [] },

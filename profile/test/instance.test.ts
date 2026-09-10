@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -125,4 +125,27 @@ test('console reports an actual instance-owned capability call, result and final
     if (worker) await Promise.allSettled([worker.done])
     rmSync(registry, { recursive: true, force: true })
   }
+})
+
+
+test('created instance restarts in a new process after legacy proactive budget migration', () => {
+  const registry = mkdtempSync(join(tmpdir(), 'lykoi-budget-restart-'))
+  try {
+    const instance = createInstance({ registry, id: 'budget', definition: fixture, ownerName: 'Owner', telegramSenderId: '1' })
+    const legacy = join(instance.stateRoot, 'messenger_outbound.json')
+    assert.equal(existsSync(legacy), false, 'new instances need only the canonical budget')
+    writeFileSync(legacy, JSON.stringify(['2026-09-11T00:00:00.000Z']))
+    const code = `import {restoreInstance, instanceEnvironment} from ${JSON.stringify(new URL('../instance-state.ts', import.meta.url).href)};
+      import {trySend} from ${JSON.stringify(new URL('../../packages/lykoi-kernel/src/proactive-chat.ts', import.meta.url).href)};
+      const instance=restoreInstance(${JSON.stringify(registry)}, 'budget');
+      Object.assign(process.env,instanceEnvironment(instance));
+      console.log(trySend(new Date('2026-09-11T00:00:01.000Z')));`
+    for (let run = 0; run < 2; run++) {
+      const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' })
+      assert.equal(child.status, 0, child.stderr)
+      assert.equal(child.stdout.trim(), 'daily_cap')
+      assert.equal(existsSync(legacy), false)
+      assert.equal(existsSync(legacy + '.migrated'), true)
+    }
+  } finally { rmSync(registry, { recursive: true, force: true }) }
 })
