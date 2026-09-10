@@ -14,7 +14,7 @@ export type TaskResult = { finding?: string } & (
   | { status: 'failed'; checkpoint: string; reason: string })
 export type RecoveredOperation = { status: 'completed'; observation: unknown } | { status: 'pending' | 'unknown'; detail: string }
 export interface TaskDependencies {
-  reason(input: { task: Task; run: TaskRun; operations: Operation[]; closing: boolean; signal: AbortSignal }): Promise<CognitionDecision<TaskAction, TaskResult>>
+  reason(input: { task: Task; run: TaskRun; operations: Operation[]; closing: boolean; signal: AbortSignal; now: Date }): Promise<CognitionDecision<TaskAction, TaskResult>>
   dispatch(action: TaskAction, context: CapabilityExecutionContext, approved?: boolean): Promise<unknown>
   reconcile?(operation: Operation, task: Task): Promise<RecoveredOperation>
   cancel?(operation: Operation, task: Task): Promise<void>
@@ -23,6 +23,7 @@ export interface TaskDependencies {
   deliver?(task: Task): Promise<TaskDeliveryResult>
   receive?(event: import('lykoi-contracts').MindEvent): void
   concurrency?: number
+  now?: () => Date
   maxActions: number
   intervalMs: number
 }
@@ -40,6 +41,7 @@ export class TaskRuntime {
     if (!Number.isSafeInteger(deps.maxActions) || deps.maxActions < 1) throw new Error('task maxActions must be a positive integer')
     this.store = store; this.deps = deps
   }
+  #now() { return this.deps.now?.() ?? new Date() }
   async recover() {
     this.store.recover()
     await this.reconcile()
@@ -75,8 +77,18 @@ export class TaskRuntime {
       }
     }
     const current = this.store.get(id)
-    if (command === 'resume' && current.wait?.kind === 'approval' && current.wait.operationId) await this.deps.requestApproval?.(this.store.operation(current.wait.operationId)!, current)
-    return current
+    if (command === 'resume' && current.wait?.kind === 'approval' && current.wait.operationId) await this.#requestApproval(this.store.operation(current.wait.operationId)!, current)
+    return this.store.get(id)
+  }
+  async #requestApproval(op: Operation, task: Task) {
+    try {
+      if (!this.deps.requestApproval) throw new Error('approval delivery unavailable')
+      await this.deps.requestApproval(op, task)
+      this.store.edit(task.id, current => { current.failure = null })
+    } catch (error) {
+      this.store.edit(task.id, current => { current.failure = `审批请求未送达：${error instanceof Error ? error.message : String(error)}` })
+      throw error
+    }
   }
   async close() {
     this.#closed = true
@@ -104,7 +116,7 @@ export class TaskRuntime {
     await this.reconcile()
     await this.#settle()
     for (const task of this.store.list()) {
-      if (task.status === 'waiting' && task.wait?.kind === 'due' && task.wait.until && Date.parse(task.wait.until) <= Date.now()) {
+      if (task.status === 'waiting' && task.wait?.kind === 'due' && task.wait.until && Date.parse(task.wait.until) <= this.#now().getTime()) {
         this.store.edit(task.id, t => { t.status = 'pending'; t.wait = null })
       }
     }
@@ -121,7 +133,7 @@ export class TaskRuntime {
   }
   async #advance(id: string) {
     if (this.#active.has(id) || this.#closed) return
-    const run = this.store.claim(id)
+    const run = this.store.claim(id, this.#now())
     if (!run) return
     const controller = new AbortController(), signal = controller.signal
     this.#active.set(id, controller)
@@ -158,7 +170,7 @@ export class TaskRuntime {
           if (current.status === 'running') current.status = 'waiting'
         }
       })
-      if (data?.needs_approval && saved.status === 'waiting') await this.deps.requestApproval?.(pending, saved)
+      if (data?.needs_approval && saved.status === 'waiting') await this.#requestApproval(pending, saved)
       return observation
     }
 
@@ -169,7 +181,7 @@ export class TaskRuntime {
         if (this.store.get(id).status === 'waiting') { this.store.finishRun(run, 'finished'); return }
       }
       const outcome = await runCognition<TaskAction, unknown, TaskResult>({ maxActions: this.deps.maxActions - (approved ? 1 : 0), signal,
-        reason: async ({ closing }) => this.deps.reason({ task: current(), run, operations: this.store.operations(id), closing, signal }),
+        reason: async ({ closing }) => this.deps.reason({ task: current(), run, operations: this.store.operations(id), closing, signal, now: this.#now() }),
         act: action => act(action),
 
         observe: () => {
@@ -186,7 +198,7 @@ export class TaskRuntime {
         task.checkpoint = result.checkpoint; task.failure = null
         if ('finding' in result && typeof result.finding === 'string') task.finding = result.finding
         if (result.status === 'continue') {
-          task.status = 'waiting'; task.wait = { kind: 'due', detail: '下一次认知继续推进', until: new Date(Date.now() + this.deps.intervalMs).toISOString() }
+          task.status = 'waiting'; task.wait = { kind: 'due', detail: '下一次认知继续推进', until: new Date(this.#now().getTime() + this.deps.intervalMs).toISOString() }
         } else if (result.status === 'waiting') {
           if (result.wait.kind === 'due' && (!result.wait.until || !Number.isFinite(Date.parse(result.wait.until)))) throw new Error('due wait needs a valid timestamp')
           if (result.wait.kind === 'operation' && !this.store.operations(id).some(op => op.id === result.wait.operationId)) throw new Error('wait references an unknown operation')

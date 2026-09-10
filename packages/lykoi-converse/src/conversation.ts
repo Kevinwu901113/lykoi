@@ -1,4 +1,4 @@
-import type { CapabilityDefinition, RuntimeService } from 'lykoi-contracts'
+import type { CapabilityDefinition, RuntimeService, TaskRequest } from 'lykoi-contracts'
 import { MIND_PROTOCOL, mindWorkingView } from 'lykoi-runtime/mind'
 import { runCognition } from 'lykoi-runtime/cognition'
 /** Bounded conversation cycles with explicit outcomes, context management and tool dispatch. */
@@ -22,7 +22,7 @@ import {
   CONVERSATION_INNER_ENABLED, CYCLE_EVENT, CYCLE_FAILURE_EVENT,
   CYCLE_TOOL_BUDGET_EVENT, CYCLE_TOOL_UNWIRED_EVENT,
   CYCLE_UNKNOWN_TOOL_EVENT,
-  ENVELOPE_RESPONSE_FORMAT, FOLLOWUP_TOOL,
+  ENVELOPE_RESPONSE_FORMAT, FOLLOWUP_TOOL, FOLLOWUP_DESCRIPTION,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE,
   toolDispatchGate, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
@@ -253,7 +253,7 @@ export interface ConverseDeps {
   limits?: Partial<{ windowTurns: number; backfillRows: number; maxInputTokens: number }>
 
   invokeCapability?: (name: string, params: Record<string, unknown>) => Promise<unknown>
-  createTask?: (input: { goal: string; originTurnId?: string; taskId?: string }) => { id: string }
+  createTask?: (input: { goal: string; request?: TaskRequest; originTurnId?: string; taskId?: string }) => { id: string }
   mind?: import('lykoi-contracts').CharacterMind
   taskContext?: () => string
   capabilities?: () => readonly CapabilityDefinition[]
@@ -378,6 +378,7 @@ export class Conversation {
   #pendingUndeliveredIds: number[] = []
   #relevantMemories: ConverseMessage | null = null
   #followupRequest: string | null = null
+  #sourceRequest: TaskRequest | undefined
 
   #delegatedAsk: DelegatedAsk | null = null
   #background = false
@@ -408,7 +409,7 @@ export class Conversation {
       { name: VISION_TOOL, description: 'Describe an attachment already present in this conversation.',
         inputSchema: { type: 'object', properties: { attachment_id: { type: 'string' }, question: { type: 'string' } }, required: ['attachment_id'], additionalProperties: false },
         handler: args => this.#handleVision(cycleCall(0, VISION_TOOL, args)) },
-      { name: FOLLOWUP_TOOL, description: 'Persist a task before accepting it, or update an existing task by task_id.',
+      { name: FOLLOWUP_TOOL, description: FOLLOWUP_DESCRIPTION,
         inputSchema: { type: 'object', properties: { task: { type: 'string' }, task_id: { type: 'string' } }, required: ['task'], additionalProperties: false },
         handler: async args => this.#handleFollowup(cycleCall(0, FOLLOWUP_TOOL, args)) },
       { name: PROGRESS_TOOL, description: 'Report progress from a persistent task.',
@@ -1109,9 +1110,6 @@ export class Conversation {
     }
     const { args: params, error } = parseToolArguments(call)
     if (error !== null) return [null, error]
-    if (actionType === 'notify.owner') {
-      params.origin = 'interactive' // provenance is stamped by this loop, never by the model
-    }
     return [{ type: actionType, params }, null]
   }
 
@@ -1178,7 +1176,7 @@ export class Conversation {
       return { success: false, error: "promise_followup 需要 'task':写清要完成什么、卡在哪里" }
     }
     if (!this.#deps.createTask) return { success: false, error: 'persistent task service unavailable' }
-    const created = this.#deps.createTask({ goal: task, originTurnId: this.#lastTurnId ?? undefined, taskId: args.task_id as string | undefined })
+    const created = this.#deps.createTask({ goal: task, request: this.#sourceRequest, originTurnId: this.#lastTurnId ?? undefined, taskId: args.task_id as string | undefined })
     this.#followupRequest = created.id
     this.#log('followup_requested', { task_id: created.id })
     return { success: true, data: { queued: true, task_id: created.id, note: '任务已持久保存' } }
@@ -1271,6 +1269,7 @@ export class Conversation {
       replyToNotification?: ReplyToNotification | null
       runId?: string
       turnId?: string | null
+      receivedAt?: string
     } = {},
   ): Promise<string> {
     return this.#deps.runOwned ? this.#deps.runOwned(() => this.#send(message, opts)) : this.#send(message, opts)
@@ -1285,6 +1284,7 @@ export class Conversation {
       replyToNotification?: ReplyToNotification | null
       runId?: string
       turnId?: string | null
+      receivedAt?: string
     } = {},
   ): Promise<string> {
     this.#deps.markActive?.()
@@ -1299,6 +1299,7 @@ export class Conversation {
       this.#lastCycleOutcome = null
       this.#lastRunId = opts.runId ?? randomUUID().replaceAll('-', '')
       this.#lastTurnId = opts.turnId ?? null
+      this.#sourceRequest = this.#background ? undefined : { text: message, receivedAt: opts.receivedAt ?? this.#now().toISOString() }
       if (!this.#background) this.#deps.mind?.receive({ id: `conversation:${this.#lastTurnId ?? this.#lastRunId}`, source: 'user',
         reference: this.#lastTurnId ?? this.#lastRunId, content: message, createdAt: this.#now().toISOString() })
       const checkpoint = this.#messages.length

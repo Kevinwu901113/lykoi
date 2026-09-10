@@ -24,6 +24,7 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
   process.env.LYKOI_STANDING_GRANTS = join(root, 'grants.json')
   writeFileSync(process.env.LYKOI_APPROVAL_RULES, JSON.stringify({ always_allow: ['workspace.write', 'workspace.read'], always_deny: [], ask: [] }))
   const instance = { version: 1 as const, id: 'A', origin: 'created' as const, createdAt: new Date().toISOString(), definitionHash: 'test', personaPath: definition, stateRoot: root }
+  const request = { text: '先确认，再后台写报告', receivedAt: new Date().toISOString() }
   let calls = 0, deliveries = 0
   const setup = async () => {
     const ctx = new Context()
@@ -38,6 +39,9 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
         learned.upsertInsight('persona', acquired, { now: new Date() })
       }
       const payload = JSON.parse((options.messages.at(-1)!.content[0] as { text: string }).text)
+      assert.deepEqual(payload.output, { contentField: 'result.content', delivery: 'host_sends_separate_message_to_instance_owner', recipientAlreadyBound: true })
+      assert.equal('delivery' in payload.task, false)
+      assert.deepEqual(payload.task.request, { receivedAt: request.receivedAt })
       const operations = payload.operations
       let decision: unknown
       if (!operations.length) decision = { kind: 'act', action: { name: 'workspace.write', args: { path: 'report.md', content: 'actual task result' } } }
@@ -56,9 +60,10 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
   }
   try {
     let first = await setup()
-    const task = first.ctx.tasks.create({ goal: 'write and verify report' })
+    const task = first.ctx.tasks.create({ goal: 'write and verify report', request })
     await first.ctx.tasks.scan()
     assert.equal(first.ctx.tasks.get(task.id).status, 'waiting')
+    assert.deepEqual(first.ctx.tasks.get(task.id).request, request)
     const progress = first.ctx.tasks.get(task.id).checkpoint
     await first.dispose()
     first = await setup()

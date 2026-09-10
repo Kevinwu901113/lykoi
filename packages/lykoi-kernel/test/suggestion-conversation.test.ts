@@ -248,7 +248,7 @@ test('SK-51 ④owner 只认 P2-01 绑定：没绑就不问，**没有 env 后门
   assert.equal(store.rows[0]!.status, 'pending')
 })
 
-test('SK-51 ⑤先发后记 + reply_to=null 照常吃主动打扰预算；SK-52 origin=autonomous + E1 章', async () => {
+test('SK-51 ⑤先发后记；主动建议不借用 E1 预算豁免', async () => {
   isolateKernelState()
   const sink = fakeSink()
   setApprovalAuditSink(sink)
@@ -266,7 +266,7 @@ test('SK-51 ⑤先发后记 + reply_to=null 照常吃主动打扰预算；SK-52 
   assert.equal(String(d.calls[0]!.params.text).startsWith('有件事我自己想到了'), true)
   // 两件各归各：标签管"谁起的头"，豁免管"要不要问"
   assert.equal(d.calls[0]!.origin, 'autonomous')
-  assert.equal((d.calls[0]!.exemption as { category: string }).category, 'E1')
+  assert.equal(d.calls[0]!.exemption, null)
   // 先发后记：发成功之后才认领
   assert.deepEqual(store.claims, [7])
   assert.equal(store.rows[0]!.status, 'asked')

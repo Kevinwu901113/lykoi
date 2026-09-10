@@ -545,7 +545,7 @@ export function apply(ctx: Context, config: Config) {
         const owner = store.ownerBinding()
         if (!owner) throw new Error('task approval requires an owner channel binding')
         const result = await approval.requestApproval(action.name, action.args, { contextId: owner.channel_key, actionId: action.operationId, correlationId: action.taskId, origin: 'interactive' })
-        if (result.status !== 'asked' && result.status !== 'already_pending') throw new Error(`task approval question: ${result.status}`)
+        if (result.status !== 'asked' && result.status !== 'already_pending') throw new Error(`task approval question: ${result.status}${result.reason ? ` (${result.reason})` : ''}`)
       },
       deliver: async task => {
         const owner = store.ownerBinding()
@@ -738,7 +738,7 @@ export async function handleTurn(
       // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
       const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')
       let captured: CycleResult | undefined
-      const reply = await conversation.send(rendered, { runId, turnId, onCycleResult: result => {
+      const reply = await conversation.send(rendered, { runId, turnId, receivedAt: conversationalParts.at(-1)!.receivedAt, onCycleResult: result => {
         captured = result
         if (messenger?.outboundWired()) conversation.takeDelegatedAsk()
         conversation.takeFollowupRequest()

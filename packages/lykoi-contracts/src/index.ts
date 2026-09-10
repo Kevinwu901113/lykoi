@@ -7,7 +7,9 @@ export interface CapabilityExecutionContext {
   workspace: string
   signal?: AbortSignal
 }
-export type ResourceHandler = (params: Record<string, unknown>, context?: CapabilityExecutionContext) => Promise<unknown>
+/** Trusted dispatch metadata, separate from model arguments and Task execution ownership. */
+export interface ResourceAdmission { origin: string; messageBudget?: 'exempt' }
+export type ResourceHandler = (params: Record<string, unknown>, context?: CapabilityExecutionContext, admission?: ResourceAdmission) => Promise<unknown>
 export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, ResourceHandler>>>>
 export type RuntimeLog = (name: string, fields: Record<string, unknown>) => void
 /** 一条副作用登记。 */
@@ -147,7 +149,9 @@ export interface CharacterMind {
 }
 declare module '@deepseek-ai/cordis' { interface Context { mind: CharacterMind } }
 
+export interface TaskRequest { text: string; receivedAt: string }
 export interface TaskSummary {
+  request?: TaskRequest
   origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string; result?: string; finding?: string
   id: string; goal: string; requirements: string; status: string; checkpoint: string
   wait: { kind: string; detail: string; until?: string; operationId?: string } | null
@@ -163,7 +167,7 @@ export interface CharacterTasks {
   command(text: string): Promise<string | null>
   bindInteractions(interactions: TaskInteractions): () => void
   approve(operationId: string, action?: { name: string; args: Record<string, unknown> }): Promise<boolean>
-  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
+  create(input: { goal: string; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
   get(id: string): TaskSummary
   list(): TaskSummary[]
   update(id: string, requirements: string, criteria?: string): TaskSummary

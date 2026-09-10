@@ -1,3 +1,4 @@
+import type { TaskRequest } from 'lykoi-contracts'
 import { parseStateTimestamp } from 'lykoi-memory'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID, createHash } from 'node:crypto'
@@ -9,6 +10,7 @@ export type TaskStatus = typeof statuses[number]
 export interface TaskWait { kind: 'due' | 'operation' | 'external' | 'approval' | 'verification'; detail: string; until?: string; operationId?: string }
 export interface Artifact { path: string; sha256: string; bytes: number }
 export interface Task {
+  request?: TaskRequest
   result?: string; finding?: string
   origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string
   id: string; instanceId: string; originTurnId: string | null; goal: string; requirements: string; criteria: string
@@ -97,14 +99,14 @@ export class TaskStore {
       this.db.prepare('DELETE FROM task_outbox WHERE id=?').run(row.id)
     }
   }
-  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
+  create(input: { goal: string; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
     if (!input.goal.trim()) throw new TypeError('task goal is required')
     if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now)
     const existing = input.originTurnId ? this.list().find(t => t.originTurnId === input.originTurnId) : undefined
     if (existing) return existing
     const id = `task-${randomUUID()}`, workspace = join(this.root, id, 'workspace')
     mkdirSync(workspace, { recursive: true })
-    const task: Task = { id, instanceId: this.instanceId, origin: input.origin ?? 'user', thoughtId: input.thoughtId, reason: input.reason, originTurnId: input.originTurnId ?? null, goal: input.goal,
+    const task: Task = { request: input.request, id, instanceId: this.instanceId, origin: input.origin ?? 'user', thoughtId: input.thoughtId, reason: input.reason, originTurnId: input.originTurnId ?? null, goal: input.goal,
       requirements: input.requirements ?? input.goal, criteria: input.criteria ?? '完成目标并提供可核验成果', revision: 1,
       status: 'pending', checkpoint: '', workspace, wait: null, failure: null, artifacts: [], delivery: null,
       experienceId: null, createdAt: now.toISOString(), updatedAt: now.toISOString() }

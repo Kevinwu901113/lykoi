@@ -148,7 +148,7 @@ export class CapabilityRuntime implements RuntimeService {
           set() { throw new TypeError('read-only resources') }, deleteProperty() { throw new TypeError('read-only resources') }, defineProperty() { throw new TypeError('read-only resources') },
         })
       }
-      const guarded: ResourceHandler = async (params, context) => {
+      const guarded: ResourceHandler = async (params, context, admission) => {
         if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
         return this.run(async () => {
           if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
@@ -159,7 +159,7 @@ export class CapabilityRuntime implements RuntimeService {
             validateInput(inputSchema, params)
             context?.signal?.throwIfAborted()
             if (context && context.instanceId !== this.instance?.id) throw new Error('capability invocation belongs to another instance')
-            const result = await handler(params, context)
+            const result = await handler(params, context, admission)
             this.#publish({ id, ...ownership, name: action, phase: 'result', result })
             return result
           } catch (error) {

@@ -141,3 +141,18 @@ test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局�
     assert.deepEqual(registered, ['TASK_GOAL'])
   } finally { release(); h.store.close() }
 })
+
+test('followup handoff preserves each original request and receipt time independently of rewritten goal', async () => {
+  const registered: unknown[] = []
+  const h = makeConversation({ createTask: input => { registered.push(input); return { id: `task-${registered.length}` } } })
+  try {
+    for (const [text, receivedAt, turnId] of [
+      ['至少60秒后发送。\r\n不要改文件。', '2026-09-11T00:00:12.345Z', 'first'],
+      ['另一件事稍后做', '2026-09-11T00:02:33.456Z', 'second'],
+    ]) {
+      h.llm.push({ content: reply(['已登记。'], 'promise_followup') })
+      await h.conversation.send(text!, { turnId, receivedAt })
+      assert.deepEqual(registered.at(-1), { goal: 'TASK_GOAL', request: { text, receivedAt }, originTurnId: turnId, taskId: undefined })
+    }
+  } finally { h.store.close() }
+})
