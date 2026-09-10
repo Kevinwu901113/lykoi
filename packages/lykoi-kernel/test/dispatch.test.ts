@@ -6,8 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  _resolve, auditDegraded, createDispatch, DelegationRef, isUnwiredHandler,
-  kernelActionCatalog, KNOWN_ACTION_LIST, KNOWN_ACTIONS, unwiredResources,
+  _resolve, auditDegraded, createDispatch, DelegationRef, isHardGated,
   wiredActionCatalog, _setSecretsForTest, _setPolicyCoreForTest,
   type ResourceRegistry,
 } from '../src/index.ts'
@@ -16,7 +15,7 @@ import { captureTelemetry, fakeSink, ioError, isolateKernelState } from './fixtu
 /** 全 allow 的假资源（interactive 默认 ask，所以测试多用 autonomous 白名单动作）。 */
 function echoResources(data: Record<string, unknown> = { ok: true }): ResourceRegistry {
   const registry: Record<string, Record<string, (p: Record<string, unknown>) => Promise<unknown>>> = {}
-  for (const actionType of KNOWN_ACTION_LIST) {
+  for (const actionType of ['browser.navigate', 'terminal.exec', 'messenger.send', 'messenger.read', 'research_browser.read_text', 'autonomy.queue_notification', 'autonomy.initiate_chat', 'notify.owner', 'delegation.dispatch', 'delegation.status', 'delegation.collect']) {
     const [prefix, method] = actionType.split('.', 2) as [string, string]
     registry[prefix] ??= {}
     registry[prefix]![method] = async () => ({ ...data })
@@ -24,20 +23,8 @@ function echoResources(data: Record<string, unknown> = { ok: true }): ResourceRe
   return registry
 }
 
-test('SK-01：KNOWN_ACTIONS 18 项 frozenset 等价，逐字全表（运行时 Set + 字面量联合双钉）', () => {
-  assert.equal(KNOWN_ACTIONS.size, 18)
-  assert.deepEqual([...KNOWN_ACTIONS], [
-    'browser.navigate', 'browser.get_text', 'browser.click', 'browser.type',
-    'browser.screenshot', 'terminal.exec', 'research_browser.open',
-    'research_browser.read_text', 'research_browser.extract_links',
-    'research_browser.screenshot', 'autonomy.queue_notification',
-    'autonomy.initiate_chat', 'notify.owner', 'messenger.send', 'messenger.read',
-    'delegation.dispatch', 'delegation.status', 'delegation.collect',
-  ])
-})
-
 test('SK-02：_resolve 四重拒绝全 raise', () => {
-  const resources = unwiredResources()
+  const resources = echoResources()
   assert.throws(() => _resolve('malformed', resources), /malformed action\.type/)
   assert.throws(() => _resolve('.method', resources), /malformed action\.type/)
   assert.throws(() => _resolve('browser.', resources), /malformed action\.type/)
@@ -568,67 +555,10 @@ test('豁免栏（SK-05 附）：E 章免问不免账 —— audit 行 exemption
   assert.equal(forged.exemption, null)
 })
 
-test('kernelActionCatalog：动作轴 = KNOWN_ACTIONS；isHardGated = 不可变核判定（fail closed 同向）', () => {
-  isolateKernelState()
-  assert.deepEqual([...kernelActionCatalog.knownActions], [...KNOWN_ACTION_LIST])
-  assert.ok(kernelActionCatalog.isHardGated('terminal.exec'))
-  assert.ok(kernelActionCatalog.isHardGated('delegation.dispatch'))
-  assert.ok(!kernelActionCatalog.isHardGated('messenger.send'))
-  _setPolicyCoreForTest(null)
-  assert.ok(kernelActionCatalog.isHardGated('messenger.send')) // core 缺失 → 全表硬门（往少了说）
-  _setPolicyCoreForTest(undefined)
+test('registered names resolve without a static vocabulary; absent names cannot dispatch', async () => {
+  const resources = { custom: { inspect: async () => ({ observed: true }) } }
+  assert.deepEqual(await _resolve('custom.inspect', resources)({}), { observed: true })
+  assert.deepEqual(wiredActionCatalog(resources).knownActions, ['custom.inspect'])
+  assert.throws(() => _resolve('custom.missing', resources), /unknown action/)
+  assert.ok(isHardGated('terminal.exec'))
 })
-
-// --- WO-FIX-LOOP-01 D-1a：替身标记 + wiredActionCatalog ------------------------
-
-test('D-1a：unwiredResources() 的每个 handler 都被 isUnwiredHandler 识别为替身', () => {
-  const resources = unwiredResources()
-  for (const actionType of KNOWN_ACTION_LIST) {
-    const [prefix, method] = actionType.split('.', 2) as [string, string]
-    const handler = resources[prefix]![method]!
-    assert.ok(isUnwiredHandler(handler), `${actionType} 应被判定为替身`)
-  }
-})
-
-test('D-1a：echoResources()（全真 handler）不被 isUnwiredHandler 识别为替身', () => {
-  const resources = echoResources()
-  for (const actionType of KNOWN_ACTION_LIST) {
-    const [prefix, method] = actionType.split('.', 2) as [string, string]
-    const handler = resources[prefix]![method]!
-    assert.ok(!isUnwiredHandler(handler), `${actionType} 不该被判定为替身`)
-  }
-})
-
-test('D-1a：wiredActionCatalog(unwiredResources()) 为空（全替身 → 零接得通）', () => {
-  isolateKernelState()
-  const catalog = wiredActionCatalog(unwiredResources())
-  assert.deepEqual([...catalog.knownActions], [])
-})
-
-test('D-1a：混入真 handler 后只列真的，顺序随 KNOWN_ACTION_LIST', () => {
-  isolateKernelState()
-  const resources = unwiredResources() as Record<string, Record<string, ResourceHandlerLike>>
-  // 只给 5 个真身（同活体现状：messenger.send/read、notify.owner、autonomy 2 个）。
-  resources.messenger!.send = async () => ({ ok: true })
-  resources.messenger!.read = async () => ({ ok: true })
-  resources.notify!.owner = async () => ({ ok: true })
-  resources.autonomy!.queue_notification = async () => ({ ok: true })
-  resources.autonomy!.initiate_chat = async () => ({ ok: true })
-  const catalog = wiredActionCatalog(resources)
-  assert.deepEqual([...catalog.knownActions], [
-    'autonomy.queue_notification', 'autonomy.initiate_chat',
-    'notify.owner', 'messenger.send', 'messenger.read',
-  ])
-})
-
-test('D-1a：wiredActionCatalog 混入真 handler 的 isHardGated 与 kernelActionCatalog 逐项相等', () => {
-  isolateKernelState()
-  const resources = unwiredResources() as Record<string, Record<string, ResourceHandlerLike>>
-  resources.messenger!.send = async () => ({ ok: true })
-  const catalog = wiredActionCatalog(resources)
-  for (const actionType of KNOWN_ACTION_LIST) {
-    assert.equal(catalog.isHardGated(actionType), kernelActionCatalog.isHardGated(actionType))
-  }
-})
-
-type ResourceHandlerLike = (params: Record<string, unknown>) => Promise<unknown>

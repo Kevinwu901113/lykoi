@@ -112,7 +112,7 @@ async function startSite(): Promise<Site> {
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     res.end(`<html><head><title>smoke 首页</title></head><body><p>${PAGE_TEXT}</p>`
-      + '<script>document.title = document.title</script></body></html>')
+      + '<a href="/other">后续报告</a><script>document.title = document.title</script></body></html>')
   })
   return listen(server, hits)
 }
@@ -171,6 +171,7 @@ test('smoke：真 Chrome 上跑通 navigate → get_text → research → 截图
     const body = String(textData.text)
     assert.equal(body.split('\n')[0], UNTRUSTED_MARKER)
     assert.ok(body.includes('smoke 页面的正文'))
+    assert.ok(body.includes('http://smoke.test/other'), 'read result exposes the actual link for the next action')
     assert.equal(textData.untrusted, true)
 
     // ③ research：一次性上下文（另一个 Chrome 进程），读完即毁

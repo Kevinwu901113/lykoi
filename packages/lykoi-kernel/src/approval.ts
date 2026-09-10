@@ -225,6 +225,9 @@ export function check(
   if (cap === 'deny') return 'deny' // capability deny beats a hard "ask"
   const rules = _originRules(origin)
   if (_matches(actionType, rules.always_deny)) return 'deny' // ③ specific or category deny wins
+  if (origin === 'autonomous') {
+    return cap === 'allow' || _matches(actionType, rules.always_allow) || _scopedAllowed(actionType, params, rules.always_allow) ? 'allow' : 'deny'
+  }
   if (cap === 'allow') return 'allow' // ④ autonomous, allow-listed, not tightened
   if (hard === 'ask') return 'ask' // ⑤ interactive hard floor (e.g. terminal.exec) preserved
   if (_matches(actionType, rules.always_allow)) return 'allow'

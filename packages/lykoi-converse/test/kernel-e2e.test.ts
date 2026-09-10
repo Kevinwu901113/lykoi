@@ -138,7 +138,7 @@ async function assemble(replyText: string, runtime = new CapabilityRuntime()) {
  * 被调用：needs_approval 在调用它之前就把周期收场了）。
  */
 function fakeBrowserNavigate(runtime: CapabilityRuntime): void {
-  runtime.register({ organId: 'test-organ', handlers: { ['browser.navigate']: async () => ({ ok: true }) }, sideEffects: [] })
+  runtime.register({ organId: 'test-organ', capabilities: Object.entries({ ['browser.navigate']: async () => ({ ok: true }) }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [] })
 }
 
 function toolEnvelope(name: string, args: Record<string, unknown>): string {
@@ -156,7 +156,7 @@ test('①interactive 默认 ask：撞审批门 → deferred + SK-77 四项载荷
   isolateKernelFiles()
   fakeBrowserNavigate(runtime)
   t.after(() => runtime.dispose())
-  const { audit, transport, telegram, converse: service } = await assemble(toolEnvelope('browser_navigate', { url: 'https://example.com/page' }), runtime
+  const { audit, transport, telegram, converse: service } = await assemble(toolEnvelope('browser.navigate', { url: 'https://example.com/page' }), runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -227,7 +227,7 @@ test('②live always_allow 放行也没用：D-1d 闸先到，未接线动作从
   writeFileSync(join(dir, 'approval_rules.json'), JSON.stringify({
     always_allow: ['research_browser.read_text'], always_deny: [], ask: [],
   }))
-  const { audit, transport, telegram } = await assemble(toolEnvelope('research_read_text', { url: 'https://example.com/article' }), runtime
+  const { audit, transport, telegram } = await assemble(toolEnvelope('research_browser.read_text', { url: 'https://example.com/article' }), runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -248,7 +248,7 @@ test('②live always_allow 放行也没用：D-1d 闸先到，未接线动作从
   assert.equal(unwired.length, MAX_TOOL_STEPS)
   for (const e of unwired) {
     assert.equal(e.action_type, 'research_browser.read_text')
-    assert.equal(e.name, 'research_read_text')
+    assert.equal(e.name, 'research_browser.read_text')
   }
   const gaps = audit.events.filter((e) => e.type === 'capability_gap' && e.source === 'converse')
   assert.equal(gaps.length, MAX_TOOL_STEPS)

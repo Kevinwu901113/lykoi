@@ -26,8 +26,7 @@ export interface OrganBindingRow {
 }
 
 /**
- * 清单的三条数据来源（接口位，W5 接线）。knownActions = kernel dispatch 的
- * KNOWN_ACTIONS 等价物（可派发动作的完整面）；isHardGated = 不可变治理核的
+ * 清单来自当前 Runtime 已注册能力；isHardGated = 不可变治理核的
  * "哪些永远绕不过 Kevin" 判定。
  */
 export interface OrganInventoryInput {

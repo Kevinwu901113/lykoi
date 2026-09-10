@@ -22,7 +22,7 @@ import {
 } from 'lykoi-decide'
 import { stagedInstructions } from 'lykoi-learn'
 import {
-  createApprovalConversation, createDispatch, createSuggestionConversation,
+  check as checkCapabilityPermission, createApprovalConversation, createDispatch, createSuggestionConversation,
   getNotifications, markReplied as kernelMarkReplied,
   markActive as markInteractiveActive, pendingCount,
   APPROVAL_RUN_PREFIX,
@@ -443,12 +443,15 @@ export function apply(ctx: Context, config: Config) {
     dispatchFn, // M3-W1 已接真 kernel（audit 落在 dispatch 层）
     // The action gate reads current Runtime registration on each dispatch.
     wiredActions: ctx.lykoiRuntime.actions,
+    capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
+    invokeCapability: (name, params) => ctx.lykoiRuntime.invoke(name, params),
     capabilityRevision: () => ctx.lykoiRuntime.revision,
 
     // 时 Schema 缺省 = D01_DEFAULTS.cycleTimeoutS（源码单一出处）。
     cycleTimeoutS: config.cycleTimeoutS,
     ...(config.narrativeFlag ? { narrativeFlagPath: resolve(config.narrativeFlag) } : {}),
   })
+  ctx.effect(() => conversation.registerCapabilities(ctx.lykoiRuntime), 'conversation capabilities')
 
   setApprovalAuditSink(ctx.audit)
 

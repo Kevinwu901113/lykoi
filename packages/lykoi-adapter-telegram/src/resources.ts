@@ -1,7 +1,8 @@
 import {
-  sendNotification, trySend as proactiveTrySend, unwiredResources,
+  sendNotification, trySend as proactiveTrySend,
   type ResourceHandler, type ResourceRegistry,
 } from 'lykoi-kernel'
+import type { Capability } from 'lykoi-contracts'
 import { appendOutbox } from './outbox.ts'
 import * as messenger from './messenger.ts'
 
@@ -67,20 +68,28 @@ export async function initiateChat(
   return { queued: true, id: msg.id }
 }
 
-/** Build this adapter's outbound handlers. Runtime owns registration. */
+/** Descriptions, schemas and handlers are declared together by this plugin. */
+export function outboundCapabilities(): Capability[] {
+  return [
+    { name: 'messenger.send', description: 'Send text to a known conversation context. Omitting reply_to is a proactive message and consumes its existing quota.',
+      inputSchema: { type: 'object', properties: { text: { type: 'string' }, context_id: { type: 'string' }, reply_to: { type: ['string', 'null'] } }, required: ['text', 'context_id'] }, handler: messenger.send },
+    { name: 'messenger.read', description: 'Read recent messages, optionally restricted to a known context.',
+      inputSchema: { type: 'object', properties: { context_id: { type: ['string', 'null'] }, limit: { type: 'integer', minimum: 1 } } }, handler: messenger.read },
+    { name: 'notify.owner', description: 'Queue a notification for the owner. Queued does not mean delivered; existing notification quotas apply.',
+      inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'] }, handler: notifyOwner },
+    { name: 'autonomy.queue_notification', description: 'Queue an autonomous notification summary for the owner, subject to its daily quota and cooldown.',
+      inputSchema: { type: 'object', properties: { summary: { type: 'string' }, content: { type: 'string' } } }, handler: queueNotification },
+    { name: 'autonomy.initiate_chat', description: 'Queue a proactive message to the owner, subject to its daily quota and cooldown.',
+      inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'] }, handler: initiateChat },
+  ]
+}
+
+/** Compatibility view for callers assembling the adapter directly. */
 export function outboundOrganResources(): ResourceRegistry {
-  const base = unwiredResources() as unknown as Record<string, Record<string, ResourceHandler>>
   const registry: Record<string, Record<string, ResourceHandler>> = {}
-  for (const [prefix, methods] of Object.entries(base)) registry[prefix] = { ...methods }
-  registry.messenger = {
-    send: messenger.send as ResourceHandler,
-    read: messenger.read as ResourceHandler,
+  for (const { name, handler } of outboundCapabilities()) {
+    const [prefix, method] = name.split('.') as [string, string]
+    ;(registry[prefix] ??= {})[method] = handler
   }
-  registry.notify = { owner: notifyOwner as ResourceHandler }
-  registry.autonomy = {
-    ...registry.autonomy,
-    queue_notification: queueNotification as ResourceHandler,
-    initiate_chat: initiateChat as ResourceHandler,
-  }
-  return registry as ResourceRegistry
+  return registry
 }

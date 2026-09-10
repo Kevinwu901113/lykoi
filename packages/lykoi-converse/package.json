@@ -2,7 +2,7 @@
   "name": "lykoi-converse",
   "version": "0.1.0",
   "private": true,
-  "description": "对话路径：真装配器（S-23..S-34 三段带十二块）+ 信封周期（S-35..S-53 + G-10 D-01..08 修正版）+ 回合骨架；由 M1 lykoi-converse-min 演进（改名理由见 W5 报告：它已是她的对话心智，不再是管线证明）",
+  "description": "\u5bf9\u8bdd\u8def\u5f84\uff1a\u771f\u88c5\u914d\u5668\uff08S-23..S-34 \u4e09\u6bb5\u5e26\u5341\u4e8c\u5757\uff09+ \u4fe1\u5c01\u5468\u671f\uff08S-35..S-53 + G-10 D-01..08 \u4fee\u6b63\u7248\uff09+ \u56de\u5408\u9aa8\u67b6\uff1b\u7531 M1 lykoi-converse-min \u6f14\u8fdb\uff08\u6539\u540d\u7406\u7531\u89c1 W5 \u62a5\u544a\uff1a\u5b83\u5df2\u662f\u5979\u7684\u5bf9\u8bdd\u5fc3\u667a\uff0c\u4e0d\u518d\u662f\u7ba1\u7ebf\u8bc1\u660e\uff09",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -25,11 +25,11 @@
     "lykoi-reflow": "0.1.0",
     "lykoi-regulation": "0.1.0",
     "lykoi-snapshot": "0.1.0",
-    "lykoi-contracts": "0.1.0"
+    "lykoi-contracts": "0.1.0",
+    "lykoi-runtime": "0.1.0"
   },
   "devDependencies": {
     "lykoi-budget": "0.1.0",
-    "lykoi-llm-deepseek": "0.1.0",
-    "lykoi-runtime": "0.1.0"
+    "lykoi-llm-deepseek": "0.1.0"
   }
 }

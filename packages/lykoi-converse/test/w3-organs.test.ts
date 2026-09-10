@@ -63,7 +63,7 @@ function fakeAudit(): AuditService & { events: AuditEvent[] } {
  * 的被调用：needs_approval 在调用它之前就把周期收场了）。
  */
 function fakeTerminal(runtime: CapabilityRuntime): void {
-  runtime.register({ organId: 'test-organ', handlers: { ['terminal.exec']: async () => ({ stdout: '', exit_code: 0 }) }, sideEffects: [] })
+  runtime.register({ organId: 'test-organ', capabilities: Object.entries({ ['terminal.exec']: async () => ({ stdout: '', exit_code: 0 }) }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [] })
 }
 
 function fakeMemory(): LykoiMemoryService {
@@ -294,7 +294,7 @@ test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的�
   t.after(() => runtime.dispose())
   const { audit, transport, telegram, service } = await assemble(envelope({
       decision: {
-        kind: 'tool_call', tool: { name: 'terminal_exec', arguments: { command: 'ls' } },
+        kind: 'tool_call', tool: { name: 'terminal.exec', arguments: { command: 'ls' } },
         reason: '他问我在不在',
       },
     }), runtime
@@ -342,7 +342,7 @@ test('④ D-04 横幅接权威源：撞门之后的下一轮普通对话带上"�
   t.after(() => runtime.dispose())
   const { audit, transport, telegram } = await assemble(envelope({
       decision: {
-        kind: 'tool_call', tool: { name: 'terminal_exec', arguments: { command: 'ls' } },
+        kind: 'tool_call', tool: { name: 'terminal.exec', arguments: { command: 'ls' } },
         reason: '他问我在不在',
       },
     }), runtime

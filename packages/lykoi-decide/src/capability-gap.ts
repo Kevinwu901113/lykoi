@@ -1,6 +1,6 @@
 export const CAPABILITY_GAP_EVENT = 'capability_gap'
 
-/** 名字不在动作/工具词汇表（converse：`TOOL_TO_ACTION` 未命中）。 */
+/** 名字不在动作/工具词汇表（converse：Runtime 未注册）。 */
 export const GAP_UNKNOWN_ACTION = 'unknown_action'
 /** 决策 kind 不在本情境的 kind 词汇表（decide：`KINDS` / `CONVERSATION_KINDS`）。 */
 export const GAP_UNKNOWN_KIND = 'unknown_kind'

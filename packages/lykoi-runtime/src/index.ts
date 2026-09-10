@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
+import { validateInput } from './capability.ts'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
-import { BodySchemaRegistry, KNOWN_ACTION_LIST, isHardGated, unwiredResources } from 'lykoi-kernel'
+import { BodySchemaRegistry, isHardGated } from 'lykoi-kernel'
 import type {
-  CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
+  CapabilityActivity, CapabilityDefinition, CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
 } from 'lykoi-contracts'
 
 /** A read-only, live set. Consumers cannot mutate registration through the view. */
@@ -23,9 +25,12 @@ function actionView(set: Set<string>): ReadonlySet<string> {
 
 /** One capability lifetime per Runtime. No process-wide registry or adapter dependency. */
 export class CapabilityRuntime implements RuntimeService {
+  #definitions = new Map<string, CapabilityDefinition>()
+  #resources: Record<string, Record<string, ResourceHandler>> = Object.create(null)
   #handlers = new Map<string, ResourceHandler>()
   #actions = new Set<string>()
   #disposers = new Map<string, () => void>()
+  #activity = new Set<(event: CapabilityActivity) => void>()
   #listeners = new Set<() => void>()
   #schema: BodySchemaRegistry
   #revision = 0
@@ -48,23 +53,17 @@ export class CapabilityRuntime implements RuntimeService {
       // Telemetry cannot prevent resource retirement or leak a half-registration.
       try { log(name, fields) } catch { /* Dispatch's immutable audit gate remains independent. */ }
     }
-    this.#schema = new BodySchemaRegistry({ vocabulary: KNOWN_ACTION_LIST, logEvent: (name, fields) => { this.#events.push([name, fields]) } })
+    this.#schema = new BodySchemaRegistry({ logEvent: (name, fields) => { this.#events.push([name, fields]) } })
     this.bodySchema = Object.freeze({ snapshot: () => this.#schema.snapshot() })
-    const resources: Record<string, Record<string, ResourceHandler>> = {}
-    const unwired = unwiredResources()
-    for (const action of KNOWN_ACTION_LIST) {
-      const [prefix, method] = action.split('.') as [string, string]
-      resources[prefix] ??= {}
-      Object.defineProperty(resources[prefix], method, {
-        enumerable: true,
-        get: () => this.#handlers.get(action) ?? unwired[prefix]![method],
-      })
-    }
-    for (const methods of Object.values(resources)) Object.freeze(methods)
-    this.resources = Object.freeze(resources)
+    // The outer view follows plugin additions; nested views retain identity across reloads.
+    this.resources = new Proxy(this.#resources, {
+      set() { throw new TypeError('read-only resources') },
+      deleteProperty() { throw new TypeError('read-only resources') },
+      defineProperty() { throw new TypeError('read-only resources') },
+    })
     const runtime = this
     this.catalog = Object.freeze({
-      get knownActions() { return KNOWN_ACTION_LIST.filter(action => runtime.#actions.has(action)) },
+      get knownActions() { return [...runtime.#actions].sort() },
       isHardGated,
     })
   }
@@ -87,22 +86,67 @@ export class CapabilityRuntime implements RuntimeService {
 
   get revision() { return this.#revision }
 
-  register({ organId, handlers, sideEffects }: CapabilityRegistration): () => void {
+  async invoke(name: string, params: Record<string, unknown>): Promise<unknown> {
+    const handler = this.#handlers.get(name)
+    if (!handler) throw new Error(`capability not registered: ${name}`)
+    return handler(params)
+  }
+
+  capabilities(): readonly CapabilityDefinition[] { return Object.freeze([...this.#definitions.values()]) }
+
+  register({ organId, capabilities, sideEffects }: CapabilityRegistration): () => void {
     if (this.#closed) throw new Error('runtime is disposed')
-    const entries = Object.entries(handlers)
+    const names = new Set<string>()
+    for (const capability of capabilities) {
+      if (!/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/.test(capability.name)) throw new TypeError(`invalid capability name: ${capability.name}`)
+      if (names.has(capability.name)) throw new Error(`duplicate capability: ${capability.name}`)
+      names.add(capability.name)
+      if (!capability.description || capability.inputSchema.type !== 'object') throw new TypeError('capability requires description and object input schema')
+    }
+    const entries = capabilities.map(c => [c.name, c.handler] as const)
     for (const [action, handler] of entries) {
       if (typeof handler !== 'function') throw new TypeError(`invalid handler: ${action}`)
       if (this.#handlers.has(action)) throw new Error(`action already registered: ${action}`)
     }
-    // Validate the complete declaration before making handlers visible.
+    const definitions = capabilities.map(({ name, description, inputSchema }) => {
+      const schema = structuredClone(inputSchema)
+      const freeze = (value: unknown): void => {
+        if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value) }
+      }
+      freeze(schema)
+      return Object.freeze({ name, description, inputSchema: schema })
+    })
+    // Validate and snapshot the complete declaration before publishing any part of it.
     const removeSchema = this.#schema.register({ organId, actions: entries.map(([a]) => a), sideEffects })
     const owned = new Map<string, ResourceHandler>()
-    for (const [action, handler] of entries) {
+    for (const [index, [action, handler]] of entries.entries()) {
+      const definition = definitions[index]!
+      const inputSchema = definition.inputSchema
+      this.#definitions.set(action, definition)
+      const [prefix, method] = action.split('.') as [string, string]
+      if (!this.#resources[prefix]) {
+        this.#resources[prefix] = new Proxy(Object.create(null), {
+          get: (_target, key) => typeof key === 'string' ? this.#handlers.get(`${prefix}.${key}`) : undefined,
+          ownKeys: () => [...this.#handlers.keys()].filter(k => k.startsWith(prefix + '.')).map(k => k.slice(prefix.length + 1)),
+          getOwnPropertyDescriptor: (_t, key) => this.#handlers.has(`${prefix}.${String(key)}`) ? { enumerable: true, configurable: true } : undefined,
+          set() { throw new TypeError('read-only resources') }, deleteProperty() { throw new TypeError('read-only resources') }, defineProperty() { throw new TypeError('read-only resources') },
+        })
+      }
       const guarded: ResourceHandler = async params => {
         if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
         return this.run(async () => {
           if (this.#handlers.get(action) !== guarded) throw new Error(`capability retired: ${action}`)
-          return handler(params)
+          const id = randomUUID()
+          this.#publish({ id, name: action, phase: 'started' })
+          try {
+            validateInput(inputSchema, params)
+            const result = await handler(params)
+            this.#publish({ id, name: action, phase: 'result', result })
+            return result
+          } catch (error) {
+            this.#publish({ id, name: action, phase: 'failed', error: error instanceof Error ? error.message : String(error) })
+            throw error
+          }
         })
       }
       owned.set(action, guarded)
@@ -118,6 +162,7 @@ export class CapabilityRuntime implements RuntimeService {
         if (this.#handlers.get(action) === handler) {
           this.#handlers.delete(action)
           this.#actions.delete(action)
+          this.#definitions.delete(action)
         }
       }
       removeSchema()
@@ -126,6 +171,16 @@ export class CapabilityRuntime implements RuntimeService {
     this.#disposers.set(organId, dispose)
     this.#changed()
     return dispose
+  }
+
+  onActivity(listener: (event: CapabilityActivity) => void): () => void {
+    this.#activity.add(listener)
+    return () => { this.#activity.delete(listener) }
+  }
+  #publish(event: CapabilityActivity) {
+    for (const listener of this.#activity) {
+      try { listener(event) } catch { /* A display failure cannot undo or repeat an action. */ }
+    }
   }
 
   onChange(listener: () => void): () => void {
@@ -150,6 +205,7 @@ export class CapabilityRuntime implements RuntimeService {
     this.#closed = true
     for (const dispose of [...this.#disposers.values()].reverse()) dispose()
     this.#listeners.clear()
+    this.#activity.clear()
   }
 }
 

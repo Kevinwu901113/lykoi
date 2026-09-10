@@ -239,6 +239,13 @@ export async function executeAndReflow(
         status = 'failed'
         result = `tend_inner 失败:${exc.message}`
       }
+    } else if (decision.kind === 'tool_call') {
+      const tool = decision.envelope.tool
+      if (!isPlainObject(tool) || typeof tool.name !== 'string' || !isPlainObject(tool.arguments)) throw new TypeError('invalid capability call')
+      const observation = await dispatchFn(tool.name, tool.arguments, runId)
+      counts.action += 1
+      status = observation.success ? 'completed' : 'failed'
+      result = JSON.stringify({ capability: tool.name, ...observation })
     } else if (decision.kind === 'explore') {
       if (!decision.url) {
 

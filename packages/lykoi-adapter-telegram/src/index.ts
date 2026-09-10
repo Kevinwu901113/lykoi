@@ -1,4 +1,4 @@
-import { outboundOrganResources } from './resources.ts'
+import { outboundCapabilities } from './resources.ts'
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -636,15 +636,8 @@ export function apply(ctx: Context, config: Config) {
     pollTimeoutS: config.pollTimeoutS,
   })
   ctx.provide('messenger', adapter)
-  const outbound = outboundOrganResources()
   ctx.effect(() => ctx.lykoiRuntime.register({
-    organId: 'telegram',
-    handlers: Object.fromEntries(['messenger.send', 'messenger.read', 'notify.owner',
-      'autonomy.queue_notification', 'autonomy.initiate_chat'].map(action => {
-      const [prefix, method] = action.split('.') as [string, string]
-      return [action, outbound[prefix]![method]!]
-    })),
-    sideEffects: [],
+    organId: 'telegram', capabilities: outboundCapabilities(), sideEffects: [],
   }), 'telegram capabilities')
 
   setMessengerTransport(messengerTransportBridge(adapter))

@@ -10,7 +10,7 @@ test('provider recovery inside an ongoing tool cycle does not replay dispatch or
   const providerRequests: LykoiGenerateOptions[] = []
   const charges: unknown[] = []
   const replies = [envelope({ decision: { kind: 'tool_call', reason: '需要查一下',
-    tool: { name: 'research_read_text', arguments: { url: 'https://example.org' } } } }),
+    tool: { name: 'research_browser.read_text', arguments: { url: 'https://example.org' } } } }),
   '', envelope({ decision: { kind: 'reply', content: '查完了', reason: '得到结果' } })]
   ctx.provide('budget', {
     async gate() {}, async charge(row) { charges.push(row) },

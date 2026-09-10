@@ -19,7 +19,7 @@ export interface SideEffectDeclaration {
 export interface OrganRegistration {
   /** 器官标识（唯一）。 */
   organId: string
-  /** 这个器官**真正接得通**的动作类型；必须 ⊆ 词汇表。 */
+  /** 这个器官**真正接得通**的动作类型；名称由插件声明。 */
   actions: readonly string[]
   /** 副作用登记；可以是空数组，但必须显式给。 */
   sideEffects: readonly SideEffectDeclaration[]
@@ -48,21 +48,50 @@ export interface ReadOnlyActionCatalog {
 /** 注销器：`register()` 的返回值本身。 */
 export type OrganDisposer = () => void
 
+/** The JSON Schema subset supported by installed capabilities. */
+export type InputType = 'object' | 'array' | 'string' | 'number' | 'integer' | 'boolean' | 'null'
+export interface InputSchema {
+  type: InputType | readonly InputType[]
+  description?: string
+  properties?: Readonly<Record<string, InputSchema>>
+  required?: readonly string[]
+  additionalProperties?: boolean
+  items?: InputSchema
+  enum?: readonly (string | number | boolean | null)[]
+  minimum?: number
+  maximum?: number
+}
+export interface CapabilityDefinition {
+  name: string
+  description: string
+  inputSchema: InputSchema
+}
+export interface Capability extends CapabilityDefinition { handler: ResourceHandler }
 export interface CapabilityRegistration {
   organId: string
-  handlers: Readonly<Record<string, ResourceHandler>>
+  capabilities: readonly Capability[]
   sideEffects: readonly SideEffectDeclaration[]
+}
+export interface CapabilityActivity {
+  id: string
+  name: string
+  phase: 'started' | 'result' | 'failed'
+  result?: unknown
+  error?: string
 }
 export interface RuntimeService {
   readonly instance?: CharacterInstance
   run<T>(work: () => Promise<T>): Promise<T>
   quiesce(): Promise<void>
+  invoke(name: string, params: Record<string, unknown>): Promise<unknown>
+  capabilities(): readonly CapabilityDefinition[]
   readonly resources: ResourceRegistry
   readonly actions: ReadonlySet<string>
   readonly catalog: ReadOnlyActionCatalog
   readonly bodySchema: { snapshot(): BodySchema }
   readonly revision: number
   register(registration: CapabilityRegistration): OrganDisposer
+  onActivity(listener: (event: CapabilityActivity) => void): OrganDisposer
   onChange(listener: () => void): OrganDisposer
 }
 declare module '@deepseek-ai/cordis' {

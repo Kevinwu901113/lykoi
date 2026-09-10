@@ -2,7 +2,7 @@
   "name": "lykoi-wake",
   "version": "0.1.0",
   "private": true,
-  "description": "wake 编排插件：六阶段顺序（SA-169..172）+ clock 薄件 + logEvent→audit + 推演零写入常驻断言（G-9）",
+  "description": "wake \u7f16\u6392\u63d2\u4ef6\uff1a\u516d\u9636\u6bb5\u987a\u5e8f\uff08SA-169..172\uff09+ clock \u8584\u4ef6 + logEvent\u2192audit + \u63a8\u6f14\u96f6\u5199\u5165\u5e38\u9a7b\u65ad\u8a00\uff08G-9\uff09",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -24,9 +24,8 @@
     "lykoi-memory": "0.1.0",
     "lykoi-reflow": "0.1.0",
     "lykoi-snapshot": "0.1.0",
-    "lykoi-contracts": "0.1.0"
-  },
-  "devDependencies": {
+    "lykoi-contracts": "0.1.0",
     "lykoi-runtime": "0.1.0"
-  }
+  },
+  "devDependencies": {}
 }

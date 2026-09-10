@@ -31,7 +31,7 @@ function gateDispatch(opts: { withActionId?: boolean } = {}): ConverseDispatchFn
 
 test('SK-77：撞门 → deferred 回填 + 四项载荷 + 回合沉默（S-57/S-58 口径）', async () => {
   const h = makeConversation({ dispatchFn: gateDispatch(), clock: () => T0 })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   const reply = await h.conversation.send('帮我跑 ls', { runId: 'r1' })
 
   // S-58：问句就是那条消息 —— 回合本身不复述（返回空串，不是 ASK_FALLBACK）
@@ -62,7 +62,7 @@ test('S-59：认知侧**不预先 enqueue** —— 排队跟着问句走，这�
       return { success: false, error: 'needs_approval', data: { needs_approval: true, action_id: 'a', correlation_id: 'c' } }
     },
   })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   await h.conversation.send('帮我跑 ls', { runId: 'r1' })
   assert.equal(dispatched, 1) // 一次派发撞门；没有第二次（问句不在这一层发）
   assert.equal(h.llm.calls.length, 1) // 也没有第二次 LLM —— 撞门就是这一轮的结局
@@ -70,7 +70,7 @@ test('S-59：认知侧**不预先 enqueue** —— 排队跟着问句走，这�
 
 test('S-13：一轮一份清场 —— 上一轮的载荷不跨轮悬着', async () => {
   const h = makeConversation({ dispatchFn: gateDispatch() })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   await h.conversation.send('帮我跑 ls', { runId: 'r1' })
   assert.notEqual(h.conversation.peekDelegatedAsk(), null)
   // 没人取走它，下一轮开头清场
@@ -81,7 +81,7 @@ test('S-13：一轮一份清场 —— 上一轮的载荷不跨轮悬着', async
 
 test('peekDelegatedAsk 只看不取 —— 落账用它，去问用 takeDelegatedAsk', async () => {
   const h = makeConversation({ dispatchFn: gateDispatch() })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   await h.conversation.send('帮我跑 ls', { runId: 'r1' })
   assert.equal(h.conversation.peekDelegatedAsk()!.action_id, 'act-77')
   assert.equal(h.conversation.peekDelegatedAsk()!.action_id, 'act-77') // 看两次都还在
@@ -91,7 +91,7 @@ test('peekDelegatedAsk 只看不取 —— 落账用它，去问用 takeDelegate
 
 test('ASK_FALLBACK：没有 action_id 就没有可绑的把手 → 问不出去，说那一句，且**不编 id**', async () => {
   const h = makeConversation({ dispatchFn: gateDispatch({ withActionId: false }) })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   const reply = await h.conversation.send('帮我跑 ls', { runId: 'r1' })
   assert.equal(reply, ASK_FALLBACK)
   assert.equal(h.conversation.takeDelegatedAsk(), null) // 没有编出来的载荷
@@ -103,7 +103,7 @@ test('ASK_FALLBACK：没有 action_id 就没有可绑的把手 → 问不出去�
 
 test('S-57：撞门那一步的 tool_call 补 deferred 结果 —— 历史里没有未应答的调用', async () => {
   const h = makeConversation({ dispatchFn: gateDispatch() })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   await h.conversation.send('帮我跑 ls', { runId: 'r1' })
   // 下一轮装配必须是合法形状（未应答的 tool_call 会毒化之后每一次装配）
   h.llm.push({ content: envelope({ 情绪脉冲: ['normal_interaction'] }) })

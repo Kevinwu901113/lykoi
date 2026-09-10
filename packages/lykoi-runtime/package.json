@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./instance": "./src/instance.ts"
+    "./instance": "./src/instance.ts",
+    "./cognition": "./src/cognition.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""

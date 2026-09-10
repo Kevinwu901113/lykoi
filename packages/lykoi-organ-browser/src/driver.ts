@@ -524,7 +524,7 @@ class PlaywrightPage implements BackendPage {
   bodyText(_timeoutMs: number): Promise<string> {
     // 字符串形态的 evaluate：不引 DOM 类型进这棵 lib=es2023 的树。
     // innerText 天生不含 script/style 的内容（D-5④"脚本/样式不入文"）。
-    return this.#page.evaluate<string>('document.body ? document.body.innerText : ""')
+    return this.#page.evaluate<string>(`(() => { const text = document.body ? document.body.innerText : ''; const links = Array.from(document.querySelectorAll('a[href]')).filter(a => /^https?:/.test(a.href)).slice(0, 100).map(a => ({ text: a.innerText, url: a.href })); return text + (links.length ? '\\n[页面链接]\\n' + JSON.stringify(links) : ''); })()`)
   }
 
   async screenshot(absolutePath: string): Promise<void> {

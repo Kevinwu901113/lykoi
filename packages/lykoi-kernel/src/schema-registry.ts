@@ -1,5 +1,5 @@
 /** BodySchema declaration validation and immutable snapshots.
- * Runtime owns production instances; the kernel supplies the allowed vocabulary.
+ * Runtime owns production instances and the attached capability names.
  * Registration describes attached organs, not all theoretically valid actions.
  */
 import { logEvent } from './telemetry.ts'
@@ -18,26 +18,24 @@ function deepFreezeSideEffect(
 /**
  * 身体图式注册表。
  *
- * @param vocabulary 合法动作词汇表（kernel `KNOWN_ACTIONS` 等价物）。注册的动作
- *   越界即抛 —— 器官编不出词汇表以外的动作（防止绕过 dispatch 的 `_resolve`
- *   拒绝面）。
+ * @param vocabulary Optional vocabulary restriction for callers that explicitly need one.
  * @param onChange 注册/注销后的回调（接线方在这里调 `organs.invalidate()`）。
  *   缓存失效是**接线方的编排**，不是注册表反向依赖认知层。
  */
 export class BodySchemaRegistry {
   #log: RuntimeLog
-  #vocabulary: ReadonlySet<string>
+  #vocabulary: ReadonlySet<string> | undefined
   #onChange: (() => void) | undefined
   #organs = new Map<string, OrganRegistration>()
   #order: string[] = []
 
   constructor(opts: {
-    vocabulary: Iterable<string>
+    vocabulary?: Iterable<string>
     onChange?: () => void
     logEvent?: RuntimeLog
   }) {
     this.#log = opts.logEvent ?? logEvent
-    this.#vocabulary = new Set(opts.vocabulary)
+    this.#vocabulary = opts.vocabulary ? new Set(opts.vocabulary) : undefined
     this.#onChange = opts.onChange
   }
 
@@ -60,7 +58,7 @@ export class BodySchemaRegistry {
     if (!Array.isArray(actions)) {
       throw new TypeError(`schema-registry: ${organId}: actions must be an array`)
     }
-    const unknown = actions.filter((a) => !this.#vocabulary.has(a))
+    const unknown = actions.filter((a) => this.#vocabulary !== undefined && !this.#vocabulary.has(a))
     if (unknown.length > 0) {
       throw new Error(
         `schema-registry: ${organId}: actions outside the vocabulary: ${unknown.sort().join(', ')}`,

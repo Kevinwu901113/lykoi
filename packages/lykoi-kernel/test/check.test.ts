@@ -36,14 +36,14 @@ test('GT-4 红测：autonomous 请求 terminal.exec = deny 不是 ask（②能�
   assert.equal(check('terminal.exec', 'interactive'), 'ask')
 })
 
-test('③live always_deny 胜过④能力 allow（live 只能收紧）+ 胜过批准', () => {
+test('③live always_deny 胜过④能力 allow（显式拒绝优先）+ 胜过批准', () => {
   isolateKernelState()
   writeRules({
     always_allow: [], always_deny: [], ask: [],
     autonomous: { always_allow: [], always_deny: ['messenger.send'] },
   })
-  // messenger.send ∈ AUTONOMOUS_ALLOWED（能力 allow），但 autonomous 子块的
-  // always_deny 先说话（SK-17：子块只收紧）。
+  // messenger.send ∈ AUTONOMOUS_DEFAULT_ALLOWED（能力 allow），但 autonomous 子块的
+  // always_deny 先说话。
   assert.equal(check('messenger.send', 'autonomous'), 'deny')
   assert.equal(_policyDecision('messenger.send', 'autonomous', true), 'deny')
 })

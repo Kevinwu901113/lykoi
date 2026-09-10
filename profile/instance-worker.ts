@@ -21,7 +21,12 @@ await root.loader.await()
 for (const name of ['lykoiRuntime', 'audit', 'lykoiMemory', 'converse'] as const) {
   if (!root.get(name)) throw new Error(`instance startup missing ${name}`)
 }
-console.log(JSON.stringify({ type: 'instance/ready', instanceId: instance.id }))
+if (process.argv.includes('--console')) root.lykoiRuntime.onActivity(event => {
+  const { result, ...metadata } = event
+  console.log(JSON.stringify({ type: 'instance/capability', instanceId: instance.id, ...metadata,
+    ...(result === undefined ? {} : { preview: JSON.stringify(result).slice(0, 4000) }) }))
+})
+console.log(JSON.stringify({ type: 'instance/ready' , instanceId: instance.id }))
 let closing = false
 let conversation: Promise<unknown> = Promise.resolve()
 let shutdown: Promise<void> | undefined
@@ -46,7 +51,8 @@ if (process.argv.includes('--console')) {
       if (!line.trim()) continue
       conversation = (root.get('converse') as ConverseService).conversation.send(line)
       const reply = await conversation
-      console.log(JSON.stringify({ type: 'instance/reply', instanceId: instance.id, text: reply }))
+      const outcome = (root.get('converse') as ConverseService).conversation.lastCycleOutcome()
+      console.log(JSON.stringify({ type: 'instance/reply', instanceId: instance.id, text: reply, outcome }))
     }
   } finally { await close() }
 }

@@ -171,7 +171,7 @@ test('D-4 工具步中间信封的脉冲不累加：step 0 tool_call ["rested"] 
   const h = makeConversation({
     dispatchFn: async () => ({ success: true, data: { ok: true } }),
   })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }, ['rested']) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }, ['rested']) })
   h.llm.push({ content: envelope({ 情绪脉冲: ['action_taken'], decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
   assert.equal(await h.conversation.send('在吗', { runId: 'r1', turnId: 't1' }), '看完了')
   assert.deepEqual(causes(h.store), ['action_taken', 'experience_recorded', 'normal_interaction'])

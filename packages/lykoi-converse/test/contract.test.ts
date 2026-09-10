@@ -9,7 +9,7 @@ import {
   cycleRecord, ENVELOPE_FIELDS, FAIL_MISSING_CONTENT, FAIL_NO_DECISION_OBJECT,
   FAIL_NOT_JSON, FAIL_UNKNOWN_KIND, FAILURE_REASONS, firstCharClass, kindToken,
   parseEnvelope, receiptsPresentInContext, sanitizePulse, sanitizeTool,
-  TOOL_TO_ACTION, TOOL_TABLE, toolDispatchGate,
+  toolDispatchGate,
   type ConverseMessage,
 } from '../src/index.ts'
 import { envelope } from './fixture.ts'
@@ -18,29 +18,6 @@ test('S-35：kinds 恰 4 项 / content 必填恰 2 项 / SAFE=silence / ENVELOPE
   assert.deepEqual([...CONVERSATION_KINDS], ['reply', 'silence', 'tool_call', 'promise_followup'])
   assert.deepEqual([...CONVERSATION_CONTENT_REQUIRED], ['reply', 'promise_followup'])
   assert.deepEqual([...ENVELOPE_FIELDS], ['tool', '情绪脉冲', 'utterances'])
-  assert.equal(Object.keys(TOOL_TO_ACTION).length, 10) // S-55
-})
-
-test('WO-FIX-TOOLSPEC-01 D-1：TOOL_TO_ACTION 是 TOOL_TABLE 的投影（逐项相等），in-cognition 三项同表不入投影', () => {
-  const projected = Object.fromEntries(
-    Object.entries(TOOL_TABLE)
-      .filter(([, spec]) => spec.action !== null)
-      .map(([name, spec]) => [name, spec.action]),
-  )
-  assert.deepEqual({ ...TOOL_TO_ACTION }, projected)
-  // 三个 in-cognition 工具与其余工具同表同形，但 action 为 null —— 它们不过
-  // dispatch，所以不该进投影（`toolDispatchGate` 的词表判定语义不许变）。
-  for (const name of ['vision_describe', 'promise_followup', 'post_progress']) {
-    assert.ok(Object.hasOwn(TOOL_TABLE, name), `${name} 该在表里`)
-    assert.equal(TOOL_TABLE[name]!.action, null)
-    assert.ok(!Object.hasOwn(TOOL_TO_ACTION, name), `${name} 不该进 TOOL_TO_ACTION 投影`)
-  }
-  assert.equal(Object.keys(TOOL_TABLE).length, 13)
-  // 每一项都填了签名位与用途（signature 空串 = 无参，也算填了）。
-  for (const [name, spec] of Object.entries(TOOL_TABLE)) {
-    assert.equal(typeof spec.signature, 'string', `${name} 缺 signature`)
-    assert.ok(spec.purpose.length > 0, `${name} 缺 purpose`)
-  }
 })
 
 test('候选表：静态四条恒在，权重/cost/note 逐字（对话轮无"预算耗尽摘候选"的对应物）', () => {
@@ -58,7 +35,7 @@ test('候选表：静态四条恒在，权重/cost/note 逐字（对话轮无"�
 })
 
 test('S-43 sanitizeTool：只做形状/边界，不做白名单；永不抛', () => {
-  assert.equal(sanitizeTool('browser_navigate'), null) // 字符串不是对象（断点 3 的形态）
+  assert.equal(sanitizeTool('browser.navigate'), null) // 字符串不是对象（断点 3 的形态）
   assert.equal(sanitizeTool({ name: 42 }), null)
   assert.equal(sanitizeTool({ name: '   ' }), null)
   assert.equal(sanitizeTool({ name: 'x'.repeat(65) }), null)
@@ -69,8 +46,8 @@ test('S-43 sanitizeTool：只做形状/边界，不做白名单；永不抛', ()
   const big = { blob: 'x'.repeat(3000) }
   assert.deepEqual(sanitizeTool({ name: 'a', arguments: big }), { name: 'a', arguments: {} })
   assert.deepEqual(
-    sanitizeTool({ name: ' browser_navigate ', arguments: { url: 'https://a' } }),
-    { name: 'browser_navigate', arguments: { url: 'https://a' } },
+    sanitizeTool({ name: ' browser.navigate ', arguments: { url: 'https://a' } }),
+    { name: 'browser.navigate', arguments: { url: 'https://a' } },
   )
 })
 
@@ -88,7 +65,7 @@ test('parseEnvelope 的 envelope 出参恰 2 键：{tool, pulse}（情绪脉冲�
     content: envelope({
       decision: {
         kind: 'tool_call',
-        tool: { name: 'research_read_text', arguments: { url: 'https://a' } },
+        tool: { name: 'research_browser.read_text', arguments: { url: 'https://a' } },
         reason: '他问我在不在',
       },
       情绪脉冲: ['normal_interaction', 'bogus'],
@@ -97,7 +74,7 @@ test('parseEnvelope 的 envelope 出参恰 2 键：{tool, pulse}（情绪脉冲�
   assert.deepEqual(Object.keys(decision.envelope).sort(), ['pulse', 'tool'])
   assert.deepEqual(decision.envelope.pulse, ['normal_interaction'])
   assert.deepEqual(decision.envelope.tool, {
-    name: 'research_read_text', arguments: { url: 'https://a' },
+    name: 'research_browser.read_text', arguments: { url: 'https://a' },
   })
 })
 
@@ -212,10 +189,10 @@ test('receiptsPresentInContext：成功回执/解析不出的 tool 消息 → tr
 test('toolDispatchGate 四条：词表外 unknown_tool（wiredActions 救不回）/ 未给 wired 缺省 pass / 给了未接 not_wired / 给了已接 pass', () => {
   assert.equal(toolDispatchGate('web_search'), 'unknown_tool')
   assert.equal(toolDispatchGate('web_search', new Set(['terminal.exec'])), 'unknown_tool')
-  assert.equal(toolDispatchGate('terminal_exec'), 'pass') // 未给 wiredActions：未接线口径缺省关
-  assert.equal(toolDispatchGate('terminal_exec', new Set()), 'not_wired') // 给了但不含该动作类型
-  assert.equal(toolDispatchGate('terminal_exec', new Set(['browser.navigate'])), 'not_wired')
-  assert.equal(toolDispatchGate('terminal_exec', new Set(['terminal.exec'])), 'pass') // 给了且已接
+  assert.equal(toolDispatchGate('terminal.exec'), 'not_wired') // 未给 wiredActions：未接线口径缺省关
+  assert.equal(toolDispatchGate('terminal.exec', new Set()), 'not_wired') // 给了但不含该动作类型
+  assert.equal(toolDispatchGate('terminal.exec', new Set(['browser.navigate'])), 'not_wired')
+  assert.equal(toolDispatchGate('terminal.exec', new Set(['terminal.exec'])), 'pass') // 给了且已接
 })
 
 /** 一个合法的 tool_call Decision（TOOL_CALL 免溯源门，见 parseEnvelope 的 groundingExempt）。 */
@@ -240,13 +217,13 @@ test('cycleRecord 三态逐字对表：reply（非 tool_call）/ tool_call 闸�
 
   // ② tool_call，闸放行（wiredActions 含该动作类型）：dispatched = 到达 kernel 的事实，
   // tool_named 与它同值——闸放行时「点了名字」与「到达」重合。
-  const passRecord = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls', x: 1 }), {
+  const passRecord = cycleRecord(toolCallDecision('terminal.exec', { command: 'ls', x: 1 }), {
     ...baseOpts,
     wiredActions: new Set(['terminal.exec']),
   })
-  assert.equal(passRecord.tool_named, 'terminal_exec')
+  assert.equal(passRecord.tool_named, 'terminal.exec')
   assert.equal(passRecord.dispatch_gate, 'pass')
-  assert.equal(passRecord.dispatched, 'terminal_exec')
+  assert.equal(passRecord.dispatched, 'terminal.exec')
   assert.equal(passRecord.dispatched_arg_count, 2)
 
   // ③ tool_call，词表外：她点了名字（tool_named 恒记）但从未到达 kernel（dispatched=null）——
@@ -259,22 +236,22 @@ test('cycleRecord 三态逐字对表：reply（非 tool_call）/ tool_call 闸�
 
   // ④ tool_call，词表内但未接线：同一件事的另一条闸路——tool_named 照记，
   // dispatch_gate 换成 not_wired，dispatched 同样是 null。
-  const unwiredRecord = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls' }), {
+  const unwiredRecord = cycleRecord(toolCallDecision('terminal.exec', { command: 'ls' }), {
     ...baseOpts,
     wiredActions: new Set(), // 给了空集：未接线口径打开，terminal.exec 不在其中
   })
-  assert.equal(unwiredRecord.tool_named, 'terminal_exec')
+  assert.equal(unwiredRecord.tool_named, 'terminal.exec')
   assert.equal(unwiredRecord.dispatch_gate, 'not_wired')
   assert.equal(unwiredRecord.dispatched, null)
   assert.equal(unwiredRecord.dispatched_arg_count, 0)
 })
 
 test('cycleRecord 不给 wiredActions 时（未接线口径缺省关）行为逐字节不变：tool_call 词表内即 pass', () => {
-  const record = cycleRecord(toolCallDecision('terminal_exec', { command: 'ls' }), {
+  const record = cycleRecord(toolCallDecision('terminal.exec', { command: 'ls' }), {
     elapsedMs: 5, assembled: [], step: 1, innerApplied: false,
   })
-  assert.equal(record.dispatch_gate, 'pass')
-  assert.equal(record.tool_named, 'terminal_exec')
-  assert.equal(record.dispatched, 'terminal_exec')
-  assert.equal(record.dispatched_arg_count, 1)
+  assert.equal(record.dispatch_gate, 'not_wired')
+  assert.equal(record.tool_named, 'terminal.exec')
+  assert.equal(record.dispatched, null)
+  assert.equal(record.dispatched_arg_count, 0)
 })

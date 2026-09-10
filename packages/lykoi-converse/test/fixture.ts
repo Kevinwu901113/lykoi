@@ -1,3 +1,4 @@
+import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * lykoi-converse 测试夹具。合成 fixture：DDL 单一出处 lykoi-memory/testing；
  * 不含她的任何数据。golden devstate 相关测试单列且只读（copy 进 tmpdir）。
@@ -222,6 +223,9 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
     catalog: testDoubleActionCatalog,
     logEvent: (n, f) => events.push([n, f]),
   })
+  const runtime = new CapabilityRuntime()
+  const testActions = ['browser.navigate', 'browser.get_text', 'browser.screenshot', 'browser.click', 'browser.type', 'terminal.exec', 'research_browser.open', 'research_browser.read_text', 'research_browser.extract_links', 'notify.owner']
+  runtime.register({ organId: 'test-tools', sideEffects: [], capabilities: testActions.filter(name => !overrides.wiredActions || overrides.wiredActions.has(name)).map(name => ({ name, description: name, inputSchema: { type: 'object' as const }, handler: async () => null })) })
   const deps: ConverseDeps = {
     store,
     persona: FIXTURE_PERSONA,
@@ -229,9 +233,14 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
     logEvent: (n, f) => events.push([n, f]),
     organs,
     clock: () => T0,
+    wiredActions: runtime.actions,
+    capabilities: () => runtime.capabilities(),
+    invokeCapability: (name, params) => runtime.invoke(name, params),
     ...overrides,
   }
-  return { conversation: new Conversation(deps), store, path, llm, events, organs }
+  const conversation = new Conversation(deps)
+  conversation.registerCapabilities(runtime)
+  return { conversation, store, path, llm, events, organs }
 }
 
 export function eventNames(events: [string, Record<string, unknown>][]): string[] {
