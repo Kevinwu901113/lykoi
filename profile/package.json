@@ -25,6 +25,7 @@
     "lykoi-organ-browser": "0.1.0",
     "lykoi-runtime": "0.1.0",
     "js-yaml": "4.3.1",
-    "lykoi-contracts": "0.1.0"
+    "lykoi-contracts": "0.1.0",
+    "lykoi-decide": "0.1.0"
   }
 }

@@ -12,17 +12,24 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import {
   PERSONA_TOML_CANONICAL, PINNED_DOCS, PINNED_ROOT_FILES, PROFILE_ROOT_OWNED_FILES,
   ROOT_OWNED_PACKAGES, collectTs, hashPinnedPackages, manifestKey,
 } from './surface.ts'
 
 /** GK-13 两域：`root` = 属主+权限+哈希三重；`hash` = 只核哈希（GOV-01）。 */
-/** 同一实例包的静态输入；不存在的可选文件不生成虚构哈希。 */
-export function instancePackageFiles(personaToml: string): string[] {
-  return [personaToml, ...['seeds.toml', 'deploy.toml']
-    .map(name => join(dirname(personaToml), name)).filter(path => existsSync(path))]
+/** Frozen identity and explicit deployment inputs; source templates are not runtime authority. */
+export function externalAuthorityFiles(repoRoot: string, definitionPath: string): string[] {
+  const selector = join(repoRoot, 'profile', 'instance.prod.json')
+  if (!existsSync(selector)) return [definitionPath]
+  const selected = JSON.parse(readFileSync(selector, 'utf8'))
+  if (typeof selected.registry !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(selected.id)
+    || typeof selected.deploymentFile !== 'string' || !selected.deploymentFile.startsWith('/')) {
+    throw new Error('invalid production instance/deployment selector')
+  }
+  const directory = join(selected.registry, selected.id)
+  return [join(directory, 'instance.json'), join(directory, 'definition.toml'), selected.deploymentFile]
 }
 
 export type ProtectedDomain = 'root' | 'hash'
@@ -119,18 +126,6 @@ export function protectedEntries(
     entries.push({ name: manifestKey(repoRoot, path), path, domain })
   }
 
-  // The production selector, ownership descriptor and frozen definition are startup authority.
-  const selector = join(repoRoot, 'profile', 'instance.prod.json')
-  if (existsSync(selector)) {
-    const selected = JSON.parse(readFileSync(selector, 'utf8')) as { registry: string; id: string }
-    if (typeof selected.registry !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(selected.id)) {
-      throw new Error('invalid production instance selector')
-    }
-    const directory = join(selected.registry, selected.id)
-    push(join(directory, 'instance.json'), 'root')
-    push(join(directory, 'definition.toml'), 'root')
-  }
-
   // --- root 属主域：特权层包 + 门自身 ---
   for (const pkg of ROOT_OWNED_PACKAGES) {
     const dir = join(repoRoot, 'packages', pkg)
@@ -145,7 +140,7 @@ export function protectedEntries(
   }
 
   // --- root 属主域：人格 TOML（仓库外绝对规范路径；活规则不入钉面 = GK-15，见顶注） ---
-  for (const path of instancePackageFiles(personaToml)) push(path, 'root')
+  for (const path of externalAuthorityFiles(repoRoot, personaToml)) push(path, 'root')
 
   // --- hash-pin 域：其余全部 packages 的 src ---
   for (const pkg of hashPinnedPackages(repoRoot)) {

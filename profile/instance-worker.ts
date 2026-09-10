@@ -1,15 +1,15 @@
 import { Context, Logger } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { createInterface } from 'node:readline/promises'
-import { restoreInstance, instanceEnvironment } from 'lykoi-runtime/instance'
+import { restoreInstance, instanceEnvironment } from './instance-state.ts'
 import type { ConverseService } from 'lykoi-converse'
 import { instanceEntries, drainInstance } from './assembly.ts'
 
 const arg = (key: string) => { const i = process.argv.indexOf(key); if (i < 0 || !process.argv[i + 1]) throw new Error(`missing ${key}`); return process.argv[i + 1]! }
 // One immutable binding per OS process. No selection pointer is consulted after this point.
 const instance = restoreInstance(arg('--registry'), arg('--id'))
-Object.assign(process.env, instanceEnvironment(instance))
 const entries = instanceEntries(arg('--config'), instance)
+Object.assign(process.env, instanceEnvironment(instance, entries.find(e => e.name === 'lykoi-audit')?.config?.path))
 const root = new Context()
 root.provide('lykoiInstance', instance)
 const exporter = { colors: 0, export(message: Parameters<typeof Logger.format>[1]) { console.error(Logger.format(exporter, message)) } }

@@ -28,7 +28,7 @@ export const PROD_REPO_ROOT = '/home/lykoi/projects/lykoi-cordis'
 
 /** 活体逐字三条（startup_verify.py:75-77）—— 同一台机器上的同一批文件。 */
 export const RULES_CANONICAL = '/home/lykoi/state/approval_rules.json'
-export const PERSONA_TOML_CANONICAL = '/home/lykoi/runtime/persona/lykoi_base.toml'
+export const PERSONA_TOML_CANONICAL = '/home/lykoi/runtime/instances/lykoi/definition.toml'
 export const AUDIT_CANONICAL = '/var/log/lykoi-audit/audit.jsonl'
 
 /**
@@ -156,7 +156,7 @@ export function hashPinnedPackages(repoRoot: string): string[] {
  * 这是 GK-13「W4 细化」授权范围内的一次显式重划，报告 §受保护面终表列明。
  */
 export const PROFILE_ROOT_OWNED_FILES: readonly string[] = Object.freeze([
-  'profile/assembly.ts',
+  'profile/assembly.ts', 'profile/instance-state.ts',
   'profile/instance.prod.json',
   'profile/instance.ts',
   'profile/instance-worker.ts',

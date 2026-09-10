@@ -22,12 +22,12 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { fileURLToPath } from 'node:url'
 import { instanceEntries, drainInstance } from './assembly.ts'
 import { readFileSync } from 'node:fs'
-import { restoreInstance } from 'lykoi-runtime/instance'
+import { restoreInstance } from './instance-state.ts'
 
 const selection = JSON.parse(readFileSync(new URL('./instance.prod.json', import.meta.url), 'utf8'))
 const instance = restoreInstance(selection.registry, selection.id)
-if (instance.stateRoot !== '/home/lykoi/state' || instance.auditPath !== '/var/log/lykoi-audit/audit.jsonl') {
-  throw new Error('production instance storage must match the protected production state and audit paths')
+if (instance.stateRoot !== '/home/lykoi/state') {
+  throw new Error('production instance storage must match the protected production state path')
 }
 
 const root = new Context()
@@ -47,7 +47,8 @@ root.logger.exporter(stdoutExporter)
 // Include 的 ctx 链看不到，所以根上必须直接给。
 root.baseUrl = import.meta.url
 await root.plugin(Loader, { baseUrl: import.meta.url })
-await root.loader.root.update(instanceEntries(fileURLToPath(new URL('./cordis.prod.yml', import.meta.url)), instance))
+const entries = instanceEntries(fileURLToPath(new URL('./cordis.prod.yml', import.meta.url)), instance, selection.deploymentFile)
+await root.loader.root.update(entries)
 await root.loader.await()
 
 // 治理地基花名册（地板检查）：这五件与器官启用无关，缺一件都不算「起来了」。

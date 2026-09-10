@@ -190,38 +190,32 @@ test('GK-15：活规则不入钉面 —— 签名后 grantStanding 式改写，�
   }
 })
 
-test('实例seeds/deploy同源纳入root域：新增/篡改/删除皆红，重签恢复绿', () => {
+test('frozen identity and explicit deployment are protected; birth sources are retired', () => {
   const fx = makeFixture()
   try {
-    for (const name of ['seeds.toml', 'deploy.toml']) {
-      const path = join(dirname(fx.env.personaToml), name)
-      writeFileSync(path, '# synthetic\n', { mode: 0o444 })
-      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '新增未签署文件须红')
-      signManifest(fx.env)
-      assert.deepEqual(verify(fx.env), [])
-      assert.equal(protectedEntries(fx.repoRoot, { personaToml: fx.env.personaToml }).find(e => e.path === path)?.domain, 'root')
-      chmodSync(path, 0o644)
-      writeFileSync(path, '# changed\n')
-      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '哈希改动须红')
-      signManifest(fx.env)
-      assert.deepEqual(verify(fx.env), [])
+    const directory = dirname(fx.env.personaToml)
+    const deploymentFile = join(directory, 'telegram.toml')
+    const selector = join(fx.repoRoot, 'profile', 'instance.prod.json')
+    writeFileSync(selector, JSON.stringify({ registry: dirname(directory), id: 'persona', deploymentFile }), { mode: 0o444 })
+    for (const name of ['instance.json', 'definition.toml', 'telegram.toml']) {
+      writeFileSync(join(directory, name), '# synthetic\n', { mode: 0o444 })
+    }
+    signManifest(fx.env)
+    assert.deepEqual(verify(fx.env), [])
+    const entries = protectedEntries(fx.repoRoot, { personaToml: fx.env.personaToml })
+    assert.ok(!entries.some(e => e.path === fx.env.personaToml))
+    for (const name of ['seeds.toml', 'deploy.toml']) writeFileSync(join(directory, name), 'broken ignored birth source')
+    unlinkSync(fx.env.personaToml)
+    assert.deepEqual(verify(fx.env), [])
+    for (const name of ['instance.json', 'definition.toml', 'telegram.toml']) {
+      const path = join(directory, name)
+      assert.equal(entries.find(e => e.path === path)?.domain, 'root')
+      chmodSync(path, 0o644); writeFileSync(path, '# changed\n')
+      assert.ok(verify(fx.env).some(p => p.includes(name)))
+      signManifest(fx.env); assert.deepEqual(verify(fx.env), [])
       chmodSync(path, 0o666)
-      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '可写文件即使已签署也须红')
+      assert.ok(verify(fx.env).some(p => p.includes(name)))
       chmodSync(path, 0o444)
-      unlinkSync(path)
-      assert.ok(verify(fx.env).some(problem => problem.includes(name)), '删除已签署文件须红')
-      signManifest(fx.env)
-      assert.deepEqual(verify(fx.env), [])
     }
   } finally { fx.cleanup() }
-})
-
-test('production instance descriptor and frozen definition join the protected root domain', () => {
-  const f = makeFixture()
-  const directory = dirname(f.env.personaToml)
-  writeFileSync(join(f.env.repoRoot, 'profile', 'instance.prod.json'), JSON.stringify({ registry: dirname(directory), id: 'persona' }))
-  const entries = protectedEntries(f.env.repoRoot, { personaToml: f.env.personaToml })
-  for (const name of ['instance.json', 'definition.toml']) {
-    assert.equal(entries.find(e => e.path === join(directory, name))?.domain, 'root')
-  }
 })

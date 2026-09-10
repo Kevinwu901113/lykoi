@@ -1,4 +1,4 @@
-import type { MemorySeed } from './instance.ts'
+import type { MemorySeed } from './character-package.ts'
 import type { PersonaConfig } from './persona.ts'
 
 export const SEED_INITIAL_WEIGHT = 0.5

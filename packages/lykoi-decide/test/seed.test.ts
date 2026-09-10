@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { createStateFixture } from 'lykoi-memory/testing'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import {
-  loadInstancePackage, SEED_DESCRIPTION, SEED_INITIAL_WEIGHT, seedConcerns, seedPersona,
+  loadCharacterPackage, SEED_DESCRIPTION, SEED_INITIAL_WEIGHT, seedConcerns, seedPersona,
 } from '../src/index.ts'
 import { FIXTURE_PERSONA, FIXTURE_PERSONA_TOML } from './persona-fixture.ts'
 
@@ -76,7 +76,7 @@ test('SA-166 幂等强形态：released 的种子**永不重种**——复活是
 test('seedPersona：种子来自实例包 seeds.toml（WO-E4-2）——写入的正是夹具那一条；upsert 去重，重跑单行、不扰后天层', () => {
   const store = mk()
   try {
-    const { seeds } = loadInstancePackage(FIXTURE_PERSONA_TOML)
+    const { seeds } = loadCharacterPackage(FIXTURE_PERSONA_TOML)
     assert.equal(seeds.length, 1)
     assert.equal(seeds[0]![0], 'preference')
     assert.equal(seedPersona(store, seeds, { now: T0 }), 1)

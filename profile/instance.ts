@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { instanceEntries } from './assembly.ts'
-import { adoptInstance, createInstance, instanceEnvironment, restoreInstance, selectedInstance, selectInstance } from 'lykoi-runtime/instance'
+import { adoptInstance, createInstance, instanceEnvironment, restoreInstance, selectedInstance, selectInstance } from './instance-state.ts'
 
 function value(args: string[], key: string): string | undefined {
   const i = args.indexOf(key)
@@ -28,7 +28,7 @@ export async function main(args: string[]): Promise<void> {
     const opts = { registry, id: required(args, '--id'), definition: resolve(required(args, '--definition')),
       ownerName: value(args, '--owner-name'), telegramSenderId: value(args, '--telegram-sender-id') }
     const instance = command === 'create' ? createInstance(opts) : adoptInstance({ ...opts,
-      stateRoot: required(args, '--state-root'), auditPath: value(args, '--audit-path') })
+      stateRoot: required(args, '--state-root') })
     console.log(JSON.stringify({ id: instance.id, stateRoot: instance.stateRoot, origin: instance.origin }))
     return
   }
@@ -43,7 +43,7 @@ export async function main(args: string[]): Promise<void> {
   if (command !== 'run') throw new Error(`unknown instance command: ${command}`)
   const instance = value(args, '--id') ? restoreInstance(registry, required(args, '--id')) : selectedInstance(registry)
   const config = resolve(required(args, '--config'))
-  instanceEntries(config, instance) // reject configuration before acquiring the run lock
+  const entries = instanceEntries(config, instance) // reject configuration before acquiring the run lock
   const lock = join(registry, '.active')
   if (existsSync(lock)) {
     const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')) as { pid: number }
@@ -57,7 +57,7 @@ export async function main(args: string[]): Promise<void> {
   writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, instanceId: instance.id }), { flag: 'wx' })
   const worker = fileURLToPath(new URL('./instance-worker.ts', import.meta.url))
   const child = spawn(process.execPath, [worker, '--registry', registry, '--id', instance.id, '--config', config,
-    ...(args.includes('--console') ? ['--console'] : [])], { stdio: 'inherit', env: instanceEnvironment(instance) })
+    ...(args.includes('--console') ? ['--console'] : [])], { stdio: 'inherit', env: instanceEnvironment(instance, entries.find(e => e.name === 'lykoi-audit')?.config?.path) })
   if (child.pid) writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: child.pid, instanceId: instance.id }))
   const forward = (signal: NodeJS.Signals) => child.kill(signal)
   const term = () => forward('SIGTERM'), interrupt = () => forward('SIGINT')

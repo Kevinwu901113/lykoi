@@ -78,8 +78,6 @@ export interface CharacterInstance {
   readonly definitionHash: string
   readonly personaPath: string
   readonly stateRoot: string
-  readonly auditPath: string
-  readonly requiredFiles: readonly string[]
 }
 declare module '@deepseek-ai/cordis' {
   interface Context { lykoiInstance: CharacterInstance }

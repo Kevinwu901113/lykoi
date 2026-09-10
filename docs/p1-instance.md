@@ -9,9 +9,11 @@ P1 保留现有存储，实现明确创建、恢复与单实例选择。统一�
 | 初始身份、性格、表达 | 创建/接管时保存 `definition.toml` 快照与哈希。以后修改源模板不会改变已有实例；快照损坏即拒绝恢复。 |
 | 记忆、关系、关注、后天自我、叙事、思想、跟进 | 每实例沿用独立 `memory.db`，现有 schema 18 不变。跟进仍是现有 continuation。 |
 | 入站会话、在途回合 | 每实例 `inbound-spool.db`；恢复、终态及迟到结果均落在该实例的文件集合。 |
-| budget、主动联系、审批、outbox、未送达、通知、游标、心跳 | 全部固定到该实例的 `stateRoot`；运行配置不能覆盖这些路径。已登记的文件缺失/JSON 损坏直接失败。 |
+| budget、主动联系、审批、outbox、未送达、通知、游标、心跳 | 全部固定到该实例的 `stateRoot`；运行配置不能覆盖这些路径。profile 按当前装配校验状态；已启用 budget 的账本丢失或 JSON 损坏直接失败。 |
 | 模型、器官、通道、凭据引用、功能开关 | 独立 Cordis JSON/YAML 配置，继续使用现有插件 schema。可更换配置，不重新出生。凭据值不进实例登记。 |
 | 选择 | `selected.json` 只决定下次启动；每个子进程固定一个实例，不能在运行中改为另一个实例。 |
+
+`CharacterInstance` 只保存版本、id、origin、createdAt、冻结定义路径/哈希和 stateRoot。Memory 出生初始化、插件文件和环境接线属于 `profile/instance-state.ts`；核心不依赖 Memory/Decide，不维护 State Registry。`CharacterPackage` 只读取出生 seeds；Telegram 部署解析独立且不接受 persona 路径。
 
 `registry/<id>/instance.json` 和状态目录的 `instance.json` 相互核对；路径、实例 id 或定义快照不一致即失败。创建拒绝覆盖目录；接管拒绝已有归属。接管只添加归属与定义快照，不执行 seed 或 DB migration。
 
@@ -32,13 +34,15 @@ node profile/instance.ts run --registry /path/instances --config /path/runtime.j
 
 ## 现有实例接管与生产切换
 
-生产选择记录为 `profile/instance.prod.json`，默认登记 id 为 `lykoi`。接管部署命令应在代码验证完成、切换窗口确定后执行：
+生产选择记录为 `profile/instance.prod.json`，默认登记 id 为 `lykoi`，`deploymentFile` 独立指向 `/home/lykoi/runtime/deployment/telegram.toml`。审计路径留在 Cordis 部署配置中，不写入实例身份。接管部署命令应在代码验证完成、切换窗口确定后执行：
 
 ```sh
 node profile/instance.ts adopt --registry /home/lykoi/runtime/instances --id lykoi \
   --definition /home/lykoi/runtime/persona/lykoi_base.toml \
-  --state-root /home/lykoi/state --audit-path /var/log/lykoi-audit/audit.jsonl
+  --state-root /home/lykoi/state
 ```
+
+部署者先将旧 `/home/lykoi/runtime/persona/deploy.toml` 的内容复制到独立部署路径（root 拥有、只读），保留旧文件供旧版本回滚使用；不得改变代理值。Gate 只保护所选实例的冻结定义、归属描述符和明确指定的部署文件，不再保护出生模板或 seeds。
 
 先核对现有库和绑定、记录只读摘要，再由部署权限所有者停止旧服务并执行接管。登记成功后核对原有数据摘要；原有 DB、账本和队列不得初始化或覆盖。实例目录的 descriptor 与 definition 是新的 root 保护输入，需设为 root 拥有且 Runtime 可读，并加入正常 manifest 重签。状态目录的归属标记仍由服务用户读取。门验证通过后再启动新入口；应确认实例 id、历史与关系、Telegram 正常交互及服务状态。失败时保留状态，恢复旧代码与对应 manifest，不删除角色数据。
 
@@ -56,3 +60,7 @@ node profile/instance.ts adopt --registry /home/lykoi/runtime/instances --id lyk
 - 真实 provider：用户明确授权内存凭据使用后，服务器通过现有 Converse 入口完成四次独立进程对话。A 记住“青柠灯塔741”，B 记住“琥珀纸船963”；从 `deepseek-v4-flash` 改为 `deepseek-v4-pro` 后，两者准确回忆各自名字且无交叉。凭据未输出或落盘。
 - 现有角色副本：用户批准真实上下文发送给 DeepSeek 后，`lykoi-copy` 通过现有 Converse 入口获得 230 字回复；回复保留服务器。原有用户与身份绑定数量不变，history 从 1577 增至 1580，审计全部属于该实例，DB 完整性为 `ok`。回复与原历史有 6 个八字连续匹配；这只是历史关联证据，不等同于完整语义准确性评审。首次请求因测试配置上限 100000 低于沿用账本的 287602 而明确失败；随后仅将隔离配置恢复为生产上限 2000000，未清零账本。
 - 待完成：正式接管与生产 Telegram 交互验证。当前 SSH 账号没有免密 root 部署权限，生产切换需部署权限所有者按上述流程执行。生产尚未切换，P1 尚不能标为全部完成。
+
+Web 客户端不阻塞 P1，参考 UI 留到 P2/P3。Persona schema 泛化留作现有实例正式接管后的独立小批次。
+
+合并前 ownership 修正：Node 24 全量回归 1207 项，1196 通过、11 项既有跳过、0 失败；新增独立部署审计路径的进程验收。此前服务器真实模型证据对应修正前版本，本轮修正后尚未重跑真实供应商验收或部署。

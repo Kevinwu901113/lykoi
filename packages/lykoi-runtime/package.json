@@ -13,8 +13,6 @@
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "lykoi-contracts": "0.1.0",
-    "lykoi-kernel": "0.1.0",
-    "lykoi-memory": "0.1.0",
-    "lykoi-decide": "0.1.0"
+    "lykoi-kernel": "0.1.0"
   }
 }

@@ -21,7 +21,7 @@ export * from './overlay.ts'
 export * from './persona-toml.ts'
 export * from './organs.ts'
 export * from './seed.ts'
-export * from './instance.ts'
+export * from './character-package.ts'
 export * from './capability-gap.ts'
 
 export const KINDS: readonly AutonomyKindName[] = Object.freeze(Object.keys(AUTONOMY_ACTIONS) as AutonomyKindName[])
