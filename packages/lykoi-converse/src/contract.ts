@@ -77,7 +77,8 @@ export function renderToolTable(wiredActions?: ReadonlySet<string>, capabilities
 
 const PULSE_CAUSES = Object.keys(CAUSES).sort()
 
-export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现在这一轮由你**自己决定做什么** —— 回话是你可以选的
+function envelopeTemplate(mindProtocol?: string): string {
+  return `上面是你此刻的全部处境。现在这一轮由你**自己决定做什么** —— 回话是你可以选的
 一个动作,不是一道必答题。
 
 只输出一个 JSON 对象,不要有任何其他文字:
@@ -89,10 +90,10 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
                "content": "...",
                "tool": {"name": "...", "arguments": {}},
                "reason": "..."},
-  "inner": {
+${mindProtocol ? '  "mind": {"records": [], "acknowledge": [], "continue": false}' : `  "inner": {
     "thoughts": [{"content": "...", "kind": "question", "related_concern_hint": null, "charge_hint": 0.6}],
     "resolve": [42]
-  },
+  }`},
   "情绪脉冲": ["normal_interaction"]
 }
 
@@ -110,8 +111,8 @@ export const ENVELOPE_SYSTEM_PROMPT = `上面是你此刻的全部处境。现�
   {tools}
   工具照旧分级 —— 需要他点头的工具不会因为你同时说了话就免了。
 - promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里;可另给 utterances 作为本轮要说的话。
-- inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
-  简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。
+${mindProtocol ?? `- inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
+  简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。`}
 - 情绪脉冲可选,是一个字符串数组,只能取下面这张表里的名字(它们是调节场唯一
   合法的因果入口;幅度由内核定,你不需要、也不能自己填数):
   {causes}
@@ -131,9 +132,11 @@ decision.content 字段里;它照样会送到他那里,一个字都不少。
 所以你这次的输出从 \`{\` 开始、到 \`}\` 结束,中间没有任何一句对他说的话、没有
 开场白、没有"好的"、没有代码块围栏、没有解释你为什么这么填。
 只有那一个 JSON 对象。`
+}
+export const ENVELOPE_SYSTEM_PROMPT = envelopeTemplate()
 
-export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string {
-  return ENVELOPE_SYSTEM_PROMPT
+export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = [], mindProtocol?: string): string {
+  return envelopeTemplate(mindProtocol)
     .replace('{causes}', PULSE_CAUSES.join(', '))
     .replace('{tools}', renderToolTable(wiredActions, capabilities).split('\n').join('\n  '))
 }
@@ -157,9 +160,10 @@ export function buildEnvelopeMessages(
   wiredActions?: ReadonlySet<string>,
   persona?: PersonaConfig,
   capabilities: readonly CapabilityDefinition[] = [],
+  mindProtocol?: string,
 ): ConverseMessage[] {
   const withContract: ConverseMessage[] =
-    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions, capabilities), persona) }]
+    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions, capabilities, mindProtocol), persona) }]
   return withContract
 }
 

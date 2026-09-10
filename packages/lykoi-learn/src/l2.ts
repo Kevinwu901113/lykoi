@@ -80,7 +80,8 @@ function hoursSince(ts: string, now: Date): number {
   return (now.getTime() - new Date(ts).getTime()) / 3_600_000
 }
 
-export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她的睡眠)。下面是你过去一段时间积压的经验、当前关切、当前叙事、念头流。
+function integrationSystemPrompt(legacyThoughts = true): string {
+  return `你正在进入整合期(整合 = 她的睡眠)。下面是你过去一段时间积压的经验、当前关切、当前叙事、念头流。
 你的任务是把经验消化进自我叙事,并对关切/念头做相应操作。
 
 只输出一个 JSON 对象。结构:
@@ -96,7 +97,7 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
                          "title": <str>, "description": <str>, "weight": <float, 0-1>,
                          "owner_directed": <bool>, "source_experience_id": <int|null>}],
   "narrative":        {"content": <str>, "change_summary": <str>},
-  "thought_actions":  [{"thought_id": <int>, "operation": "settle|archive"}]
+${legacyThoughts ? '  "thought_actions":  [{"thought_id": <int>, "operation": "settle|archive"}]' : '  "thought_actions": []'}
 }
 
 四种叙事操作 (每条经验必须选一种):
@@ -116,12 +117,14 @@ export const INTEGRATION_SYSTEM_PROMPT = `你正在进入整合期(整合 = 她�
     (必须来自 pending_experiences 里 source="conversation" 的那些)。
     不是他说的, 就填 null 并让 owner_directed=false。
 - narrative: 新版本必须能引用旧版本的要素。无来由跳变会被拒绝。
-- thought_actions: settle 只适用于 thoughts_to_clear 里 status='resolved' 的念头(吸收进叙事, 物理闸强制); archive 适用于 resolved/abandoned。open_thoughts 只是上下文, 不是操作目标。
+${legacyThoughts ? "- thought_actions: settle 只适用于 thoughts_to_clear 里 status='resolved' 的念头(吸收进叙事, 物理闸强制); archive 适用于 resolved/abandoned。open_thoughts 只是上下文, 不是操作目标。" : "- Thought 由持续 Mind 维护，本次只整合经历与叙事，thought_actions 留空。"}
 
 不许:
 - 改写身份内核 (你是谁, 谁是你的伴侣)。
 - 凭空人格跳变。
 - 输出 JSON 之外的任何文字。`
+}
+export const INTEGRATION_SYSTEM_PROMPT = integrationSystemPrompt()
 
 export function integrationIdentityGuard(persona: PersonaLike): string {
   return `你的内核身份: ${persona.identity.name}; 你的伴侣: ${persona.relationship.partner}. `
@@ -395,6 +398,7 @@ export interface IntegrationSummary {
 }
 
 export interface IntegrateDeps {
+  legacyThoughts?: boolean
   store: IntegratorStore
   persona: PersonaLike
   completion: CompletionFn
@@ -447,10 +451,10 @@ function buildPayload(deps: {
   }
 }
 
-function buildMessages(persona: PersonaLike, payload: Record<string, unknown>): ChatMessage[] {
+function buildMessages(persona: PersonaLike, payload: Record<string, unknown>, legacyThoughts = true): ChatMessage[] {
 
   return [
-    { role: 'system', content: INTEGRATION_SYSTEM_PROMPT },
+    { role: 'system', content: integrationSystemPrompt(legacyThoughts) },
     { role: 'system', content: integrationIdentityGuard(persona) },
     { role: 'user', content: JSON.stringify(payload) },
   ]
@@ -482,8 +486,8 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     return summary
   }
 
-  const openThoughts = store.getOpenThoughts()
-  const settled = store.thoughtsAwaitingClearance()
+  const openThoughts = deps.legacyThoughts === false ? [] : store.getOpenThoughts()
+  const settled = deps.legacyThoughts === false ? [] : store.thoughtsAwaitingClearance()
 
   const payload = buildPayload({
     experiences: pending,
@@ -493,7 +497,7 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
     openThoughts,
     settledThoughts: settled,
   })
-  const messages = buildMessages(deps.persona, payload)
+  const messages = buildMessages(deps.persona, payload, deps.legacyThoughts)
 
   const rawMessage = await deps.completion(messages)
   const parsedRaw = extractJsonOrNull(rawMessage.content ?? '')
@@ -547,6 +551,10 @@ export async function runIntegration(deps: IntegrateDeps): Promise<IntegrationSu
 
   // 5. 念头清算（settle 仅 resolved→absorbed=红线 #3 的物理面；失败 → rejected）。
   for (const ta of envelope.thought_actions) {
+    if (deps.legacyThoughts === false) {
+      summary.rejected.push({ section: 'thought_actions', id: ta.thought_id, reason: 'legacy_thoughts_retired' })
+      continue
+    }
     if (ta.operation === 'settle') {
       try {
         store.settleThought(ta.thought_id, integrationId)

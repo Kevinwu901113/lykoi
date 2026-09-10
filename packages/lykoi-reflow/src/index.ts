@@ -200,6 +200,10 @@ function tendInner(
   return outcome
 }
 
+export function applyInternalReflow(kind: 'rest' | 'contemplate', store: Pick<ReflowStore, 'applyRegulationCause'>, now: Date): void {
+  if (kind === 'rest') store.applyRegulationCause('rested', { now })
+}
+
 export async function executeAndReflow(
   decision: Decision,
   runId: string,
@@ -218,7 +222,7 @@ export async function executeAndReflow(
   let status: 'completed' | 'failed' = 'completed'
   let result: string
   if (decision.kind === 'rest') {
-    store.applyRegulationCause('rested', { now })
+    applyInternalReflow('rest', store, now)
     result = 'rest:这一拍我休息,load 泄压'
   } else {
 

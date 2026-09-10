@@ -45,3 +45,25 @@ test('independent tasks run concurrently; cancelling one keeps its late result f
   assert.equal(store.get(b.id).status, 'completed')
   assert.equal(store.get(b.id).delivery, null)
 })
+
+
+test('unchanged finding does not replay on scheduling transitions; new findings and terminal states emit', t => {
+  const root = mkdtempSync(join(tmpdir(), 'task-finding-')), store = new TaskStore(join(root, 'tasks.sqlite'), 'A', root)
+  t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }) })
+  const task = store.create({ goal: '研究' })
+  const events: string[] = []
+  const drain = () => store.relay(event => { events.push(event.content) })
+  store.edit(task.id, current => { current.finding = '第一条证据' }); drain()
+  for (let i = 0; i < 2; i++) {
+    store.edit(task.id, current => { current.status = 'running'; current.wait = null }); drain()
+    store.edit(task.id, current => { current.status = 'waiting'; current.wait = { kind: 'due', detail: '等待下一次检查', until: new Date().toISOString() } }); drain()
+    store.edit(task.id, current => { current.status = 'pending'; current.wait = null }); drain()
+  }
+  assert.equal(events.length, 1)
+  store.edit(task.id, current => { current.finding = '第二条证据' }); drain()
+  assert.equal(events.length, 2)
+  store.edit(task.id, current => { current.status = 'completed' }); drain()
+  assert.equal(events.length, 3)
+  store.edit(task.id, current => { current.checkpoint = '交付完成' }); drain()
+  assert.equal(events.length, 3)
+})

@@ -520,3 +520,27 @@ test('learning JSON parser does not duplicate provider framing recovery', async 
   assert.equal(extractJsonOrNull('prefix {"ok":true} suffix'), null)
   assert.equal(extractJsonOrNull('{"ok":true'), null)
 })
+
+
+test('Mind integration neither reads nor settles or archives retired Thought rows', async () => {
+  const { store, path, log } = makeStore()
+  try {
+    seedExperience(store, 'conversation', '新的实际经历', T0)
+    const id = store.createThought('退休历史内容不可进入整合', 'question', 'wake', { now: T0 })!
+    store.resolveThought(id, [id])
+    const before = tableDigests(path)
+    store.getOpenThoughts = () => { throw new Error('retired read') }
+    store.thoughtsAwaitingClearance = () => { throw new Error('retired read') }
+    const { completion, calls } = fakeCompletion(JSON.stringify({ thought_actions: [
+      { thought_id: id, operation: 'settle' }, { thought_id: id, operation: 'archive' },
+    ] }))
+    const summary = await runIntegration({ store, persona: PERSONA, completion, logEvent: log.logEvent,
+      now: hoursAfter(T0, 25), legacyThoughts: false })
+    assert.equal(summary.thoughts_settled, 0)
+    assert.equal(summary.thoughts_archived, 0)
+    assert.equal(summary.rejected.filter(r => r.reason === 'legacy_thoughts_retired').length, 2)
+    assert.ok(!changedTables(before, tableDigests(path)).includes('thoughts'))
+    assert.ok(!JSON.stringify(calls).includes('退休历史内容不可进入整合'))
+    assert.ok(calls[0]!.some(m => m.role === 'system' && m.content.includes('thought_actions 留空')))
+  } finally { store.close() }
+})

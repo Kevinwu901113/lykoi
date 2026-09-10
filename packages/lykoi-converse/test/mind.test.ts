@@ -9,6 +9,11 @@ test('conversation commits contextual feedback to the same Mind later read by Wa
   let calls = 0
   const h = makeConversation({ prepared, mind, llm: async messages => {
     calls++
+    const protocol = messages.at(-1)!
+    assert.equal(protocol.role, 'system')
+    assert.ok(protocol.content!.includes('顶层加入 mind'))
+    assert.ok(!protocol.content!.includes('念头本体'))
+    assert.ok(!protocol.content!.includes('\"inner\":'))
     const text = messages.map(m => m.content).join('\n')
     if (calls === 2) assert.ok(text.includes('普通产品小更新不主动通知'))
     return { content: JSON.stringify({ decision: { kind: 'reply', content: calls === 1 ? '记住了。' : '先给你结论。' },

@@ -85,6 +85,7 @@ export interface RestartEvent {
  * 这些是权威状态的只读视图，不在快照层执行权限或节流决策。
  */
 export interface SnapshotDeps {
+  legacyThoughts?: boolean
   approvalPendingCount(): number
   notificationsRemainingToday(now: Date): number
   proactiveRemainingToday(now: Date): number
@@ -426,7 +427,7 @@ export function renderRestartNotice(event: RestartEvent | null | undefined): str
 export function maintain(store: SnapshotStore, deps: SnapshotDeps, now: Date): Date {
   store.markDimmingDormant({ now })
   applyLazyOverduePenalty(store, deps, now)
-  store.decayAllOpenThoughts({ now }) // §5.5 §3 出口 ③
+  if (deps.legacyThoughts !== false) store.decayAllOpenThoughts({ now }) // §5.5 §3 出口 ③
   return now
 }
 
@@ -439,7 +440,7 @@ export function read(store: SnapshotStore, deps: SnapshotDeps, now: Date): Snaps
     关切: concernBlock(store, now),
     叙事: narrativeBlock(store, now),
     经验: experienceBlock(store),
-    念头: thoughtsBlock(store, now), // §5.5 §3 出口 ①
+    念头: deps.legacyThoughts === false ? [] : thoughtsBlock(store, now), // §5.5 §3 出口 ①
     环境: environment(store, deps, now, effects),
     上一拍: previousBeat(store),
   }

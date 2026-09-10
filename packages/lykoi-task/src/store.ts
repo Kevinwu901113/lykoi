@@ -77,11 +77,13 @@ export class TaskStore {
   }
   edit(id: string, change: (task: Task) => void, now = new Date()): Task {
     return this.transaction(() => {
-      const task = this.get(id); const before = JSON.stringify([task.status, task.wait?.kind, task.failure, task.finding]); change(task); task.updatedAt = now.toISOString()
+      const task = this.get(id); const before = JSON.stringify([task.status, task.wait?.kind, task.failure]); const priorFinding = task.finding; change(task); task.updatedAt = now.toISOString()
       this.#readTask({ id, document: JSON.stringify(task) })
       this.db.prepare('UPDATE persistent_tasks SET document=? WHERE id=? AND instance_id=?').run(JSON.stringify(task), id, this.instanceId)
-      if (before !== JSON.stringify([task.status, task.wait?.kind, task.failure, task.finding]) &&
-          (terminal.has(task.status) || task.finding !== undefined || (task.status === 'waiting' && task.wait?.kind !== 'due'))) {
+      const findingChanged = task.finding !== undefined && task.finding !== priorFinding
+      const statusEvent = before !== JSON.stringify([task.status, task.wait?.kind, task.failure])
+        && (terminal.has(task.status) || (task.status === 'waiting' && task.wait?.kind !== 'due'))
+      if (findingChanged || statusEvent) {
         const event = { id: randomUUID(), source: 'task', reference: task.id, createdAt: now.toISOString(),
           content: JSON.stringify({ id: task.id, goal: task.goal, status: task.status, checkpoint: task.checkpoint, wait: task.wait, failure: task.failure, artifacts: task.artifacts, result: task.result, finding: task.finding, thoughtId: task.thoughtId }) }
         this.db.prepare('INSERT INTO task_outbox VALUES(?,?)').run(event.id, JSON.stringify(event))
