@@ -131,11 +131,12 @@ declare module '@deepseek-ai/cordis' {
 
 export interface MindEvent { id: string; source: string; reference: string; content: string; createdAt: string }
 export interface MindRecord {
-  id: string; revision: number; kind: 'thought' | 'preference'; topic: string; understanding: string; open: string
+  id: string; revision: number; kind: 'thought' | 'preference'; topic: string; understanding: string; open: string | null
   evidence: string[]; links: string[]; status: 'open' | 'waiting' | 'resolved' | 'released'; reconsiderAt: string | null
   basis: 'explicit' | 'inferred'; scope: string; updatedAt: string
 }
-export interface MindPatch { records?: Omit<MindRecord, 'updatedAt'>[]; acknowledge?: string[]; continue?: boolean }
+export type MindUpdate = Omit<MindRecord, 'revision' | 'status' | 'updatedAt'>
+export interface MindPatch { records?: MindUpdate[]; acknowledge?: string[]; continue?: boolean }
 export interface MindView { records: MindRecord[]; events: MindEvent[] }
 declare module '@deepseek-ai/cordis' { interface Context { skills: { recent(): unknown[] } } }
 export interface CharacterMind {

@@ -25,6 +25,7 @@ export * from './character-package.ts'
 export * from './capability-gap.ts'
 
 export const KINDS: readonly AutonomyKindName[] = Object.freeze(Object.keys(AUTONOMY_ACTIONS) as AutonomyKindName[])
+export const MIND_KINDS = KINDS.filter(kind => kind !== 'record_note' && kind !== 'tend_inner')
 export type KindName = AutonomyKindName
 
 export const CONTENT_REQUIRED_KINDS: readonly KindName[] = Object.freeze(
@@ -176,7 +177,7 @@ function requireNumber(block: Record<string, unknown>, key: string): number {
 
 export function buildCandidates(
   snap: SnapshotLike,
-  opts?: { wired?: ReadonlySet<string>; persona?: PersonaConfig },
+  opts?: { wired?: ReadonlySet<string>; persona?: PersonaConfig; mind?: boolean },
 ): Candidate[] {
   const values = snapshotValues(snap)
   const effects = cognitiveEffects(values as unknown as RegulationValues)
@@ -196,7 +197,7 @@ export function buildCandidates(
   weights.queue_notification += effects.relationship_weight_bonus
   weights.initiate_chat += effects.relationship_weight_bonus // 与 queue_notification 平权
 
-  const allowed = new Set<string>(KINDS)
+  const allowed = new Set<string>(opts?.mind ? MIND_KINDS : KINDS)
   if (hourlyLeft <= 0) {
     allowed.delete('explore')
     allowed.delete('queue_notification')
@@ -270,7 +271,7 @@ export function buildCandidates(
       kind: 'contemplate',
       weight: roundDecimal(weights.contemplate, 3),
       cost: '内部动作,花一拍,无外部副作用',
-      note: '围绕快照中 Top 念头/关切的推进(新念头、resolve 既有念头、对一条 question 写部分回答)',
+      note: opts?.mind ? '推进共享 Mind 中的问题；阶段理解写 understanding，原问题仍缺什么写 open' : '围绕快照中 Top 念头/关切的推进(新念头、resolve 既有念头、对一条 question 写部分回答)',
     },
   }
 
@@ -299,7 +300,7 @@ export function decideSystemPrompt(mindProtocol?: string): string {
   "meaning_assessment": [
     {"item": "...", "meaning": "...", "concern_id": 3, "pull": 0.7}
   ],
-  "decision": {"kind": "explore|record_note|queue_notification|initiate_chat|tend_inner|rest|contemplate",
+  "decision": {"kind": "${mindProtocol ? MIND_KINDS.join('|') : 'explore|record_note|queue_notification|initiate_chat|tend_inner|rest|contemplate'}",
                "content": "...", "url": "...", "thread_id": null, "concern_id": null,
                "reason": "..."},
 ${mindProtocol ? '  "mind": {"records": [], "acknowledge": [], "continue": false}' : `  "inner": {
@@ -312,11 +313,10 @@ ${mindProtocol ? '  "mind": {"records": [], "acknowledge": [], "continue": false
 - explore 需要 url(http/https),且必须是真实存在的地址——编造的主机名会直接失败。
   不知道确切地址时,搜索引擎结果页永远真实可达,例如
   https://www.bing.com/search?q=<你想查的词> 或 https://www.google.com/search?q=<词>。
-- record_note / queue_notification / initiate_chat / tend_inner 需要 content。
+${mindProtocol ? '- queue_notification / initiate_chat 需要 content。' : '- record_note / queue_notification / initiate_chat / tend_inner 需要 content。'}
 - queue_notification 是手机通知;initiate_chat 是对话框里的一条主动消息,
   content 就是你要说的话。两者预算独立,都是硬性的。
-- tend_inner 三选一:带 thread_id 时 content 是给那条叙事线追加的一句进展;
-  带 concern_id 时 content 是那条关切的新描述;都不带时 content 是留给自己的一条 note。
+${mindProtocol ? '- 思考、进展和笔记统一写 mind，decision 用 contemplate；不另行写自主笔记或直接改叙事。' : '- tend_inner 三选一:带 thread_id 时 content 是给那条叙事线追加的一句进展;\n  带 concern_id 时 content 是那条关切的新描述;都不带时 content 是留给自己的一条 note。'}
 ${mindProtocol ?? `- contemplate 是纯内向的一拍:不出外部动作,产出主要写在 inner 里。
 - inner 字段可选。若本次有未说出或未完成的念头,简短记录;没有则留空。
   inner.resolve 只能引用快照"念头"块里出现过的 id —— 其他 id 会被静默忽略。`}
@@ -374,14 +374,16 @@ export function buildMessages(
   if (selfState !== null) {
     messages.push(selfState)
   }
-  const user = {
-    快照: snap,
-    候选动作: candidates.map((c) => ({
-      kind: c.kind, weight: c.weight, cost: c.cost, note: c.note,
-    })),
-  }
-  messages.push({ role: 'user', content: JSON.stringify(user) })
+  messages.push(decisionSnapshotMessage(snap, candidates))
   return messages
+}
+
+export function decisionSnapshotMessage(snap: SnapshotLike, candidates: readonly Candidate[], remaining?: number): ChatMessage {
+  return { role: 'user', content: JSON.stringify({
+    快照: snap,
+    ...(remaining === undefined ? {} : { 本拍剩余执行步数: remaining }),
+    候选动作: candidates.map(({kind, weight, cost, note}) => ({kind, weight, cost, note})),
+  }) }
 }
 
 export function extractJson(content: string | null | undefined): unknown {

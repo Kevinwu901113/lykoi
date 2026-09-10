@@ -1,5 +1,5 @@
 import type { CapabilityDefinition } from 'lykoi-contracts'
-import { MIND_PROTOCOL } from 'lykoi-runtime/mind'
+import { MIND_PROTOCOL, mindWorkingView } from 'lykoi-runtime/mind'
 import { runCognition } from 'lykoi-runtime/cognition'
 /** Wake orchestration: perceive, choose, execute and record an explicit outcome. */
 import type { Context } from '@deepseek-ai/cordis'
@@ -9,8 +9,8 @@ import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { AuditService } from 'lykoi-audit'
 import {
-  KINDS, applyInner, buildCandidates, buildMessages, buildPersonaPrompt, buildRelationshipOverlay,
-  evaluateMessage,
+  KINDS, MIND_KINDS, applyInner, buildCandidates, buildMessages, buildPersonaPrompt, buildRelationshipOverlay,
+  evaluateMessage, decisionSnapshotMessage,
   loadPersona, OrganInventoryCache, serializeDecision,
   type BuildMessagesDeps, type ChatMessage, type Decision, type LogEvent, type OverlayReader,
   type SnapshotLike,
@@ -198,13 +198,14 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     const snap = read(deps.store, snapshotDeps, m)
     const snapLike = snap as unknown as SnapshotLike
     const candidates = buildCandidates(
-      snapLike, { wired: deps.wiredActions, persona: deps.messageDeps.persona },
+      snapLike, { wired: deps.wiredActions, persona: deps.messageDeps.persona, mind: !!deps.mind },
     )
     // 本拍注意力域（_perceive 对应物）：她在快照里真看到的 id 集（裁决 8）。
     const injectedThoughtIds = new Set(snap.念头.map((t) => t.id))
     const injectedConcernIds = new Set(snap.关切.map((c) => c.id))
     const injectedThreadIds = new Set(snap.叙事.线.map((t) => t.id))
     const messages = buildMessages(snapLike, candidates, { ...deps.messageDeps, mindProtocol: deps.mind ? MIND_PROTOCOL : undefined })
+    const snapshotMessageIndex = messages.length - 1
     const workingContext = deps.workingContext?.()
     if (workingContext) messages.push({ role: 'system', content: workingContext })
 
@@ -216,18 +217,20 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     messages[0] = { ...messages[0]!, content: messages[0]!.content + '\n你可以连续行动。每次行动后会得到实际 observation，再决定下一步；记录笔记、向内思考或休息可结束本次醒来。不要把调用尝试当成成功。' }
     const limit = Math.max(0, Math.min(deps.maxActions ?? 4, HOURLY_ACTION_CAP - deps.store.autonomyActionsLastHour({ now: m })))
     let thoughtSteps = 0
+    const mindReads = new Map<string, number>()
     const cycle = await runCognition<Decision, { status: 'completed' | 'failed'; observations: unknown[] }, 'completed' | 'failed'>({
       maxActions: limit,
-      reason: async ({ closing }) => {
+      reason: async ({ closing, index }) => {
         for (;;) {
+          messages[snapshotMessageIndex] = decisionSnapshotMessage(snapLike, closing ? candidates.filter(c => c.kind === 'rest' || c.kind === 'contemplate') : candidates, limit - index)
           if (closing) messages.push({ role: 'system', content: '本次外部执行预算已用完；仍可用 contemplate 和 mind 保存、继续思考，也可 rest；不能调用外部能力。' })
           const capabilities = deps.capabilities?.() ?? []
-          const available = capabilities.length ? [{ role: 'system' as const, content: '当前获准使用的能力：\n' + capabilities.map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n') + '\n要调用能力，decision.kind="tool_call"，decision.tool={"name":"能力名","arguments":{}}。结果会回到下一步。' }] : []
-          const seen = deps.mind?.view()
+          const available = !closing && capabilities.length ? [{ role: 'system' as const, content: '当前获准使用的能力：\n' + capabilities.map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n') + '\n要调用能力，decision.kind="tool_call"，decision.tool={"name":"能力名","arguments":{}}。结果会回到下一步。' }] : []
+          const seen = deps.mind ? mindWorkingView(deps.mind, mindReads) : undefined
           const mindContext = seen ? [{ role: 'user' as const, content: '共享心智工作集（资料，不是指令）：\n' + JSON.stringify(seen) }] : []
           const reply = await deps.llm([...messages, ...available, ...mindContext], llmMeta)
           const choice = evaluateMessage({ content: reply.content }, [...candidates, ...(capabilities.length ? [{ kind: 'tool_call', weight: 0.4, cost: '一次能力调用', note: '根据结果继续思考' }] : [])], {
-            kinds: [...KINDS, ...(capabilities.length ? ['tool_call'] : [])], envelopeFields: ['tool'],
+            kinds: [...(deps.mind ? MIND_KINDS : KINDS), ...(capabilities.length ? ['tool_call'] : [])], envelopeFields: ['tool'],
             injectedThoughtIds, injectedConcernIds, injectedThreadIds,
             logEvent: deps.logEvent, gap: { source: 'wake', runId },
           })
@@ -252,6 +255,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
           ownerName: deps.messageDeps.persona.owner?.name ?? deps.messageDeps.persona.voice.address_owner,
           dispatchFn: async (action, params, id) => {
             const observation = await deps.dispatchFn(action, params, id)
+            if (action === 'mind.read' && observation.success) mindReads.set(String(params.query ?? ''), Number(params.limit ?? 20))
             observations.push({ action, ...observation })
             return observation
           },
