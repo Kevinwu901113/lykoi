@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { writeJsonAtomic } from './jsonio.ts'
 import { logEvent } from './telemetry.ts'
 
@@ -13,14 +13,25 @@ export const PROACTIVE_CHAT_COOLDOWN_H = 6.0
 /** 账本有界：只留最近 N 次发送时刻。 */
 const LEDGER_MAX_KEEP = 50
 
-function _load(): string[] {
-  const path = proactiveChatLedgerPath()
+function readLedger(path: string): string[] {
   if (!existsSync(path)) return []
   const data: unknown = JSON.parse(readFileSync(path, 'utf8'))
   if (!Array.isArray(data) || data.some(value => typeof value !== 'string' || !Number.isFinite(Date.parse(value)))) {
     throw new TypeError('proactive chat ledger must contain valid timestamps')
   }
   return data as string[]
+}
+
+function _load(): string[] {
+  const path = proactiveChatLedgerPath()
+  const sent = readLedger(path)
+  // Upgrade the former adapter ledger once, preserving quota already consumed.
+  const legacy = process.env.LYKOI_MESSENGER_LEDGER ?? 'var/state/messenger_outbound.json'
+  if (legacy === path || !existsSync(legacy)) return sent
+  const merged = [...new Set([...sent, ...readLedger(legacy)])].sort((a, b) => Date.parse(a) - Date.parse(b)).slice(-LEDGER_MAX_KEEP)
+  writeJsonAtomic(path, merged)
+  renameSync(legacy, legacy + '.migrated')
+  return merged
 }
 
 function _todayCount(sent: readonly string[], now: Date): number {

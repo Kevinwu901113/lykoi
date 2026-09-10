@@ -2,7 +2,7 @@ import {
   sendNotification, trySend as proactiveTrySend,
   type ResourceHandler, type ResourceRegistry,
 } from 'lykoi-kernel'
-import type { Capability } from 'lykoi-contracts'
+import type { Capability, CapabilityExecutionContext, ResourceAdmission } from 'lykoi-contracts'
 import { appendOutbox } from './outbox.ts'
 import * as messenger from './messenger.ts'
 
@@ -12,13 +12,13 @@ export const NOTIFY_ALLOWED_ORIGINS: ReadonlySet<string>
 /**
  * `notify.owner` —— dispatch 通往所有者队列的唯一路径。
  *
- * `params.origin` 必须等于派发上下文的 origin —— **可信调用方自己盖章（模型给的
- * 工具参数被覆写，永不被相信）**，而按 origin 的节流政策以它为键。
+ * 来源只读取 kernel 传入的 admission.origin；模型参数不能替换来源。
  */
-export async function notifyOwner(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function notifyOwner(params: Record<string, unknown>, _execution?: CapabilityExecutionContext, admission?: ResourceAdmission): Promise<Record<string, unknown>> {
   const content = params.content
   if (!content) throw new TypeError("notify.owner requires 'content'")
-  const origin = String(params.origin ?? 'system')
+  const origin = admission?.origin
+  if (!origin) throw new TypeError('notify.owner requires trusted dispatch origin')
   if (!NOTIFY_ALLOWED_ORIGINS.has(origin)) {
     throw new TypeError(`notify.owner does not accept origin '${origin}'`)
   }
@@ -71,7 +71,7 @@ export async function initiateChat(
 /** Descriptions, schemas and handlers are declared together by this plugin. */
 export function outboundCapabilities(): Capability[] {
   return [
-    { name: 'messenger.send', description: 'Send text to a known conversation context. Omitting reply_to is a proactive message and consumes its existing quota.',
+    { name: 'messenger.send', description: 'Send text to a known conversation context. Quoting a message does not grant permission or a budget exemption; unexempted sends share the proactive chat quota.',
       inputSchema: { type: 'object', properties: { text: { type: 'string' }, context_id: { type: 'string' }, reply_to: { type: ['string', 'null'] } }, required: ['text', 'context_id'] }, handler: messenger.send },
     { name: 'messenger.read', description: 'Read recent messages, optionally restricted to a known context.',
       inputSchema: { type: 'object', properties: { context_id: { type: ['string', 'null'] }, limit: { type: 'integer', minimum: 1 } } }, handler: messenger.read },

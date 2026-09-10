@@ -208,8 +208,9 @@ async function _executeDecision(
   safeParams: Record<string, unknown>,
   actionId: string,
   correlationId: string,
-  execution?: CapabilityExecutionContext,
-  exemption?: unknown,
+  execution: CapabilityExecutionContext | undefined,
+  exemption: unknown,
+  origin: string,
 ): Promise<Observation> {
   if (decision === 'deny') {
     // hard/rule deny wins even over an owner approval
@@ -229,7 +230,7 @@ async function _executeDecision(
   }
   let data: unknown
   try {
-    data = await handler(action.params, execution, exemptionCovers(action.type, action.params, exemption) ? { messageBudget: 'exempt' } : undefined)
+    data = await handler(action.params, execution, { origin, ...(exemptionCovers(action.type, action.params, exemption) ? { messageBudget: 'exempt' as const } : {}) })
   } catch (exc) {
     // resource-boundary failure -> normal failed observation
     return { success: false, data: {}, error: redact(exc instanceof Error ? exc.message : String(exc)) }
@@ -333,7 +334,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
     _clearDegraded()
 
     const observation = await _executeDecision(
-      decision, action, handler, safeParams, actionId, correlationId, context.execution, context.exemption,
+      decision, action, handler, safeParams, actionId, correlationId, context.execution, context.exemption, context.origin,
     )
 
     const result = {

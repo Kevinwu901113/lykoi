@@ -8,7 +8,7 @@ export interface CapabilityExecutionContext {
   signal?: AbortSignal
 }
 /** Trusted dispatch metadata, separate from model arguments and Task execution ownership. */
-export interface ResourceAdmission { messageBudget?: 'exempt' }
+export interface ResourceAdmission { origin: string; messageBudget?: 'exempt' }
 export type ResourceHandler = (params: Record<string, unknown>, context?: CapabilityExecutionContext, admission?: ResourceAdmission) => Promise<unknown>
 export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, ResourceHandler>>>>
 export type RuntimeLog = (name: string, fields: Record<string, unknown>) => void

@@ -1,6 +1,6 @@
 import * as interpreter from './approval-interpreter.ts'
 import type { DispatchFunction } from './dispatch.ts'
-import { approvalMachinery } from './exemption.ts'
+import { approvalMachinery, type Exemption } from './exemption.ts'
 import { logEvent } from './telemetry.ts'
 
 export const ASK_TTL_CYCLES = 7
@@ -195,6 +195,7 @@ export function createSuggestionConversation(
     contextId: string,
     text: string,
     replyTo: string | null,
+    exemption: Exemption | null = approvalMachinery(),
   ): Promise<SendOutcome> {
     let observation
     try {
@@ -203,7 +204,7 @@ export function createSuggestionConversation(
           type: 'messenger.send',
           params: { text, context_id: contextId, reply_to: replyTo },
         },
-        { context: { origin: 'autonomous', exemption: approvalMachinery() } },
+        { context: { origin: 'autonomous', exemption } },
       )
     } catch (exc) {
       // 一条发不出去的问询不该杀掉 wake 循环。
@@ -346,9 +347,9 @@ export function createSuggestionConversation(
       return { status: 'no_owner_context', suggestion_id: _rowId(row), cycle_id: cycle }
     }
 
-    // 5. **先发后记**。reply_to=null → 照常吃主动打扰预算。
+    // 5. 主动提出新建议要占用主动额度；不使用审批往返的预算豁免。
     const text = SUGGESTION_QUESTION_TEMPLATE.replace('{text}', String(row.suggestion_text ?? ''))
-    const delivery = await _send(target, text, null)
+    const delivery = await _send(target, text, null, null)
     if (!delivery.sent) {
       await _audit('ask_undelivered', row, {
         outcome: 'not_dequeued', delivered: false,

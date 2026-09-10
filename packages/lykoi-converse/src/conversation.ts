@@ -1110,9 +1110,6 @@ export class Conversation {
     }
     const { args: params, error } = parseToolArguments(call)
     if (error !== null) return [null, error]
-    if (actionType === 'notify.owner') {
-      params.origin = 'interactive' // provenance is stamped by this loop, never by the model
-    }
     return [{ type: actionType, params }, null]
   }
 

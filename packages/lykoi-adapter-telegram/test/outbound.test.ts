@@ -78,13 +78,13 @@ test('缺少 transport 明确失败，不制造发送成功或消耗主动额度
   assert.equal(messengerProactiveRemainingToday(), PROACTIVE_DAILY_CAP)
 })
 
-test('SK-80 **只有 reply_to is None 才过原子 check-and-reserve**：应答不花预算', async () => {
+test('SK-80 预算资格来自可信 admission，引用不授予豁免', async () => {
   isolate()
   assert.equal(PROACTIVE_DAILY_CAP, 1)
   assert.equal(PROACTIVE_COOLDOWN_H, 6.0)
   // 应答路径：连发 5 条，账本一格都不动
   for (let i = 0; i < 5; i += 1) {
-    const result = await messengerSend({ text: 'hi', context_id: '1001', reply_to: '500' })
+    const result = await messengerSend({ text: 'hi', context_id: '1001', reply_to: '500' }, undefined, { origin: 'interactive', messageBudget: 'exempt' })
     assert.equal(result.sent, true)
   }
   // 无参查询（真钟）：本测经 messengerSend 走生产路径，账本写的是真钟时间戳 ——
@@ -684,11 +684,11 @@ test('SK-60 notify.owner **显式排除 autonomous origin**（自主环有它自
   isolate()
   assert.deepEqual([...NOTIFY_ALLOWED_ORIGINS].sort(), ['interactive', 'scheduler', 'system'])
   await assert.rejects(
-    () => notifyOwner({ content: 'x', origin: 'autonomous' }),
+    () => notifyOwner({ content: 'x', origin: 'system' }, undefined, { origin: 'autonomous' }),
     /does not accept origin 'autonomous'/,
   )
   await assert.rejects(() => notifyOwner({ origin: 'system' }), /requires 'content'/)
-  const queued = await notifyOwner({ content: '回执', origin: 'interactive' })
+  const queued = await notifyOwner({ content: '回执', origin: 'system' }, undefined, { origin: 'interactive' })
   assert.deepEqual(queued, { queued: true, notified: true, id: 1 })
 })
 
