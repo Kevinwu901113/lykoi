@@ -21,10 +21,15 @@ await root.loader.await()
 for (const name of ['lykoiRuntime', 'audit', 'lykoiMemory', 'converse'] as const) {
   if (!root.get(name)) throw new Error(`instance startup missing ${name}`)
 }
+if (entries.some(e => e.name === 'lykoi-task' && !e.disabled) && !root.get('tasks')) throw new Error('instance startup missing tasks')
 if (process.argv.includes('--console')) root.lykoiRuntime.onActivity(event => {
   const { result, ...metadata } = event
   console.log(JSON.stringify({ type: 'instance/capability', instanceId: instance.id, ...metadata,
     ...(result === undefined ? {} : { preview: JSON.stringify(result).slice(0, 4000) }) }))
+})
+if (process.argv.includes('--console') && root.get('tasks')) root.tasks.bindInteractions({
+  requestApproval: async action => { console.log(JSON.stringify({ type: 'task/approval', instanceId: instance.id, ...action, command: `/task approve ${action.operationId}` })) },
+  deliver: async task => { console.log(JSON.stringify({ type: 'task/delivery', instanceId: instance.id, taskId: task.id, text: task.delivery!.content })); return { state: 'sent', receipt: { channel: 'console', taskId: task.id } } },
 })
 console.log(JSON.stringify({ type: 'instance/ready' , instanceId: instance.id }))
 let closing = false
@@ -35,7 +40,7 @@ function close(): Promise<void> {
   closing = true
   shutdown = (async () => {
     // Keep the old result's stdout and persistent destination alive until completion.
-    await Promise.allSettled([conversation])
+    await Promise.allSettled([conversation, root.get('tasks')?.close()])
     await drainInstance(root)
   })()
   return shutdown
@@ -49,6 +54,10 @@ if (process.argv.includes('--console')) {
     for await (const line of input) {
       if (closing) break
       if (!line.trim()) continue
+      try {
+        const command = await root.get('tasks')?.command(line)
+        if (command != null) { console.log(JSON.stringify({ type: 'task/command', text: command })); continue }
+      } catch (error) { console.error(JSON.stringify({ type: 'task/error', error: String(error) })); continue }
       conversation = (root.get('converse') as ConverseService).conversation.send(line)
       const reply = await conversation
       const outcome = (root.get('converse') as ConverseService).conversation.lastCycleOutcome()

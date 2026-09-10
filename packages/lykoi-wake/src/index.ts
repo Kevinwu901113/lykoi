@@ -137,34 +137,19 @@ function recordWakeClock(deps: WakeDeps, moment: Date): void {
   deps.store.setAutonomyLastWake(moment, { now: moment })
 }
 
-export interface ContinuationScanner {
-  scan(now: Date): Promise<unknown>
-}
-
 export function runCheapTick(input: {
   ownerName?: string
   store: Parameters<typeof cheapTick>[0]['store']
   notifications: NotificationsView
   now: Date
   logEvent: LogEvent
-  continuations?: ContinuationScanner | undefined
 }): void {
   try {
     cheapTick({ ownerName: input.ownerName, store: input.store, notifications: input.notifications, now: input.now, logEvent: input.logEvent })
   } catch (exc) {
     input.logEvent('cheap_tick_failed', { error: exc instanceof Error ? exc.message : String(exc) })
   }
-  if (input.continuations === undefined) return
-  let scanned: Promise<unknown>
-  try {
-    scanned = input.continuations.scan(input.now)
-  } catch (exc) {
-    input.logEvent('continuation/scan_failed', { error_name: exc instanceof Error ? exc.name : 'unknown' })
-    return
-  }
-  scanned.catch((exc) => {
-    input.logEvent('continuation/scan_failed', { error_name: exc instanceof Error ? exc.name : 'unknown' })
-  })
+
 }
 
 export function overlayMessageDep(
@@ -542,7 +527,6 @@ export function apply(ctx: Context, config: Config) {
       ctx.lykoiRuntime.run(async () => runCheapTick({
         ownerName: persona.owner?.name ?? persona.voice.address_owner,
         store, notifications, now, logEvent,
-        continuations: ctx.get('continuations') as ContinuationScanner | undefined,
       })).catch(err => logEvent('cheap_tick_failed', { error: String(err) }))
     }, config.checkIntervalMs)
     return () => clearInterval(timer)

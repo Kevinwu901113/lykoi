@@ -160,6 +160,7 @@ export function executionReport(
     String((record ?? {}).action_type ?? ''),
     ((record ?? {}).params as Record<string, unknown>) ?? {},
   )
+  if (execution.observation?.data?.task_queued === true) return '已批准，任务将在后台执行；完成后会另行报告。'
   if (!execution.executed) {
     return EXEC_SKIPPED_TEMPLATE.replace('{reason}', execution.reason || '未知原因')
   }
@@ -394,11 +395,12 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
       action_type: grant.action_type,
       pending_id: grant.id,
       correlation_id: grant.correlation_id ?? null,
-      executed: true,
+      executed: observation.data?.task_queued !== true,
+      queued: observation.data?.task_queued === true,
       success: observation.success,
       error: observation.error,
     })
-    return { executed: true, reason: null, observation }
+    return { executed: observation.data?.task_queued !== true, reason: observation.data?.task_queued === true ? 'task_queued' : null, observation }
   }
 
   async function _reportExecution(

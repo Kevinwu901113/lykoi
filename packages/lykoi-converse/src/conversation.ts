@@ -252,6 +252,8 @@ export interface ConverseDeps {
   limits?: Partial<{ windowTurns: number; backfillRows: number; maxInputTokens: number }>
 
   invokeCapability?: (name: string, params: Record<string, unknown>) => Promise<unknown>
+  createTask?: (input: { goal: string; originTurnId?: string; taskId?: string }) => { id: string }
+  taskContext?: () => string
   capabilities?: () => readonly CapabilityDefinition[]
   wiredActions?: ReadonlySet<string>
   capabilityRevision?: () => number
@@ -402,10 +404,10 @@ export class Conversation {
       { name: VISION_TOOL, description: 'Describe an attachment already present in this conversation.',
         inputSchema: { type: 'object', properties: { attachment_id: { type: 'string' }, question: { type: 'string' } }, required: ['attachment_id'], additionalProperties: false },
         handler: args => this.#handleVision(cycleCall(0, VISION_TOOL, args)) },
-      { name: FOLLOWUP_TOOL, description: 'Register an existing continuation with a goal and current blocker.',
-        inputSchema: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'], additionalProperties: false },
+      { name: FOLLOWUP_TOOL, description: 'Persist a task before accepting it, or update an existing task by task_id.',
+        inputSchema: { type: 'object', properties: { task: { type: 'string' }, task_id: { type: 'string' } }, required: ['task'], additionalProperties: false },
         handler: async args => this.#handleFollowup(cycleCall(0, FOLLOWUP_TOOL, args)) },
-      { name: PROGRESS_TOOL, description: 'Report progress from a background continuation.',
+      { name: PROGRESS_TOOL, description: 'Report progress from a persistent task.',
         inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'], additionalProperties: false },
         handler: async args => this.#handleProgress(cycleCall(0, PROGRESS_TOOL, args)) },
     ] })
@@ -752,6 +754,8 @@ export class Conversation {
     const assembled = this.#stablePrefix().map(([, message]) => message)
     assembled.push(...this.#messages.slice(1))
     assembled.push(...this.#volatileTail(selfState).map(([, message]) => message))
+    const tasks = this.#deps.taskContext?.()
+    if (tasks) assembled.push({ role: 'system', content: tasks })
     return assembled
   }
 
@@ -957,7 +961,8 @@ export class Conversation {
           return { kind: 'finish', result: decision.content ?? '' }
         }
         if (kind === PROMISE_FOLLOWUP) {
-          this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
+          const accepted = this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
+          if (accepted.success !== true) throw new Error(String(accepted.error))
           this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
           for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
           this.#lastCycleOutcome = { kind: 'followup', step }
@@ -1162,13 +1167,11 @@ export class Conversation {
     if (!task) {
       return { success: false, error: "promise_followup 需要 'task':写清要完成什么、卡在哪里" }
     }
-    this.#followupRequest = task // 一轮多次调用取最后一次
-    if (this.#background) {
-      this.#log('continuation_requested', { chars: [...task].length })
-      return { success: true, data: { queued: true, note: renderOwnerTemplate('回合结束后任务挂起,等 {owner} 批准再继续', this.#deps.persona) } }
-    }
-    this.#log('followup_requested', { chars: [...task].length })
-    return { success: true, data: { queued: true, note: '回复结束后开始后台跟进' } }
+    if (!this.#deps.createTask) return { success: false, error: 'persistent task service unavailable' }
+    const created = this.#deps.createTask({ goal: task, originTurnId: this.#lastTurnId ?? undefined, taskId: args.task_id as string | undefined })
+    this.#followupRequest = created.id
+    this.#log('followup_requested', { task_id: created.id })
+    return { success: true, data: { queued: true, task_id: created.id, note: '任务已持久保存' } }
   }
 
   #handleProgress(call: ToolCall): Fields {

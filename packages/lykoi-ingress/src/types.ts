@@ -43,7 +43,7 @@ export interface TurnTerminalPayload {
   notice_sent: boolean
   reply_chars: number
   elapsed_ms: number
-  continuation_id?: string | null
+  task_id?: string | null
 }
 
 export interface TurnExecutionResult {

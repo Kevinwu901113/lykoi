@@ -1,3 +1,4 @@
+import { TaskStore } from '../../lykoi-task/src/store.ts'
 import { CapabilityRuntime } from 'lykoi-runtime'
 /**
  * lykoi-converse 测试夹具。合成 fixture：DDL 单一出处 lykoi-memory/testing；
@@ -233,6 +234,10 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
     logEvent: (n, f) => events.push([n, f]),
     organs,
     clock: () => T0,
+    createTask: input => {
+      const tasks = new TaskStore(path, 'fixture', join(path, '..', 'tasks'))
+      try { return tasks.create(input) } finally { tasks.close() }
+    },
     wiredActions: runtime.actions,
     capabilities: () => runtime.capabilities(),
     invokeCapability: (name, params) => runtime.invoke(name, params),

@@ -1,0 +1,24 @@
+{
+  "name": "lykoi-runner-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lykoi-contracts": "0.1.0",
+    "lykoi-kernel": "0.1.0",
+    "lykoi-budget": "0.1.0"
+  },
+  "devDependencies": {
+    "lykoi-memory": "0.1.0",
+    "lykoi-runtime": "0.1.0"
+  }
+}

@@ -75,12 +75,9 @@ test('迁移件 018 up：17 → 18，表与索引落地，DDL 与 schema.ts 逐�
   assert.deepEqual(idx.map((r) => r.name), ['idx_pending_continuations_due'])
   db.close()
 
-  const rw = new ReadWriteMemory(path)
-  rw.registerContinuation({
-    id: 'c1', originTurnId: 't', originRunId: null, goal: 'g',
-    dueAt: new Date('2026-09-04T00:00:00Z'), now: new Date('2026-09-04T00:00:00Z'),
-  })
-  assert.equal(rw.getContinuation('c1')!.state, 'pending')
+  const rw = rawOpen(path)
+  rw.exec("INSERT INTO pending_continuations(id,origin_turn_id,goal,due_at,state,created_at,updated_at) VALUES('c1','t','g','2026-09-04','pending','2026-09-04','2026-09-04')")
+  assert.equal(rw.prepare("SELECT state FROM pending_continuations WHERE id='c1'").get()!.state, 'pending')
   rw.close()
   new ReadOnlyMemory(path).close()
 
@@ -93,11 +90,8 @@ test('迁移件 018 up：17 → 18，表与索引落地，DDL 与 schema.ts 逐�
 test('迁移件 018 down：只撤版本行；表与行留着；前滚只重放版本行', () => {
   const path = makePre018Db()
   assert.equal(applyScript(path, UP_SQL), null)
-  const rw = new ReadWriteMemory(path)
-  rw.registerContinuation({
-    id: 'c1', originTurnId: 't', originRunId: null, goal: 'g',
-    dueAt: new Date('2026-09-04T00:00:00Z'), now: new Date('2026-09-04T00:00:00Z'),
-  })
+  const rw = rawOpen(path)
+  rw.exec("INSERT INTO pending_continuations(id,origin_turn_id,goal,due_at,state,created_at,updated_at) VALUES('c1','t','g','2026-09-04','pending','2026-09-04','2026-09-04')")
   rw.close()
 
   assert.equal(applyScript(path, DOWN_SQL), null)

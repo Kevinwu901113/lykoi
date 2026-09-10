@@ -185,3 +185,14 @@ test('D-4：cap=0 在零用量时即拒（per-route 与总量两层）', async (
     return true
   })
 })
+
+test('Runner receipt charges exactly once across restart and UTC day rollover', async () => {
+  const path = join(tmp(), 'budget.json'), audit = fakeAudit()
+  const make = (now: number) => new BudgetAccountant({ ledgerPath: path, audit, warn: () => {}, caps: { dailyTotalTokens: 1000, dailyRouteTokens: {} }, now: () => now })
+  const charge = { route: 'pi', runId: 'op', receiptId: 'receipt-op', promptTokens: 100, completionTokens: 20 }
+  const first = make(DAY1); first.load(); await first.charge(charge)
+  const restored = make(DAY2); restored.load(); await restored.charge(charge)
+  assert.equal(restored.usage().totalTokens, 0)
+  assert.equal(audit.events.filter(e => e.type === 'budget/charge').length, 1)
+  await assert.rejects(() => restored.charge({ ...charge, completionTokens: 21 }), /different usage/)
+})

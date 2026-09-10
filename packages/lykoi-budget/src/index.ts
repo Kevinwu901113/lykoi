@@ -6,6 +6,7 @@ import { mkdir, open, rename } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 export interface ChargeInput {
+  receiptId?: string
   /** 计费路由（与 dsh-llm 的 provider route 同词汇）。 */
   route: string
   /** run 归因：这次消耗属于哪一次运行/决策周期。 */
@@ -43,6 +44,7 @@ interface DayBucket {
 interface Ledger {
   version: 1
   days: Record<string, DayBucket>
+  receipts?: Record<string, { route: string; promptTokens: number; completionTokens: number } >
 }
 
 export interface BudgetCaps {
@@ -141,6 +143,13 @@ export class BudgetAccountant implements BudgetService {
         assertTokenCount(bucket.totalTokens, 'persisted totalTokens')
         for (const value of Object.values(bucket.routes)) assertTokenCount(value, 'persisted route tokens')
       }
+      if (parsed.receipts !== undefined) {
+        if (!parsed.receipts || typeof parsed.receipts !== 'object' || Array.isArray(parsed.receipts)) throw new Error('invalid budget receipts')
+        for (const receipt of Object.values(parsed.receipts)) {
+          if (typeof receipt?.route !== 'string') throw new Error('invalid budget receipt route')
+          assertTokenCount(receipt.promptTokens, 'receipt prompt tokens'); assertTokenCount(receipt.completionTokens, 'receipt completion tokens')
+        }
+      }
       this.#ledger = parsed
     } catch (err) {
       this.#warn(`lykoi-budget: ledger corrupt (${String(err)})`)
@@ -206,6 +215,14 @@ export class BudgetAccountant implements BudgetService {
     assertTokenCount(input.promptTokens, 'promptTokens')
     assertTokenCount(input.completionTokens, 'completionTokens')
 
+    if (input.receiptId) {
+      const previous = this.#ledger.receipts?.[input.receiptId]
+      if (previous) {
+        if (previous.route !== input.route || previous.promptTokens !== input.promptTokens || previous.completionTokens !== input.completionTokens) throw new Error('budget receipt reused with different usage')
+        return
+      }
+      ;(this.#ledger.receipts ??= {})[input.receiptId] = { route: input.route, promptTokens: input.promptTokens, completionTokens: input.completionTokens }
+    }
     const day = this.#utcDay()
     const tokens = input.promptTokens + input.completionTokens
     const bucket = this.#bucket(day)

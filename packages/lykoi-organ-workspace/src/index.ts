@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { open, lstat, writeFile, readdir, realpath, mkdir } from 'node:fs/promises'
+import { open, lstat, writeFile, readFile, readdir, realpath, mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -29,7 +29,7 @@ export async function workspaceCapabilities(directory: string): Promise<Capabili
     } else within(await realpath(target))
     return target
   }
-  return [
+  const capabilities: Capability[] = [
     { name: 'workspace.list', description: 'List files in the instance workspace.',
       inputSchema: { type: 'object', properties: { path: { type: 'string' } }, additionalProperties: false },
       handler: async p => ({ files: await readdir(await locate(p.path ?? '.')) }) },
@@ -53,7 +53,8 @@ export async function workspaceCapabilities(directory: string): Promise<Capabili
       handler: async p => { await writeFile(await locate(p.path, true), p.content as string, 'utf8'); return { written: p.path } } },
     { name: 'terminal.exec', description: 'Run an approved shell command with the workspace as cwd. This is an OS command, not a filesystem sandbox. Large output is retained as a workspace artifact.',
       inputSchema: { type: 'object', properties: { command: { type: 'string' }, timeout_ms: { type: 'integer', minimum: 1, maximum: 120000 } }, required: ['command'], additionalProperties: false },
-      handler: async p => {
+      handler: async (p, execution) => {
+        execution?.signal?.throwIfAborted()
         const chunks: Buffer[] = []; let bytes = 0; let limited = false; let timedOut = false
         const child = spawn('/bin/sh', ['-c', p.command as string], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
           env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: root, LANG: 'C.UTF-8' }, detached: true })
@@ -64,11 +65,12 @@ export async function workspaceCapabilities(directory: string): Promise<Capabili
           bytes += chunk.length
           if (bytes > COMMAND_OUTPUT_LIMIT) { limited = true; stop() }
         }
+        execution?.signal?.addEventListener('abort', stop, { once: true })
         child.stdout.on('data', capture); child.stderr.on('data', capture)
         const timeout = setTimeout(() => { timedOut = true; stop() }, (p.timeout_ms as number | undefined) ?? 30000)
         let exitCode: number | null
         try { exitCode = await new Promise<number | null>((ok, fail) => { child.once('error', fail); child.once('close', ok) }) }
-        finally { clearTimeout(timeout) }
+        finally { clearTimeout(timeout); execution?.signal?.removeEventListener('abort', stop) }
         const output = Buffer.concat(chunks).toString('utf8')
         let artifact: string | undefined
         if (output.length > READ_LIMIT) {
@@ -80,6 +82,18 @@ export async function workspaceCapabilities(directory: string): Promise<Capabili
           ...(limited ? { error: 'output_limit' } : timedOut ? { error: 'timeout' } : exitCode !== 0 ? { error: 'command_failed' } : {}) }
       } },
   ]
+  return capabilities.map(capability => capability.name === 'terminal.exec' ? capability : {
+    ...capability,
+    recover: async params => {
+      if (capability.name === 'workspace.write') {
+        const content = await readFile(await locate(params.path), 'utf8')
+        return content === params.content ? { status: 'completed', observation: { success: true, data: { written: params.path, verified: true }, error: null } }
+          : { status: 'unknown', detail: 'file contents do not match the interrupted write' }
+      }
+      return { status: 'completed', observation: { success: true, data: await capability.handler(params), error: null } }
+    },
+  })
+
 }
 
 export const name = 'lykoi-organ-workspace'
@@ -89,6 +103,15 @@ export const Config: Schema<Config> = Schema.object({ directory: Schema.string()
 export async function apply(ctx: Context, config: Config) {
   // Installing this optional organ creates its workspace; memory restoration is separate.
   await mkdir(config.directory, { recursive: true })
-  const capabilities = await workspaceCapabilities(config.directory)
+  const scope = async (capability: Capability, execution?: import('lykoi-contracts').CapabilityExecutionContext) => {
+    if (!execution) return capability
+    if (execution.instanceId !== ctx.lykoiRuntime.instance?.id) throw new Error('workspace invocation belongs to another instance')
+    return (await workspaceCapabilities(execution.workspace)).find(c => c.name === capability.name)!
+  }
+  const capabilities = (await workspaceCapabilities(config.directory)).map(capability => ({
+    ...capability,
+    handler: async (params, execution) => (await scope(capability, execution)).handler(params, execution),
+    ...(capability.recover ? { recover: async (params, execution) => (await scope(capability, execution)).recover!(params, execution) } : {}),
+  } satisfies Capability))
   ctx.effect(() => (ctx.lykoiRuntime as RuntimeService).register({ organId: 'workspace', capabilities, sideEffects: [] }), 'workspace capabilities')
 }

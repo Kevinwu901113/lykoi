@@ -29,6 +29,7 @@ export function instanceEntries(path: string, instance: CharacterInstance, deplo
 
 /** Stop admission, finish owned work and durable ingress, then retire plugin handles. */
 export async function drainInstance(root: Context): Promise<void> {
+  await root.get('tasks')?.close()
   await root.lykoiRuntime.quiesce()
   await (root.get('ingress') as IngressService | undefined)?.close()
   await root.loader.root.stop()

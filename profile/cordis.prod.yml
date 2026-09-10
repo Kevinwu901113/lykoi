@@ -274,3 +274,15 @@
 # 由 Conversation 的 vision_error 分支接住（她知道自己没看见，而不是收到一句
 # 凭空的描述）。空串是另一回事 = **漏填**，同样零调用但措辞与事件分开 ——
 # 「忘了填」和「决定不开」必须一眼分得出。装配期落 `vision_seam_state` 一条。
+
+# Persistent tasks require a selected Character Instance; assembly supplies owned paths.
+- id: tasks
+  name: lykoi-task
+  config:
+    dbPath: /home/lykoi/state/memory.db
+    root: /home/lykoi/state/tasks
+    personaToml: ""
+    route: deepseek-official
+    model: deepseek-v4-flash
+    maxActions: 6
+    intervalMs: 10000

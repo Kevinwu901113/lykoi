@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { BotApiTransport } from 'lykoi-adapter-telegram/transport'
 import type { Context } from '@deepseek-ai/cordis'
 import type { UserTurn } from 'lykoi-ingress'
-import { parseEnvelope, handleTurn, ContinuationRunner } from '../src/index.ts'
+import { parseEnvelope, handleTurn } from '../src/index.ts'
 import { sequenceUtterances } from '../src/sequencer.ts'
-import { envelope, makeConversation, rawOpen, T0 } from './fixture.ts'
+import { envelope, makeConversation, T0 } from './fixture.ts'
 
 const parts = [' 第一条\r\n', '第二条🙂  ', '更正：第三条']
 const reply = (utterances: unknown, kind = 'reply') => envelope({ decision: {
@@ -36,7 +36,7 @@ test('真实Conversation记录边界，锁内交出各run分段，followup任务
     const b = h.conversation.send('二', { onUtterances: p => received.push([...p]) })
     assert.deepEqual(await Promise.all([a, b]), [parts.join(''), '我稍后补充。'])
     assert.deepEqual(received, [parts, ['我稍后补充。']])
-    assert.equal(h.conversation.takeFollowupRequest(), 'TASK_GOAL')
+    assert.match(h.conversation.takeFollowupRequest()!, /^task-/)
     const history = h.store.getRecentHistoryOfType('conversation', 10).map(row => JSON.parse(row.content))
     assert.deepEqual(history.find(row => row.user === '一').utterances, parts)
   } finally { h.store.close() }
@@ -92,24 +92,6 @@ test('handleTurn的部分交付不是replied，每条沿用原turn/run/anchor且
   } finally { h.store.close() }
 })
 
-test('continuation真实runCycle的多条产出按边界进入原outbox回调', async () => {
-  const h = makeConversation()
-  const progress: string[] = []
-  const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
-    audit: { record: async () => {} }, messenger: () => undefined,
-    canDeliver: () => true,
-    deliver: async text => { progress.push(text); return 'delivered' }, now: () => T0,
-  })
-  try {
-    h.llm.push({ content: reply(parts) })
-    const id = runner.register({ originTurnId: 'origin', originRunId: 'r0', goal: '继续整理' })!
-    await runner.scan(T0)
-    assert.deepEqual(progress, parts)
-    assert.equal(h.store.getContinuation(id)!.state, 'completed')
-  } finally { h.store.close() }
-})
-
-
 test('模型分段再经真实BotApiTransport拆4096包，HTTP载荷拼回完全等于模型原文', async () => {
   const input = ['甲'.repeat(4095) + '🙂尾\r\n', '  第二条独立消息  ']
   const calls: Record<string, unknown>[] = []
@@ -131,14 +113,14 @@ test('模型分段再经真实BotApiTransport拆4096包，HTTP载荷拼回完全
 })
 
 test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局快照', async () => {
-  const h = makeConversation()
+  const registered: string[] = []
+  const h = makeConversation({ createTask: input => { registered.push(input.goal); return { id: 'first-task' } } })
   let release!: () => void
   let entered!: () => void
   const blocked = new Promise<void>(r => { release = r })
   const waiting = new Promise<void>(r => { entered = r })
   let calls = 0
   h.conversation.governContext = async () => { if (++calls === 1) { entered(); await blocked } }
-  const registered: string[] = []
   const messenger = {
     routeOwnerMessage: async () => null, outboundWired: () => true,
     sendReply: async () => ({ outcome: 'delivered' }),
@@ -146,10 +128,7 @@ test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局�
   const ctx = { get: () => messenger, audit: { record: async () => {} } } as unknown as Context
   try {
     h.llm.push({ content: reply(['稍后给你。'], 'promise_followup') })
-    const first = handleTurn(ctx, h.conversation, turn, 'first-run', {
-      register: input => { registered.push(input.goal); return 'first-cont' },
-      kick: () => {}, scan: async () => ({ skipped: false, claimed: 0, expired: 0 }),
-    })
+    const first = handleTurn(ctx, h.conversation, turn, 'first-run')
     await waiting
     h.llm.push({ content: reply(['后轮已完成。']) })
     await h.conversation.send('第二轮', { runId: 'second-run', turnId: 'second-turn' })
@@ -158,60 +137,7 @@ test('锁外摘要等待期间下一轮完成，不覆盖前轮承诺与终局�
     const result = await first
     assert.equal(result.terminal.status, 'completed')
     assert.equal(result.terminal.followup_registered, true)
-    assert.equal(result.terminal.continuation_id, 'first-cont')
+    assert.equal(result.terminal.task_id, 'first-task')
     assert.deepEqual(registered, ['TASK_GOAL'])
   } finally { release(); h.store.close() }
-})
-
-test('continuation收账不取走锁外等待期间新用户轮的followup', async () => {
-  const h = makeConversation()
-  let release!: () => void
-  let entered!: () => void
-  const blocked = new Promise<void>(r => { release = r })
-  const waiting = new Promise<void>(r => { entered = r })
-  let calls = 0
-  h.conversation.governContext = async () => { if (++calls === 1) { entered(); await blocked } }
-  const events: Record<string, unknown>[] = []
-  const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
-    audit: { record: async event => { events.push(event) } }, messenger: () => undefined,
-    canDeliver: () => true,
-    deliver: async () => 'delivered', now: () => T0,
-  })
-  try {
-    h.llm.push({ content: reply(['旧任务完成。']) })
-    const id = runner.register({ originTurnId: 'old', originRunId: 'old-run', goal: '旧任务' })!
-    const scanning = runner.scan(T0)
-    await waiting
-    h.llm.push({ content: reply(['新任务稍后处理。'], 'promise_followup') })
-    await h.conversation.send('新任务', { runId: 'new-run', turnId: 'new-turn' })
-    release()
-    await scanning
-    assert.equal(h.store.getContinuation(id)!.state, 'completed')
-    assert.equal(events.find(event => event.type === 'continuation/terminal')!.chained_request, false)
-    assert.equal(h.conversation.takeFollowupRequest(), 'TASK_GOAL')
-  } finally { release(); h.store.close() }
-})
-
-test('续跑第二条投递失败后不发送第三条，也不能 completed', async () => {
-  const h = makeConversation()
-  const attempted: string[] = []
-  const runner = new ContinuationRunner({ store: h.store, conversation: h.conversation,
-    audit: { record: async () => {} }, messenger: () => undefined,
-    canDeliver: () => true,
-    deliver: async text => { attempted.push(text); return attempted.length === 1 ? 'delivered' : 'undelivered' },
-    now: () => T0,
-  })
-  try {
-    h.llm.push({ content: reply(parts) })
-    runner.register({ originTurnId: 'failure-origin', originRunId: 'r0', goal: '继续整理' })!
-    await runner.scan(T0)
-    assert.deepEqual(attempted, parts.slice(0, 2))
-    assert.equal(h.store.runningContinuations().length, 0)
-    const db = rawOpen(h.path)
-    try {
-      const row = db.prepare('SELECT state, terminal_reason FROM pending_continuations').get()!
-      assert.equal(row.state, 'failed')
-      assert.equal(row.terminal_reason, 'delivery_failed')
-    } finally { db.close() }
-  } finally { h.store.close() }
 })

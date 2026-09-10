@@ -1,6 +1,13 @@
 import type {} from '@deepseek-ai/cordis'
 /** Contracts shared by Runtime, governance and plugins. No implementation imports. */
-export type ResourceHandler = (params: Record<string, unknown>) => Promise<unknown>
+export interface CapabilityExecutionContext {
+  instanceId: string
+  taskId: string
+  operationId: string
+  workspace: string
+  signal?: AbortSignal
+}
+export type ResourceHandler = (params: Record<string, unknown>, context?: CapabilityExecutionContext) => Promise<unknown>
 export type ResourceRegistry = Readonly<Record<string, Readonly<Record<string, ResourceHandler>>>>
 export type RuntimeLog = (name: string, fields: Record<string, unknown>) => void
 /** 一条副作用登记。 */
@@ -66,13 +73,21 @@ export interface CapabilityDefinition {
   description: string
   inputSchema: InputSchema
 }
-export interface Capability extends CapabilityDefinition { handler: ResourceHandler }
+export type CapabilityRecovery = { status: 'completed'; observation: unknown } | { status: 'pending' | 'unknown'; detail: string }
+export interface Capability extends CapabilityDefinition {
+  handler: ResourceHandler
+  recover?: (params: Record<string, unknown>, context: CapabilityExecutionContext) => Promise<CapabilityRecovery>
+  cancel?: (params: Record<string, unknown>, context: CapabilityExecutionContext) => Promise<CapabilityRecovery>
+}
 export interface CapabilityRegistration {
   organId: string
   capabilities: readonly Capability[]
   sideEffects: readonly SideEffectDeclaration[]
 }
 export interface CapabilityActivity {
+  taskId?: string
+  operationId?: string
+  instanceId?: string
   id: string
   name: string
   phase: 'started' | 'result' | 'failed'
@@ -83,7 +98,9 @@ export interface RuntimeService {
   readonly instance?: CharacterInstance
   run<T>(work: () => Promise<T>): Promise<T>
   quiesce(): Promise<void>
-  invoke(name: string, params: Record<string, unknown>): Promise<unknown>
+  invoke(name: string, params: Record<string, unknown>, context?: CapabilityExecutionContext): Promise<unknown>
+  recover(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext): Promise<CapabilityRecovery>
+  cancel(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext): Promise<CapabilityRecovery>
   capabilities(): readonly CapabilityDefinition[]
   readonly resources: ResourceRegistry
   readonly actions: ReadonlySet<string>
@@ -111,3 +128,29 @@ export interface CharacterInstance {
 declare module '@deepseek-ai/cordis' {
   interface Context { lykoiInstance: CharacterInstance }
 }
+
+export interface TaskSummary {
+  id: string; goal: string; requirements: string; status: string; checkpoint: string
+  wait: { kind: string; detail: string; until?: string; operationId?: string } | null
+  delivery: { state: string; content: string; error: string | null } | null
+}
+export interface TaskDeliveryResult { state: 'sent' | 'failed' | 'unknown'; receipt?: unknown; error?: string }
+export interface TaskInteractions {
+  requestApproval(input: { name: string; args: Record<string, unknown>; operationId: string; taskId: string }): Promise<void>
+  deliver(task: TaskSummary): Promise<TaskDeliveryResult>
+}
+export interface CharacterTasks {
+  history(id: string, offset?: number, limit?: number): { operations: unknown[]; nextOffset: number | null }
+  command(text: string): Promise<string | null>
+  bindInteractions(interactions: TaskInteractions): () => void
+  approve(operationId: string, action?: { name: string; args: Record<string, unknown> }): Promise<boolean>
+  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string }): TaskSummary
+  get(id: string): TaskSummary
+  list(): TaskSummary[]
+  update(id: string, requirements: string, criteria?: string): TaskSummary
+  control(id: string, command: 'pause' | 'resume' | 'cancel'): Promise<TaskSummary>
+  retryDelivery(id: string): TaskSummary
+  scan(): Promise<void>
+  close(): Promise<void>
+}
+declare module '@deepseek-ai/cordis' { interface Context { tasks: CharacterTasks } }

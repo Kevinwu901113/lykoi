@@ -347,7 +347,7 @@ export class DurableTurnStore {
       const terminal: TurnTerminalPayload = {
         status: 'failed', reason: 'interrupted', followup_registered: false,
         ask_sent: false, notice_sent: false, reply_chars: 0, elapsed_ms: 0,
-        continuation_id: null,
+        task_id: null,
       }
       const moment = now.toISOString()
       for (const row of rows) {
