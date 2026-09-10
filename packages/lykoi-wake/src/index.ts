@@ -205,7 +205,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   deps.store.startAutonomyRun(runId, { startedAt: moment })
   const counts: WakeCounts = { action: 0, external_read: 0, notification: 0 }
 
-  let decision!: Decision
+  let decision: Decision | undefined
   let budgetExhausted = false
   let status: 'completed' | 'failed'
   try {
@@ -237,15 +237,16 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
         const capabilities = deps.capabilities?.() ?? []
         const available = capabilities.length ? [{ role: 'system' as const, content: '当前获准使用的能力：\n' + capabilities.map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n') + '\n要调用能力，decision.kind="tool_call"，decision.tool={"name":"能力名","arguments":{}}。结果会回到下一步。' }] : []
         const reply = await deps.llm([...messages, ...available], llmMeta)
-        decision = evaluateMessage({ content: reply.content }, [...candidates, ...(capabilities.length ? [{ kind: 'tool_call', weight: 0.4, cost: '一次能力调用', note: '根据结果继续思考' }] : [])], {
+        const choice = evaluateMessage({ content: reply.content }, [...candidates, ...(capabilities.length ? [{ kind: 'tool_call', weight: 0.4, cost: '一次能力调用', note: '根据结果继续思考' }] : [])], {
           kinds: [...KINDS, ...(capabilities.length ? ['tool_call'] : [])], envelopeFields: ['tool'],
           injectedThoughtIds, injectedConcernIds, injectedThreadIds,
           logEvent: deps.logEvent, gap: { source: 'wake', runId },
         })
         messages.push({ role: 'assistant', content: reply.content ?? '' })
-        return { kind: 'act', action: decision }
+        return { kind: 'act', action: choice }
       },
       act: async (choice) => {
+        decision = choice // Only an executed step can become the persisted decision.
         const observations: unknown[] = []
         const result = await executeAndReflow(choice, runId, counts, {
           store: deps.store, now: m, logEvent: deps.logEvent,
@@ -292,7 +293,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   deps.store.finishAutonomyRun(runId, {
     status,
     finishedAt,
-    decision: serializeDecision(decision),
+    decision: decision === undefined ? null : serializeDecision(decision),
     nextWakeAt: heartNextDate(deps.heart, finishedAt),
     actionCount: counts.action,
     externalReadCount: counts.external_read,
@@ -302,7 +303,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
   deps.store.bumpWakesSince({ now: finishedAt })
   deps.logEvent('autonomy_wake', {
     run_id: runId,
-    decision: decision.kind,
+    decision: decision?.kind ?? null,
     actions: counts.action,
     status,
   })
@@ -335,7 +336,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     ...(budgetExhausted ? { reason: 'cognition_steps' } : {}),
     beats,
     run_id: runId,
-    decision: decision.kind,
+    ...(decision === undefined ? {} : { decision: decision.kind }),
     next_wake_at: deps.heart.nextAt,
   }
 }

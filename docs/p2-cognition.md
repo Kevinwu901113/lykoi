@@ -2,11 +2,11 @@
 
 当前状态：P2-A/B/C 实现与验收完成。尚未 push、合并或部署；生产角色状态未修改。
 
-Conversation 与 Wake 共用 `lykoi-runtime/cognition` 的有界 reason → act → observe 循环。调用方保留上下文、prompt、状态写入和交付；异常不由循环重试或替换成休息。正常结束、调用失败、主动沉默和预算耗尽分别保留实际结果。JSON recovery 继续由 LLM adapter 单独负责。
+Conversation 与 Wake 共用 `lykoi-runtime/cognition` 的有界 reason → act → observe 循环。调用方保留上下文、prompt、状态写入和交付；异常不由循环重试或替换成休息。正常结束、调用失败、主动沉默和预算耗尽分别保留实际结果。JSON recovery 继续由 LLM adapter 单独负责。Wake 的 run decision 只记录已进入执行阶段的选择，预算耗尽后的 closing 响应不覆盖它；零步执行时存储 null。
 
 插件以 `name / description / inputSchema / handler` 注册能力，注销函数绑定 Cordis 生命周期。Runtime 从同一声明生成模型描述、参数校验、BodySchema 和派发视图。每次模型请求刷新定义；卸载后新派发和持有的旧 handler 都拒绝执行，已经开始的工作仍属于原实例。`KNOWN_ACTION_LIST`、`TOOL_TABLE` 及工具别名映射已删除。
 
-能力名称采用 `namespace.method`。输入使用小型 JSON Schema 子集：type（含 nullable 联合）、properties、required、additionalProperties、items、enum、minimum、maximum、description。不支持的 JSON Schema 特性不应在插件中声明。不进行参数修复或类型转换。注册不会授予权限：Conversation 过滤 deny，Wake 只展示现有自主权限允许的能力，实际执行仍经过 kernel 审批和审计。
+能力名称采用 `namespace.method`。输入使用小型 JSON Schema 子集：type（含 nullable 联合）、properties、required、additionalProperties、items、enum、minimum、maximum、description。不支持的 JSON Schema 特性不应在插件中声明。不进行参数修复或类型转换。注册不会授予权限：Conversation 过滤 deny，Wake 只展示现有自主权限允许的能力，实际执行仍经过 kernel 审批和审计。自主能力的内建列表仅提供既有默认授权；新能力默认 deny，可由运行规则的 `autonomous.always_allow` 显式放行，`autonomous.always_deny` 优先，终端/委托硬边界不放宽。注册与授权须同时具备。
 
 Browser 的页面读取现在包含实际链接，支持读取索引 → 发现目标链接 → 读取后续页面。保留既有宿主、SSRF、独立 research context 和不可信内容边界。
 
@@ -24,7 +24,7 @@ Browser 的页面读取现在包含实际链接，支持读取索引 → 发现�
 
 继续使用 `node profile/instance.ts run --registry <registry> --id <id> --config <config> --console`。角色定义和记忆恢复方式不变。
 
-Node 24 本地结果：typecheck 通过；1200 项测试中 1189 通过、0 失败、11 跳过（包括依赖未提供私有 devstate 的测试）。真实 Chrome 与实例 console 已执行。
+Node 24 本地结果：typecheck 通过；1206 项测试中 1195 通过、0 失败、11 跳过（包括依赖未提供私有 devstate 的测试）。真实 Chrome 与实例 console 已执行。
 
 本地验证覆盖共享循环的观察反馈/预算/异常，Conversation 参数失败后的后续行动，动态卸载，Wake observation 相关 thought/experience 写入，文件越界与软链接，shell 审批，真实 Chrome 链接发现，以及真实子进程 console 和 P1 A/B 连续性。
 

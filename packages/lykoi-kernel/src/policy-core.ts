@@ -9,7 +9,8 @@ export const HARD_ASK_TYPES: ReadonlySet<string> = new Set([
 // live 规则里，按路径的在 PROTECTED_PATHS。
 export const HARD_DENY_TYPES: ReadonlySet<string> = new Set([])
 
-export const AUTONOMOUS_ALLOWED: ReadonlySet<string> = new Set([
+/** Existing autonomous defaults; deployment rules may authorize other registered capabilities. */
+export const AUTONOMOUS_DEFAULT_ALLOWED: ReadonlySet<string> = new Set([
   'research_browser.open',
   'research_browser.read_text',
   'research_browser.extract_links',
@@ -42,13 +43,11 @@ export function hardDecision(actionType: string): HardDecision {
   return null
 }
 
-/**
- * origin 级可达地板："allow" / "deny" / null。只约束 autonomous —— allow-list
- * 内 "allow"，其余 "deny"；其它 origin 一律 null（无意见）。
- */
+/** Autonomous defaults, with approval-required operations still unavailable autonomously. */
 export function capabilityProfile(origin: string, actionType: string): CapabilityDecision {
   if (origin !== 'autonomous') return null
-  return AUTONOMOUS_ALLOWED.has(actionType) ? 'allow' : 'deny'
+  if (HARD_ASK_TYPES.has(actionType)) return 'deny'
+  return AUTONOMOUS_DEFAULT_ALLOWED.has(actionType) ? 'allow' : null
 }
 
 /** approval 侧咨询的 core 形状（null = 加载失败 → fail CLOSED）。 */

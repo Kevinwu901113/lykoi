@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { wakeOnce } from '../src/index.ts'
-import { T0, makeStore, makeWakeDeps } from './fixture.ts'
+import { T0, makeStore, makeWakeDeps, rawOpen } from './fixture.ts'
 
 test('Wake reads an actual observation, chooses a next action, and persists its resulting thought', async () => {
   const { store } = makeStore()
@@ -27,3 +27,48 @@ test('Wake reads an actual observation, chooses a next action, and persists its 
     assert.ok(store.recentExperiences(10).some(e => e.content.includes('OBS_741')))
   } finally { store.close() }
 })
+
+
+for (const maxActions of [0, 1]) for (const closingKind of ['rest', 'record_note', 'tool_call']) {
+  test(`budget ${maxActions}: unexecuted closing ${closingKind} is not persisted as the actual decision`, async () => {
+    const { store, path } = makeStore()
+    const id = store.createConcern('interest', '观察试验', { weight: 0.5, origin: 'seed', now: T0 })
+    let requests = 0, calls = 0
+    const { deps, log } = makeWakeDeps({ store, reply: '{}', overrides: {
+      maxActions,
+      wiredActions: new Set(['specimen.lookup']),
+      capabilities: () => [{ name: 'specimen.lookup', description: 'Read specimen', inputSchema: { type: 'object' } }],
+      dispatchFn: async () => { calls++; return { success: true, data: { observed: 'ACTUAL' } } },
+      llm: async () => {
+        requests++
+        const closing = requests > maxActions
+        return { content: JSON.stringify({ meaning_assessment: [{ item: '观察试验', meaning: '读取实际观察', concern_id: id, pull: 0.5 }],
+          decision: { kind: closing ? closingKind : 'tool_call', content: closing ? 'UNEXECUTED_CLOSING' : 'ACTUAL',
+            tool: { name: 'specimen.lookup', arguments: {} }, reason: '观察试验' },
+          ...(closing ? { inner: { thoughts: [{ content: 'UNEXECUTED_CLOSING', kind: 'observation' }], resolve: [] } } : {}),
+        }) }
+      },
+    } })
+    try {
+      const result = await wakeOnce(deps)
+      assert.equal(result.status, 'budget_exhausted')
+      assert.equal(requests, maxActions + 1); assert.equal(calls, maxActions)
+      assert.equal(result.decision, maxActions ? 'tool_call' : undefined)
+      const db = rawOpen(path)
+      try {
+        const row = db.prepare('SELECT decision, action_count, status FROM autonomy_runs WHERE id = ?').get('run-wake-test')!
+        assert.equal(row.status, 'failed'); assert.equal(row.action_count, maxActions)
+        if (maxActions === 0) assert.equal(row.decision, null)
+        else {
+          const persisted = JSON.parse(String(row.decision))
+          assert.equal(persisted.kind, 'tool_call')
+          assert.ok(!String(row.decision).includes('UNEXECUTED_CLOSING'))
+        }
+      } finally { db.close() }
+      assert.ok(!store.openThoughts().some(t => t.content.includes('UNEXECUTED_CLOSING')))
+      assert.ok(!store.recentExperiences(20).some(e => e.content.includes('UNEXECUTED_CLOSING')))
+      const event = log.events.find(([name]) => name === 'autonomy_wake')!
+      assert.equal(event[1].decision, maxActions ? 'tool_call' : null)
+    } finally { store.close() }
+  })
+}
