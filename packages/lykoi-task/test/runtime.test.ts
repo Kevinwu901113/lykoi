@@ -8,7 +8,7 @@ import { TaskStore } from '../src/store.ts'
 import { TaskRuntime, type TaskDependencies } from '../src/runtime.ts'
 
 function fixture(t: { after(fn: () => void): void }, overrides: Partial<TaskDependencies> = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'lykoi-task-')), db = join(root, 'memory.db')
+  const root = mkdtempSync(join(tmpdir(), 'lykoi-task-')), db = join(root, 'tasks.sqlite')
   new DatabaseSync(db).close()
   const store = new TaskStore(db, 'A', root)
   t.after(() => { store.close(); rmSync(root, { recursive: true, force: true }) })
@@ -18,9 +18,12 @@ function fixture(t: { after(fn: () => void): void }, overrides: Partial<TaskDepe
   return { root, db, store, runtime }
 }
 
-test('restore cannot create an empty replacement memory DB', t => {
+test('TaskStore creates independent storage and rejects corrupt bytes', t => {
   const { root } = fixture(t)
-  assert.throws(() => new TaskStore(join(root, 'missing.db'), 'A', root), /ENOENT/)
+  const path = join(root, 'new-tasks.sqlite'), created = new TaskStore(path, 'A', root)
+  created.close()
+  writeFileSync(path, 'not a database')
+  assert.throws(() => new TaskStore(path, 'A', root), /database/)
 })
 
 test('claim is durable and exclusive across connections; instance mismatch fails', t => {
@@ -36,7 +39,10 @@ test('repeat followup updates the existing work and paused tasks stay paused', a
   const { store, runtime } = fixture(t)
   const a = store.create({ goal: 'research', originTurnId: 'turn' })
   await runtime.control(a.id, 'pause')
-  const b = store.create({ goal: 'research', requirements: 'include tests' })
+  const replay = store.create({ goal: 'research', originTurnId: 'turn' })
+  assert.equal(replay.id, a.id); assert.equal(replay.revision, 1)
+  assert.notEqual(store.create({ goal: 'research' }).id, a.id)
+  const b = store.update(a.id, 'include tests')
   assert.equal(a.id, b.id); assert.equal(b.status, 'paused'); assert.equal(b.revision, 2)
   await runtime.scan(); assert.equal(store.runs(a.id).length, 0)
 })
@@ -129,12 +135,13 @@ test('unconfirmed sending on restart requires verification, not automatic resend
 })
 
 test('legacy migration is repeatable, preserves due time and does not replay interrupted work', t => {
-  const { store } = fixture(t)
-  store.db.exec(`CREATE TABLE pending_continuations(id TEXT PRIMARY KEY, origin_turn_id TEXT, goal TEXT, state TEXT, terminal_reason TEXT, created_at TEXT, due_at TEXT);
+  const { store, root } = fixture(t)
+  const source = new DatabaseSync(join(root, 'memory.db')); t.after(() => source.close())
+  source.exec(`CREATE TABLE pending_continuations(id TEXT PRIMARY KEY, origin_turn_id TEXT, goal TEXT, state TEXT, terminal_reason TEXT, created_at TEXT, due_at TEXT);
     INSERT INTO pending_continuations VALUES('p','turn','pending goal','pending',NULL,'2026-09-10','2099-01-01T00:00:00Z');
     INSERT INTO pending_continuations VALUES('r','turn','running goal','running',NULL,'2026-09-10','2026-09-10T00:00:00Z');
     INSERT INTO pending_continuations VALUES('d','turn','delivery goal','failed','delivery_failed','2026-09-10','2026-09-10T00:00:00Z');`)
-  assert.equal(store.migrateContinuations(), 3); assert.equal(store.migrateContinuations(), 0)
+  assert.equal(store.migrateContinuations(source), 3); assert.equal(store.migrateContinuations(source), 0)
   assert.equal(store.list().find(t => t.goal === 'pending goal')!.wait?.until, '2099-01-01T00:00:00.000Z')
   assert.equal(store.list().find(t => t.goal === 'running goal')!.wait?.kind, 'verification')
   assert.equal(store.list().find(t => t.goal === 'delivery goal')!.wait?.kind, 'verification')
@@ -183,7 +190,7 @@ test('pending external work yields the task until reconciled, without another wr
   finished = true; await runtime.reconcile(); assert.equal(store.get(task.id).status, 'pending')
 })
 
-test('identical failed execution is bounded across cognition runs', async t => {
+test('the model can repeat an identical failed action across bounded runs', async t => {
   let calls = 0
   const { store, runtime } = fixture(t, {
     maxActions: 1,
@@ -192,8 +199,8 @@ test('identical failed execution is bounded across cognition runs', async t => {
   })
   const task = store.create({ goal: 'report' })
   await runtime.scan(); await runtime.scan(); await runtime.scan()
-  assert.equal(calls, 2)
-  assert.match((store.operations(task.id).at(-1)!.observation as { error: string }).error, /failed twice/)
+  assert.equal(calls, 3)
+  assert.equal((store.operations(task.id).at(-1)!.observation as { error: string }).error, 'unavailable')
 })
 
 test('actual Telegram transport rejection retries delivery without regenerating the artifact', async t => {
@@ -252,4 +259,26 @@ test('recovery keeps the newer cancellation result instead of stale running prog
   assert.equal(store.get(task.id).status, 'cancelled')
   assert.equal(store.get(task.id).wait!.detail, 'stop confirmed')
   assert.deepEqual(store.operation(op.id)!.observation, { cancelled: true })
+})
+
+test('moving old Task tables preserves operations and delivery without leaving a second task ledger', t => {
+  const { root } = fixture(t), memoryPath = join(root, 'old-memory.db')
+  const old = new TaskStore(memoryPath, 'A', root)
+  old.db.exec("CREATE TABLE memories(content TEXT); INSERT INTO memories VALUES('unchanged')")
+  const task = old.create({ goal: 'preserve me', originTurnId: 'message-1' }), run = old.claim(task.id)!
+  old.intent(task.id, run.id, 'external.write', { value: 1 })
+  old.edit(task.id, current => { current.delivery = { state: 'failed', content: 'ready', attempts: 1, error: 'transport' } })
+  const before = { task: old.get(task.id), runs: old.runs(task.id), operations: old.operations(task.id) }
+  old.close()
+  const target = new TaskStore(join(root, 'independent.sqlite'), 'A', root)
+  try {
+    target.migrateFromMemory(memoryPath); target.migrateFromMemory(memoryPath)
+    assert.deepEqual({ task: target.get(task.id), runs: target.runs(task.id), operations: target.operations(task.id) }, before)
+    assert.equal(target.create({ goal: 'same request', originTurnId: 'message-1' }).id, task.id)
+    const source = new DatabaseSync(memoryPath, { readOnly: true })
+    try {
+      assert.equal(source.prepare("SELECT content FROM memories").get()!.content, 'unchanged')
+      assert.equal(source.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name IN ('persistent_tasks','task_runs','task_operations')").get()!.n, 0)
+    } finally { source.close() }
+  } finally { target.close() }
 })

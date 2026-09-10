@@ -235,7 +235,7 @@ export function makeConversation(overrides: Partial<ConverseDeps> & {
     organs,
     clock: () => T0,
     createTask: input => {
-      const tasks = new TaskStore(path, 'fixture', join(path, '..', 'tasks'))
+      const tasks = new TaskStore(join(path, '..', 'tasks.sqlite'), 'fixture', join(path, '..', 'tasks'))
       try { return tasks.create(input) } finally { tasks.close() }
     },
     wiredActions: runtime.actions,

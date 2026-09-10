@@ -2,7 +2,7 @@ import { parseStateTimestamp } from 'lykoi-memory'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID, createHash } from 'node:crypto'
 import { mkdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 
 const statuses = ['pending', 'running', 'waiting', 'paused', 'completed', 'failed', 'cancelled'] as const
 export type TaskStatus = typeof statuses[number]
@@ -11,7 +11,7 @@ export interface Artifact { path: string; sha256: string; bytes: number }
 export interface Task {
   id: string; instanceId: string; originTurnId: string | null; goal: string; requirements: string; criteria: string
   revision: number; status: TaskStatus; checkpoint: string; workspace: string; createdAt: string; updatedAt: string
-  wait: TaskWait | null; failure: string | null; failures: number; artifacts: Artifact[]
+  wait: TaskWait | null; failure: string | null; artifacts: Artifact[]
   delivery: { state: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown'; content: string; attempts: number; error: string | null; receipt?: unknown } | null
   experienceId: number | null
 }
@@ -22,13 +22,15 @@ export interface Operation {
 }
 const terminal = new Set<TaskStatus>(['completed', 'failed', 'cancelled'])
 
-/** Task-owned tables in the existing instance memory DB. Every mutation is a short synchronous transaction. */
+/** Instance-owned Task database, independent of memory storage. Every mutation is a short synchronous transaction. */
 export class TaskStore {
   readonly db: DatabaseSync
+  readonly dbPath: string
   readonly instanceId: string
   readonly root: string
   constructor(dbPath: string, instanceId: string, root: string) {
-    if (!statSync(dbPath).isFile()) throw new Error('task storage requires an existing instance memory DB')
+    mkdirSync(dirname(dbPath), { recursive: true })
+    this.dbPath = resolve(dbPath)
     this.db = new DatabaseSync(dbPath)
     this.instanceId = instanceId; this.root = root
     this.db.exec(`PRAGMA busy_timeout=5000;
@@ -81,13 +83,13 @@ export class TaskStore {
   create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string }, now = new Date()): Task {
     if (!input.goal.trim()) throw new TypeError('task goal is required')
     if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now)
-    const existing = this.list().find(t => !['completed', 'cancelled'].includes(t.status) && (t.goal === input.goal || (input.originTurnId && t.originTurnId === input.originTurnId)))
-    if (existing) return this.update(existing.id, input.requirements ?? input.goal, input.criteria, now)
+    const existing = input.originTurnId ? this.list().find(t => t.originTurnId === input.originTurnId) : undefined
+    if (existing) return existing
     const id = `task-${randomUUID()}`, workspace = join(this.root, id, 'workspace')
     mkdirSync(workspace, { recursive: true })
     const task: Task = { id, instanceId: this.instanceId, originTurnId: input.originTurnId ?? null, goal: input.goal,
       requirements: input.requirements ?? input.goal, criteria: input.criteria ?? '完成用户目标并提供可核验成果', revision: 1,
-      status: 'pending', checkpoint: '', workspace, wait: null, failure: null, failures: 0, artifacts: [], delivery: null,
+      status: 'pending', checkpoint: '', workspace, wait: null, failure: null, artifacts: [], delivery: null,
       experienceId: null, createdAt: now.toISOString(), updatedAt: now.toISOString() }
     this.db.prepare('INSERT INTO persistent_tasks(id,instance_id,document) VALUES(?,?,?)').run(id, this.instanceId, JSON.stringify(task))
     return task
@@ -98,7 +100,7 @@ export class TaskStore {
       if (task.status === 'failed') { task.status = 'pending'; task.delivery = null }
       task.requirements = requirements; if (criteria !== undefined) task.criteria = criteria
       for (const op of this.operations(id)) if (op.status === 'approval') this.saveOperation({ ...op, status: 'completed', approved: false, observation: { success: false, error: 'requirements changed before execution' } })
-      task.revision++; task.failure = null; task.failures = 0
+      task.revision++; task.failure = null
       if (task.status === 'waiting' && task.wait?.kind !== 'verification' && task.wait?.kind !== 'operation') { task.status = 'pending'; task.wait = null }
     }, now)
   }
@@ -157,11 +159,30 @@ export class TaskStore {
     }
   }
 
+  /** Move pre-separation Task tables once; only this database executes tasks afterwards. */
+  migrateFromMemory(memoryPath: string): void {
+    if (resolve(memoryPath) === this.dbPath) throw new Error('TaskStore must be separate from memory DB')
+    if (!statSync(memoryPath).isFile()) throw new Error('instance memory DB is missing')
+    this.db.prepare('ATTACH DATABASE ? AS legacy').run(memoryPath)
+    try {
+      this.transaction(() => {
+        for (const table of ['persistent_tasks', 'task_runs', 'task_operations']) {
+          if (!this.db.prepare('SELECT name FROM legacy.sqlite_master WHERE name=?').get(table)) continue
+          this.db.exec(`INSERT INTO main.${table} SELECT * FROM legacy.${table}`)
+          if (table === 'persistent_tasks') for (const row of this.db.prepare('SELECT id, document FROM persistent_tasks').all()) this.#readTask(row)
+          this.db.exec(`DROP TABLE legacy.${table}`)
+        }
+      })
+    } finally { this.db.exec('DETACH DATABASE legacy') }
+    const source = new DatabaseSync(memoryPath, { readOnly: true })
+    try { this.migrateContinuations(source) } finally { source.close() }
+  }
+
   /** A per-legacy-row marker and its task are committed together; source rows remain historical evidence. */
-  migrateContinuations(now = new Date()): number {
-    if (!this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_continuations'").get()) return 0
+  migrateContinuations(source: DatabaseSync, now = new Date()): number {
+    if (!source.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_continuations'").get()) return 0
     let count = 0
-    for (const row of this.db.prepare("SELECT * FROM pending_continuations WHERE state IN ('pending','running') OR (state='failed' AND terminal_reason IN ('delivery_failed','interrupted','chained_request','approval_pending'))").all()) {
+    for (const row of source.prepare("SELECT * FROM pending_continuations WHERE state IN ('pending','running') OR (state='failed' AND terminal_reason IN ('delivery_failed','interrupted','chained_request','approval_pending'))").all()) {
       if (this.db.prepare('SELECT id FROM persistent_tasks WHERE legacy_id=?').get(row.id)) continue
       this.transaction(() => {
         const id = `legacy-${createHash('sha256').update(String(row.id)).digest('hex').slice(0, 24)}`, workspace = join(this.root, id, 'workspace')
@@ -170,7 +191,7 @@ export class TaskStore {
         const task: Task = { id, instanceId: this.instanceId, originTurnId: String(row.origin_turn_id), goal: String(row.goal), requirements: String(row.goal), criteria: '完成原先承诺并交付可核验结果',
           revision: 1, status: 'waiting', checkpoint: uncertain ? `旧跟进 ${row.state}/${row.terminal_reason ?? 'unknown'}；需核实原执行与交付结果` : '', workspace,
           wait: uncertain ? { kind: 'verification', detail: '旧执行缺少操作记录，先核实执行及交付结果再继续' } : { kind: 'due', detail: '原承诺到期推进', until: parseStateTimestamp(String(row.due_at)).toISOString() },
-          failure: null, failures: 0, artifacts: [], delivery: null, experienceId: null, createdAt: String(row.created_at), updatedAt: now.toISOString() }
+          failure: null, artifacts: [], delivery: null, experienceId: null, createdAt: String(row.created_at), updatedAt: now.toISOString() }
         this.db.prepare('INSERT INTO persistent_tasks VALUES(?,?,?,?)').run(id, this.instanceId, row.id, JSON.stringify(task)); count++
       })
     }

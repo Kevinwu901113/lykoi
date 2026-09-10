@@ -125,11 +125,7 @@ export class TaskRuntime {
         if (approvedOp.approvalRevision !== task.revision) throw new RequirementsChanged('approval belongs to earlier requirements')
         this.store.saveOperation({ ...op, status: 'inflight', approved: false })
       }
-      const failures = this.store.operations(id).filter(previous => previous.revision === task.revision && previous.name === action.name
-        && isDeepStrictEqual(previous.args, action.args) && previous.status === 'completed' && (previous.observation as { success?: boolean })?.success === false).length
-      const observation = failures >= 2
-        ? { success: false, data: { rejected: true }, error: 'identical action failed twice; change the approach or report failure' }
-        : await this.deps.dispatch(action, {
+      const observation = await this.deps.dispatch(action, {
           instanceId: task.instanceId, taskId: id, operationId: op.id, workspace: task.workspace, signal,
         }, approvedOp?.approved)
       const text = JSON.stringify(observation), reference = `observation-${op.id}.json`
@@ -202,7 +198,7 @@ export class TaskRuntime {
         if (uncertain.length) task.status = 'waiting'
         else if (signal.aborted || error instanceof RequirementsChanged) task.status = 'pending'
         else {
-          task.status = 'failed'; task.failure = message; task.failures++
+          task.status = 'failed'; task.failure = message
           task.delivery = { state: 'pending', content: `任务 ${task.id} 未完成：${message}`, attempts: 0, error: null }
         }
       })

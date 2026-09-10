@@ -94,7 +94,8 @@
   name: lykoi-task
   disabled: true
   config:
-    dbPath: var/dev-state.db
+    dbPath: var/tasks.sqlite
+    memoryPath: var/dev-state.db
     root: var/tasks
     personaToml: ""
     route: mock

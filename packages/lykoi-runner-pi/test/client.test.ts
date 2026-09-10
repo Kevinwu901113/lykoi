@@ -42,29 +42,27 @@ test('cancel waits for Pi to report idle and retains a confirmed cancellation re
   assert.equal(readFileSync(join(workspace, 'starts.txt'), 'utf8'), 'start\n')
 })
 
-test('actual Runner registration inherits approval gate and writes one real delegation receipt', async t => {
-  const { createStateFixture } = await import('lykoi-memory/testing')
-  const { DelegationLedger, createDispatch } = await import('lykoi-kernel')
+test('actual Runner registration inherits approval gate and uses the operation receipt without a second ledger', async t => {
+  const { createDispatch } = await import('lykoi-kernel')
   const { CapabilityRuntime } = await import('lykoi-runtime')
   const { runnerCapabilities } = await import('../src/index.ts')
-  const { root, workspace, config } = fixture(t, 'ledger report'), db = join(root, 'memory.db')
-  createStateFixture(db)
-  const sink = { record: async () => {} }, ledger = new DelegationLedger({ dbPath: db, sink }), runner = new PiRunner(root)
-  t.after(() => ledger.close())
+  const { root, workspace, config } = fixture(t, 'runner report')
+  const events: Record<string, unknown>[] = []
+  const sink = { record: async (event: Record<string, unknown>) => { events.push(event) } }, runner = new PiRunner(root)
   const runtime = new CapabilityRuntime(() => {}, { version: 1, id: 'A', origin: 'created', createdAt: new Date().toISOString(), definitionHash: 'test', personaPath: 'test', stateRoot: root })
   let charges = 0
   const charged = new Set<string>()
-  runtime.register({ organId: 'pi', sideEffects: [], capabilities: runnerCapabilities(runner, ledger,
-    { ...config, root, dbPath: db, credentialEnv: [], budgetRoute: 'fixture' }, { gate: async () => {}, usage: () => ({ day: '', totalTokens: 0, routeTokens: 0 }), charge: async input => { if (!charged.has(input.receiptId!)) { charged.add(input.receiptId!); charges++ } } }) })
+  runtime.register({ organId: 'pi', sideEffects: [], capabilities: runnerCapabilities(runner,
+    { ...config, root, credentialEnv: [], budgetRoute: 'fixture' }, { gate: async () => {}, usage: () => ({ day: '', totalTokens: 0, routeTokens: 0 }), charge: async input => { if (!charged.has(input.receiptId!)) { charged.add(input.receiptId!); charges++ } } }, sink) })
   const dispatch = createDispatch({ sink, resources: runtime.resources }), action = { type: 'delegation.dispatch', params: { prompt: config.prompt } }
   assert.equal((await dispatch(action, { context: { origin: 'interactive' } })).error, 'needs_approval')
-  assert.equal(ledger.listContracts().length, 0)
+  assert.equal(events.some(e => e.type === 'runner/launched'), false)
   const started = await dispatch(action, { preApproved: true, context: { origin: 'interactive', execution: { instanceId: 'A', taskId: config.taskId, operationId: config.operationId, workspace } } })
   assert.equal(started.success, true); assert.equal(started.data.pending, true)
   await until(runner, config.operationId, r => r.state === 'succeeded')
-  const status = await runtime.invoke('delegation.status', { contract_id: config.operationId }) as { receipts: unknown[] }
-  await runtime.invoke('delegation.collect', { contract_id: config.operationId })
-  assert.equal(status.receipts.length, 1); assert.equal(charges, 1)
-  assert.equal(ledger.getContract(config.operationId)!.state, 'collected')
-  assert.equal(ledger.listReceipts(config.operationId)[0]!.verdict, null, 'Pi exit does not certify the user goal')
+  const status = await runtime.invoke('delegation.status', { operation_id: config.operationId }) as RunnerReceipt
+  await runtime.invoke('delegation.collect', { operation_id: config.operationId })
+  assert.equal(status.operationId, config.operationId); assert.equal(charges, 1)
+  assert.equal(status.state, 'succeeded')
+  assert.equal(events.filter(e => e.type === 'runner/launched').length, 1)
 })

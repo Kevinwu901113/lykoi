@@ -9,7 +9,7 @@ import { TaskStore } from '../src/store.ts'
 import { TaskRuntime } from '../src/runtime.ts'
 
 test('process death after a real side effect leaves an unknown operation that is not replayed', async t => {
-  const root = mkdtempSync(join(tmpdir(), 'lykoi-task-crash-')), db = join(root, 'memory.db')
+  const root = mkdtempSync(join(tmpdir(), 'lykoi-task-crash-')), db = join(root, 'tasks.sqlite')
   new DatabaseSync(db).close()
   t.after(() => rmSync(root, { recursive: true, force: true }))
   const script = `
@@ -17,7 +17,7 @@ test('process death after a real side effect leaves an unknown operation that is
     import { join } from 'node:path'
     import { TaskStore } from ${JSON.stringify(new URL('../src/store.ts', import.meta.url).href)}
     import { TaskRuntime } from ${JSON.stringify(new URL('../src/runtime.ts', import.meta.url).href)}
-    const root = process.argv[1], store = new TaskStore(join(root, 'memory.db'), 'A', root)
+    const root = process.argv[1], store = new TaskStore(join(root, 'tasks.sqlite'), 'A', root)
     const task = store.create({ goal: 'publish once' })
     const runtime = new TaskRuntime(store, { maxActions: 1, intervalMs: 0,
       reason: async () => ({ kind: 'act', action: { name: 'publish.once', args: {} } }),

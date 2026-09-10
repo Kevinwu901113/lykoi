@@ -279,7 +279,8 @@
 - id: tasks
   name: lykoi-task
   config:
-    dbPath: /home/lykoi/state/memory.db
+    dbPath: /home/lykoi/state/tasks.sqlite
+    memoryPath: /home/lykoi/state/memory.db
     root: /home/lykoi/state/tasks
     personaToml: ""
     route: deepseek-official

@@ -4,7 +4,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { createStateFixture } from 'lykoi-memory/testing'
+import { loadPersona, buildPersonaKernel } from 'lykoi-decide'
 import { DatabaseSync } from 'node:sqlite'
 import { CapabilityRuntime } from 'lykoi-runtime'
 import * as workspace from 'lykoi-organ-workspace'
@@ -15,6 +17,9 @@ const definition = new URL('../../lykoi-decide/test/fixtures/instance/persona.to
 test('Cordis task plugin owns state, uses real workspace observations, restores delivery and records one experience', async () => {
   const root = mkdtempSync(join(tmpdir(), 'lykoi-task-plugin-')), db = join(root, 'memory.db')
   createStateFixture(db)
+  const learned = new ReadWriteMemory(db)
+  let acquired = 'I learned to inspect actual results before reporting completion.'
+  learned.upsertInsight('persona', acquired, { now: new Date() })
   process.env.LYKOI_APPROVAL_RULES = join(root, 'rules.json')
   process.env.LYKOI_STANDING_GRANTS = join(root, 'grants.json')
   writeFileSync(process.env.LYKOI_APPROVAL_RULES, JSON.stringify({ always_allow: ['workspace.write', 'workspace.read'], always_deny: [], ask: [] }))
@@ -26,6 +31,12 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
     ctx.provide('audit', { record: async () => {} })
     ctx.provide('lykoiLlm', { call: async options => {
       calls++
+      assert.ok((options.messages[0]!.content[0] as { text: string }).text.includes(buildPersonaKernel(loadPersona(definition))))
+      assert.ok((options.messages[0]!.content[0] as { text: string }).text.includes(acquired))
+      if (calls === 1) {
+        acquired = 'My later experience changed how I summarize evidence.'
+        learned.upsertInsight('persona', acquired, { now: new Date() })
+      }
       const payload = JSON.parse((options.messages.at(-1)!.content[0] as { text: string }).text)
       const operations = payload.operations
       let decision: unknown
@@ -39,7 +50,7 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
       return { text: JSON.stringify(decision), reasoningLength: 0 }
     } })
     const organ = await ctx.plugin(workspace, { directory: join(root, 'workspace') })
-    const tasks = await ctx.plugin(taskPlugin, { dbPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 1, intervalMs: 60000 })
+    const tasks = await ctx.plugin(taskPlugin, { dbPath: join(root, 'tasks.sqlite'), memoryPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 1, intervalMs: 60000 })
     ctx.tasks.bindInteractions({ requestApproval: async () => { throw new Error('unexpected approval') }, deliver: async () => { deliveries++; return { state: 'failed', error: 'fixture transport unavailable' } } })
     return { ctx, dispose: async () => { await ctx.tasks.close(); await tasks.dispose(); await organ.dispose() } }
   }
@@ -64,7 +75,7 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
     await first.dispose()
     first = await setup(); await first.ctx.tasks.scan(); await first.dispose()
     const check = new DatabaseSync(db, { readOnly: true })
-    try { assert.equal(check.prepare('SELECT COUNT(*) AS n FROM experience_references WHERE reference=?').get(task.id)!.n, 1); assert.equal(check.prepare("SELECT COUNT(*) AS n FROM experiences WHERE source='action_result'").get()!.n, 1) }
+    try { assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='persistent_tasks'").get(), undefined); assert.equal(check.prepare('SELECT COUNT(*) AS n FROM experience_references WHERE reference=?').get(task.id)!.n, 1); assert.equal(check.prepare("SELECT COUNT(*) AS n FROM experiences WHERE source='action_result'").get()!.n, 1) }
     finally { check.close() }
-  } finally { rmSync(root, { recursive: true, force: true }) }
+  } finally { learned.close(); rmSync(root, { recursive: true, force: true }) }
 })

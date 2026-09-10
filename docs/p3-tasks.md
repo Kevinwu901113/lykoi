@@ -2,13 +2,13 @@
 
 P3 builds on the P1 instance and P2 cognition loop. Task is a durable goal, not a second agent. The implementation has passed local regression checks and the disposable-instance acceptance below; it has not been deployed to the existing character.
 
-`lykoi-task` owns three tables in the existing instance memory DB: tasks, cognition runs and operations. Workspaces live under `stateRoot/tasks/<id>/workspace`. Profile assembly supplies paths; CharacterInstance does not know plugin filenames. Run one active instance through `profile/instance.ts`, which retains P1's process lock and drain boundary.
+`lykoi-task` owns an independent `stateRoot/tasks.sqlite`: tasks, cognition runs and operations. Existing Task tables are moved out of memory.db once and removed there; memory remains responsible for persona and experiences. Workspaces live under `stateRoot/tasks/<id>/workspace`. Profile assembly supplies paths; CharacterInstance does not know plugin filenames. Run one active instance through `profile/instance.ts`, which retains P1's process lock and drain boundary.
 
 An operation intent is committed before dispatch. Its observation and any external-operation wait are committed together. Recovery queries an installed capability's optional `recover` hook; absent or unsuccessful verification means waiting, not replay. Workspace reads can be repeated; writes are verified against actual file contents. Unknown shell-command effects require verification. Paused tasks stay paused. Pending Runner work owns its task materials until a terminal receipt is confirmed.
 
-Each run uses `runCognition`, has an action budget and reads current requirements. An earlier revision cannot finish the task. Two identical failed executions under the same requirements prevent a third identical dispatch; changing the approach remains the model's responsibility. JSON/protocol retries remain in `lykoi-llm`. Recent observations stay in context; `task.history` pages older records. Large observations are files in the task workspace.
+Each run uses `runCognition`, has an action budget and reads current requirements. An earlier revision cannot finish the task. Failures are observations; the model chooses whether to repeat an action within the normal run budget. Each call receives the base persona and current acquired persona. JSON/protocol retries remain in `lykoi-llm`. Recent observations stay in context; `task.history` pages older records. Large observations are files in the task workspace.
 
-Acceptance of a follow-up happens only after the task exists in SQLite. Existing unfinished Continuations migrate once by a unique source-row marker. Interrupted work and historical delivery failures wait for verification. The old Continuation executor and ledger-only Delegation action facade are retired; historical tables remain readable evidence.
+Acceptance of a follow-up happens only after the task exists in SQLite. Only an explicit origin turn is an idempotent creation source; equal goal text creates independent tasks. Requirement changes target a task ID. Existing unfinished Continuations migrate once by a unique source-row marker. Interrupted work and historical delivery failures wait for verification. The old Continuation executor and ledger-only Delegation action facade are retired; historical tables remain readable evidence.
 
 Task completion records checked file paths, sizes and SHA-256 hashes. Delivery has its own pending/sending/sent/failed/unknown status. A confirmed send failure retries delivery only. A crash during sending requires verification. Completed tasks contribute one Experience through an idempotent Memory reference, including after a restart between the memory write and Task checkpoint.
 
@@ -39,7 +39,7 @@ Tasks continue to use existing interactive permission rules for an accepted user
 
 The Runner is optional and must be explicitly configured. Its implementation was probed against `@earendil-works/pi-coding-agent@0.85.1` using the official [RPC interface](https://pi.dev/docs/latest/rpc). Pi is an external executable, not installed by cognition.
 
-Example additional profile entry (instance assembly supplies `dbPath` and `root`):
+Example additional profile entry (instance assembly supplies `root`):
 
 ```yaml
 - id: pi
@@ -59,7 +59,7 @@ Example additional profile entry (instance assembly supplies `dbPath` and `root`
 
 A detached worker owns the Pi RPC session. Reconstructing Lykoi reconnects to that worker or reads its final receipt. Missing connectivity is unknown, never evidence that Pi stopped. Cancellation clears queued prompts, aborts, and checks idle state. RPC automatic retry is disabled. Each execution has a deadline and turn limit. Launch uses the existing budget gate; actual session usage is charged once by receipt ID to the configured budget route. Accounting is per bounded Runner execution, not per internal Pi model request.
 
-`delegation.dispatch/status/collect` now refer to real Pi execution and the existing Delegation contract/receipt. A successful Pi exit produces a collected receipt, not a verdict that the user's goal is satisfied. Task cognition must inspect the artifacts.
+`delegation.dispatch/status/collect` refer directly to a Task operation ID and its Runner receipt; status/collect take `operation_id`. There is no additional DelegationLedger in the Pi path. Launch/cancellation audit events carry instance, task and operation IDs. A successful Pi exit is execution evidence, not a verdict that the user's goal is satisfied. Task cognition must inspect the artifacts.
 
 ## Acceptance
 
@@ -75,3 +75,5 @@ Acceptance on 2026-09-10 used DeepSeek V4 Flash and Pi 0.85.1:
 - Delivery failure/retry uses the actual Telegram transport against controlled HTTP responses; no real Telegram messages were sent. Console delivery was received by the real worker client. Existing-character production state was not a fixture and no deployment occurred.
 
 Earlier trials exposed a missing read-lock wait in the acceptance observer, incorrect Pi environment-reference syntax, a too-small six-turn Runner limit, and provider JSON failures. The harness/configuration issues were corrected; invalid provider output remains a bounded adapter failure, without an extra Task retry layer. All trials consumed 186,386 accounted tokens. Raw logs, receipts and artifacts stay outside Git; machine-generated evidence is not another governance source.
+
+Pre-merge cleanup verifies independent Task storage and one-time transfer, source-only creation idempotency, repeated model-selected failed actions, live acquired-persona refresh, and Pi receipt/audit execution without a DelegationLedger. The real-model evidence above belongs to the earlier P3 acceptance; this cleanup is covered by targeted process tests and regression checks.

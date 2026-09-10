@@ -14,7 +14,7 @@ assert.ok(process.env.DEEPSEEK_API_KEY, 'provider credential required')
 assert.ok(process.env.LYKOI_PI_CLI, 'path to verified Pi CLI required')
 const root = mkdtempSync(join(tmpdir(), 'lykoi-p3-live-')), registry = join(root, 'instances')
 const instance = createInstance({ registry, id: 'acceptance', definition: resolve('packages/lykoi-decide/test/fixtures/instance/persona.toml'), ownerName: '验收者', telegramSenderId: '1' })
-const dbPath = join(instance.stateRoot, 'memory.db'), configPath = join(root, 'runtime.json')
+const dbPath = join(instance.stateRoot, 'tasks.sqlite'), configPath = join(root, 'runtime.json')
 writeFileSync(join(instance.stateRoot, 'approval_rules.json'), JSON.stringify({ always_allow: ['workspace.*', 'task.*', 'delegation.status', 'delegation.collect'], always_deny: [], ask: [] }))
 const records: unknown[] = [], workers: ChildProcessWithoutNullStreams[] = []
 const record = (type: string, data: unknown) => {

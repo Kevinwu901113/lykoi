@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { loadPersona, buildPersonaPrompt } from 'lykoi-decide'
+import { loadPersona, buildPersonaKernel, buildPersonaPrompt } from 'lykoi-decide'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
 import { check, createDispatch } from 'lykoi-kernel'
 import type {} from 'lykoi-llm'
@@ -11,9 +11,9 @@ import { TaskStore } from './store.ts'
 
 export const name = 'lykoi-task'
 export const inject = ['lykoiRuntime', 'lykoiLlm', 'audit']
-export interface Config { dbPath: string; root: string; personaToml: string; route: string; model: string; maxActions: number; intervalMs: number }
+export interface Config { dbPath: string; memoryPath: string; root: string; personaToml: string; route: string; model: string; maxActions: number; intervalMs: number }
 export const Config: Schema<Config> = Schema.object({
-  dbPath: Schema.string().required(), root: Schema.string().required(), personaToml: Schema.string().required(),
+  dbPath: Schema.string().required(), memoryPath: Schema.string().required(), root: Schema.string().required(), personaToml: Schema.string().required(),
   route: Schema.string().required(), model: Schema.string().required(), maxActions: Schema.number().default(6), intervalMs: Schema.number().default(10000),
 })
 export function taskCapabilities(tasks: CharacterTasks): Capability[] {
@@ -50,7 +50,7 @@ export async function apply(ctx: Context, config: Config) {
   const instance = ctx.lykoiRuntime.instance
   if (!instance) throw new Error('persistent tasks require a Character Instance')
   const store = new TaskStore(config.dbPath, instance.id, config.root)
-  const memory = new ReadWriteMemory(config.dbPath)
+  const memory = new ReadWriteMemory(config.memoryPath)
   const persona = loadPersona(config.personaToml)
   const dispatch = createDispatch({ sink: ctx.audit, resources: ctx.lykoiRuntime.resources })
   const runtime = new TaskRuntime(store, {
@@ -68,7 +68,7 @@ export async function apply(ctx: Context, config: Config) {
     reason: async ({ task, run, operations, closing, signal }) => {
       const capabilities = ctx.lykoiRuntime.capabilities().filter(c => !c.name.startsWith('conversation.') && (!c.name.startsWith('task.') || c.name === 'task.history') && check(c.name, 'interactive') !== 'deny')
       const result = await ctx.lykoiLlm.call({ provider: config.route, model: config.model, responseFormat: { type: 'json_object' }, signal,
-        messages: [createMessage({ role: 'system', content: [{ type: 'text', text: buildPersonaPrompt(memory, persona) + '\n' + PROTOCOL }], source: { kind: 'plugin', plugin: name } }),
+        messages: [createMessage({ role: 'system', content: [{ type: 'text', text: [buildPersonaKernel(persona), buildPersonaPrompt(memory, persona), PROTOCOL].filter(Boolean).join('\n\n') }], source: { kind: 'plugin', plugin: name } }),
           createUserMessage({ content: [{ type: 'text', text: JSON.stringify({ task, operations: operations.slice(-8), operationCount: operations.length, capabilities, closing }) }], source: { kind: 'plugin', plugin: name } })],
       }, { runId: run.id })
       const decision = JSON.parse(result.text)
@@ -82,7 +82,7 @@ export async function apply(ctx: Context, config: Config) {
       return dispatch({ type: action.name, params: action.args }, { context: { origin: 'interactive', execution }, preApproved: approved, actionId: execution.operationId, correlationId: execution.taskId })
     },
   })
-  store.migrateContinuations()
+  store.migrateFromMemory(config.memoryPath)
   await runtime.recover()
   const service: CharacterTasks = {
     history: (id, offset = 0, limit = 10) => {
