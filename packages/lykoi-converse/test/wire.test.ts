@@ -138,7 +138,7 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   const adapter = new CapturingAdapter(envelope({
     decision: {
       kind: 'tool_call',
-      tool: { name: 'research_read_text', arguments: { url: 'https://example.com/a' } },
+      tool: { name: 'research_browser.read_text', arguments: { url: 'https://example.com/a' } },
       reason: '他问我在不在',
     },
   }))
@@ -199,11 +199,11 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   assert.ok(assistantIdx >= 0, '必须能找到一条 assistant 文本帧，正文是 tool_call 信封')
   const assistantMsg = second.messages[assistantIdx]!
   const assistantEnvelope = JSON.parse((assistantMsg.content[0]! as { text: string }).text)
-  assert.equal(assistantEnvelope.decision.tool.name, 'research_read_text')
+  assert.equal(assistantEnvelope.decision.tool.name, 'research_browser.read_text')
   assert.equal(assistantEnvelope.decision.tool.arguments.url, 'https://example.com/a')
 
   // 工具结果紧跟在 assistant 那条**正后面**（S-29：调用与结果同生共死、相邻
-  // 成对）：user 文本帧，`[工具结果 research_read_text] ` 前缀 + 工具帧原文
+  // 成对）：user 文本帧，`[工具结果 research_browser.read_text] ` 前缀 + 工具帧原文
   // （fixture 里 tool 帧内容 = kernel dispatch 的回执文本，本条只核前缀，不
   // 重复断言回执正文的完整形状）。
   const toolResultMsg = second.messages[assistantIdx + 1]!
@@ -211,8 +211,8 @@ test('WO-FIX-TOOLFRAME-01 D-4 翻面：assistant tool_calls → assistant 文本
   assert.equal(toolResultMsg.content.length, 1)
   const toolResultText = (toolResultMsg.content[0]! as { type: 'text'; text: string }).text
   assert.ok(
-    toolResultText.startsWith('[工具结果 research_read_text] '),
-    `期望 [工具结果 research_read_text] 前缀，实际：${toolResultText.slice(0, 60)}`,
+    toolResultText.startsWith('[工具结果 research_browser.read_text] '),
+    `期望 [工具结果 research_browser.read_text] 前缀，实际：${toolResultText.slice(0, 60)}`,
   )
 
   // 最后一条：契约 system（CACHE-INVERT 不破——契约必须留在生成点前的最后
@@ -265,13 +265,13 @@ test('WO-FIX-TOOLFRAME-01 D-4①：工具结果帧的 name 按 id 从预建映�
     {
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call-abc', type: 'function', function: { name: 'research_read_text', arguments: '{"url":"https://a"}' } }],
+      tool_calls: [{ id: 'call-abc', type: 'function', function: { name: 'research_browser.read_text', arguments: '{"url":"https://a"}' } }],
     },
     { role: 'tool', content: '文章正文', tool_call_id: 'call-abc' },
   ]
   const pairedOut = toDshEnvelopeMessages(paired, provider)
   const pairedText = (pairedOut[2]!.content[0]! as { type: 'text'; text: string }).text
-  assert.equal(pairedText, '[工具结果 research_read_text] 文章正文')
+  assert.equal(pairedText, '[工具结果 research_browser.read_text] 文章正文')
 
   // 找不到路：tool_call_id 在 sliced 数组里没有任何匹配的 assistant tool_calls
   // 帧（理论上不会发生——S-29 裁剪配对成对进出，出现即说明配对被破坏了）。
@@ -294,14 +294,14 @@ test('WO-FIX-TOOLFRAME-01 D-4②：工具结果含 DSML 机器标记时，user �
     {
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'research_read_text', arguments: '{"url":"https://a"}' } }],
+      tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'research_browser.read_text', arguments: '{"url":"https://a"}' } }],
     },
     { role: 'tool', content: dsmlContent, tool_call_id: 'call-1' },
   ]
   const out = toDshEnvelopeMessages(sliced, provider)
   const text = (out[2]!.content[0]! as { type: 'text'; text: string }).text
   assert.ok(!text.includes('｜｜DSML｜｜'), '机器标记不许经工具结果回灌回上下文')
-  assert.equal(text, '[工具结果 research_read_text] 剩余正文')
+  assert.equal(text, '[工具结果 research_browser.read_text] 剩余正文')
 })
 
 // --- WO-FIX-TOOLFRAME-01 D-4③：#messages 内部形状不受 D-1 影响（D-2） --------
@@ -319,7 +319,7 @@ test('WO-FIX-TOOLFRAME-01 D-4③：#messages 内部仍是原生 role tool / tool
   h.llm.push({ content: envelope({
     decision: {
       kind: 'tool_call',
-      tool: { name: 'research_read_text', arguments: { url: 'https://a' } },
+      tool: { name: 'research_browser.read_text', arguments: { url: 'https://a' } },
       reason: '他问我在不在',
     },
   }) })
@@ -332,7 +332,7 @@ test('WO-FIX-TOOLFRAME-01 D-4③：#messages 内部仍是原生 role tool / tool
   const toolCallMsg = secondMessages.find((m) => m.role === 'assistant' && m.tool_calls !== undefined)
   assert.ok(toolCallMsg, 'D-2：#executeCycleTool 仍 push {role:"assistant", content:null, tool_calls:[call]}')
   assert.equal(toolCallMsg!.content, null)
-  assert.equal(toolCallMsg!.tool_calls![0]!.function.name, 'research_read_text')
+  assert.equal(toolCallMsg!.tool_calls![0]!.function.name, 'research_browser.read_text')
   const callId = toolCallMsg!.tool_calls![0]!.id
   const toolResultMsg = secondMessages.find((m) => m.role === 'tool' && m.tool_call_id === callId)
   assert.ok(toolResultMsg, 'D-2：#appendToolResult 仍 push {role:"tool", tool_call_id, content}')

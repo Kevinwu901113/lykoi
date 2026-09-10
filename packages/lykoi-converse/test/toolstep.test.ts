@@ -51,7 +51,7 @@ test('D-1（THINKPOLICY-01 D-5 翻面）：工具步之后（step>=1）信封调
       return { success: true, data: { ok: true } }
     },
   })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '看完了')
@@ -83,8 +83,8 @@ test('D-1（THINKPOLICY-01 D-5 翻面）：多步工具循环里每一步都不�
       return { success: true, data: {} }
     },
   })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://b' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://b' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '两个都看完了', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '两个都看完了')

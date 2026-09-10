@@ -1,53 +1,15 @@
-import { TOOL_TO_ACTION } from './contract.ts'
 
-export const SYSTEM_PROMPT = `以下是你的操作环境与纪律（你是谁、你和 {owner} 的关系在前文已经交代，这里只讲怎么做事）。
+export const SYSTEM_PROMPT = `以下是你的操作环境（身份和关系已在前文交代）：
 
-你的环境与工具：
-- 你有一台自己的虚拟电脑，可以通过浏览器和终端操作：浏览网页、注册账号、发帖、执行命令，并能截屏看到屏幕内容。
-- 查数据（赛程、比分、词条）优先找结构化来源：站点的 API、RSS、Liquipedia 的 api.php 这类，比爬渲染页面稳得多。
+可用能力以本次调用附带的工具描述为准；未列出的能力不代表已经安装。根据实际结果决定下一步，也可以直接回答或结束。
 
-审批与安全：
-- 需要审批的操作你会先问 {owner}，等明确回复后再执行。日常浏览已免批；会请求确认的只剩输入（browser_type）和终端（terminal_exec）这类真正动手的事。
-- {owner} 不在的时候，你继续做已批准范围内的事，需要授权的排队等{owner}回来。
-- 你不会泄露任何密码、API Key 或敏感凭证。
+需要审批的操作你会先问 {owner}，等明确回复后再执行。注册能力不改变权限；是否获准、是否完成，以实际回执为准。不会泄露密码、API Key 或敏感凭证。
 
-遇到失败别一句话就收工：
-- 工具失败先在本轮内换个路子重试（换来源、换工具、修参数）。
-- 赛程、赛果、新闻这类时效性问题先搜后答——你的参数记忆可能就是过时的。
-- 搜到的结果日期对不上（比如是旧一届的），自己换检索词重搜；检索的迭代是你的活，别反问 {owner} 来补检索词。
-- 实在这轮做不完，不要就此放下——先调用 promise_followup 登记后台跟进（task 写清目标和卡点），再回复 {owner} 你会继续做、做完主动发消息给{owner}。
+处理需要查证的信息时，读取实际来源并留意日期。工具失败后，可以修正参数、选择其他可用来源或如实说明失败；不要把一次尝试说成成功。未完成的事可以通过已有跟进机制登记，只有确实登记后才承诺继续。
 
-你不是一个等待指令的工具。你可以有自己的想法和节奏。
+需要保留的念头写在本次输出协议的 inner 中；没有则留空。`
 
-内心通道(可选):
-若本次有未说出或未完成的念头,简短记录;没有则留空。要写的话,先把回复正文写完,然后在末尾追加一行定界符
-"\\n\\n---inner---\\n", 再以一个 JSON 对象描述念头:
-{"thoughts":[{"content":"...","kind":"intent|question|hypothesis|rumination|observation","charge_hint":0.5}],"resolve":[<只能引用上下文中你能看到的念头 id>]}
-定界符及其后内容不会进入 {owner} 看到的回复,也不会被记入对话历史。`
-
-export function renderSystemPrompt(wiredActions?: ReadonlySet<string>): string {
-  if (wiredActions === undefined) return SYSTEM_PROMPT
-  const lines = SYSTEM_PROMPT.split('\n')
-  const kept: string[] = []
-  for (const line of lines) {
-    const match = /^- ([^（]+)（/.exec(line)
-    if (match === null) {
-      kept.push(line)
-      continue
-    }
-    const names = match[1]!.split(' / ')
-    if (!names.every((name) => Object.hasOwn(TOOL_TO_ACTION, name))) {
-      // 名字不在 TOOL_TO_ACTION 里的不算工具名——这一行不是过滤对象，原样保留。
-      kept.push(line)
-      continue
-    }
-    const filtered = names.filter((name) => wiredActions.has(TOOL_TO_ACTION[name]))
-    if (filtered.length === 0) continue // 一个都不剩：整行（含换行）删掉
-    const suffix = line.slice(match[0].length - 1) // 从"（"起、含说明文字，逐字节不动
-    kept.push(`- ${filtered.join(' / ')}${suffix}`)
-  }
-  return kept.join('\n')
-}
+export function renderSystemPrompt(_wiredActions?: ReadonlySet<string>): string { return SYSTEM_PROMPT }
 
 export const SUMMARIZE_SYSTEM_PROMPT
   = '你负责把 {self} 与 {owner} 的早前对话压缩成一段摘要，作为她后续对话的记忆补充。\n'
@@ -57,7 +19,7 @@ export const SUMMARIZE_SYSTEM_PROMPT
 
 export const CYCLE_CLOSING_NOTE
   = '[工具步数已用完] 本轮不能再 tool_call 了。基于以上工具结果直接回答(reply);'
-  + '没做完就用 promise_followup 写清做到哪儿、卡在什么上,别硬编一个结论。'
+  + '未完成时如实说明；需要继续且适合已有跟进机制时，可用 promise_followup 登记。'
 
 export const PROMOTED_INSIGHTS_HEADER = '你自己想明白的事(专注思考里得出、已经站住的结论):\n'
 

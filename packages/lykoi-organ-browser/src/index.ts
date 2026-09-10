@@ -203,7 +203,13 @@ export function wireBrowserOrgan(
 ): () => void {
   return runtime.register({
     organId: ORGAN_ID,
-    handlers: Object.fromEntries(ORGAN_ACTIONS.map(action => [action, createOrganHandler(action, client, logEvent)])),
+    capabilities: ORGAN_ACTIONS.map(action => ({
+      name: action,
+      description: action === 'browser.navigate' ? 'Open a URL in the persistent browser.' : action === 'browser.get_text' ? 'Read the current browser page after navigating.' : 'Read a URL in an isolated research browser.',
+      inputSchema: { type: 'object', properties: { url: { type: 'string' }, max_chars: { type: 'integer', minimum: 1 } },
+        required: action === 'browser.get_text' ? [] : ['url'], additionalProperties: false },
+      handler: createOrganHandler(action, client, logEvent),
+    })),
     sideEffects: [],
   })
 }

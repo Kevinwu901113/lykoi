@@ -82,82 +82,18 @@ export interface Observation {
   error: string | null
 }
 
-export const KNOWN_ACTION_LIST = [
-  'browser.navigate',
-  'browser.get_text',
-  'browser.click',
-  'browser.type',
-  'browser.screenshot',
-  'terminal.exec',
-  'research_browser.open',
-  'research_browser.read_text',
-  'research_browser.extract_links',
-  'research_browser.screenshot',
-  'autonomy.queue_notification',
-
-  'autonomy.initiate_chat',
-  'notify.owner',
-
-  'messenger.send',
-  'messenger.read',
-
-  'delegation.dispatch',
-  'delegation.status',
-  'delegation.collect',
-] as const
-
-export type KnownAction = (typeof KNOWN_ACTION_LIST)[number]
-
-export const KNOWN_ACTIONS: ReadonlySet<string> = new Set(KNOWN_ACTION_LIST)
-
-// --- 资源注册表（注入面） -----------------------------------------------------
-
 import type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
 export type { ResourceHandler, ResourceRegistry } from 'lykoi-contracts'
 
-const UNWIRED_HANDLER_MARK = Symbol.for('lykoi.kernel.unwired_handler')
-
-function markUnwiredHandler(handler: ResourceHandler): ResourceHandler {
-  Object.defineProperty(handler, UNWIRED_HANDLER_MARK, {
-    value: true,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  })
-  return handler
-}
-
-/** 结构判定：这个 handler 是不是 `unwiredResources()` 造出来的替身（D-1a）。 */
-export function isUnwiredHandler(handler: ResourceHandler): boolean {
-  return (handler as unknown as Record<symbol, unknown>)[UNWIRED_HANDLER_MARK] === true
-}
-
-export function unwiredResources(): ResourceRegistry {
-  const registry: Record<string, Record<string, ResourceHandler>> = {}
-  for (const actionType of KNOWN_ACTION_LIST) {
-    const [prefix, method] = actionType.split('.', 2) as [string, string]
-    registry[prefix] ??= {}
-    registry[prefix]![method] = markUnwiredHandler(async () => {
-      throw new Error(`器官未接线: ${actionType} 的资源真身随 M3-W3/M5 器官波到来`)
-    })
-  }
-  return registry
-}
-
-/**
- * D-1a：`resources` 里**真的接得通**的动作子集（`KNOWN_ACTION_LIST` 原序保留）。
- * 一个动作类型算"接得通"，当且仅当 `resources[prefix][method]` 存在、可调用、
- * 且未打 `UNWIRED_HANDLER_MARK`。`isHardGated` 与 `kernelActionCatalog` 同一
- * 实现——分级判定不因"接没接线"而改变。
- */
+/** Derive the dispatch view from installed handlers. Permissions remain independent. */
 export function wiredActionCatalog(resources: ResourceRegistry): {
   knownActions: readonly string[]
   isHardGated(actionType: string): boolean
 } {
-  const knownActions = KNOWN_ACTION_LIST.filter((actionType) => {
+  const knownActions = Object.entries(resources).flatMap(([prefix, methods]) => Object.keys(methods).map(method => `${prefix}.${method}`)).filter((actionType) => {
     const [prefix, method] = actionType.split('.', 2) as [string, string]
     const handler = resources[prefix]?.[method]
-    return typeof handler === 'function' && !isUnwiredHandler(handler)
+    return typeof handler === 'function'
   })
   return {
     knownActions,
@@ -172,15 +108,12 @@ export function _resolve(actionType: string, resources: ResourceRegistry): Resou
   if (!prefix || !method) {
     throw new Error(`malformed action.type: ${JSON.stringify(actionType)}`)
   }
-  if (!KNOWN_ACTIONS.has(actionType)) {
-    throw new Error(`unknown action ${JSON.stringify(actionType)}`)
-  }
   const resource = resources[prefix]
-  if (resource === undefined) {
+  if (!Object.hasOwn(resources, prefix) || resource === undefined) {
     throw new Error(`unknown action prefix ${JSON.stringify(prefix)} in ${JSON.stringify(actionType)}`)
   }
   const handler = resource[method]
-  if (typeof handler !== 'function') {
+  if (!Object.hasOwn(resource, method) || typeof handler !== 'function') {
     throw new Error(`unknown action ${JSON.stringify(actionType)}`)
   }
   return handler
@@ -316,7 +249,7 @@ async function _executeDecision(
 export interface DispatchDeps {
   /** immutable audit sink（lykoi-audit 注入；null = sink 不可用 → 门恒 fail closed）。 */
   sink: ImmutableAuditSink | null
-  /** 资源注册表；缺省 = unwiredResources()（W1 替身：门真、器官待长）。 */
+  /** 资源注册表；未提供时为空，不虚构未安装能力。 */
   resources?: ResourceRegistry
 }
 
@@ -331,7 +264,7 @@ export type DispatchFunction = (
 ) => Promise<Observation>
 
 export function createDispatch(deps: DispatchDeps): DispatchFunction {
-  const resources = deps.resources ?? unwiredResources()
+  const resources = deps.resources ?? {}
 
   return async function dispatch(action, opts): Promise<Observation> {
     const context = opts.context
@@ -429,12 +362,4 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
     }
     return observation
   }
-}
-
-export const kernelActionCatalog: {
-  knownActions: readonly string[]
-  isHardGated(actionType: string): boolean
-} = {
-  knownActions: KNOWN_ACTION_LIST,
-  isHardGated: (actionType: string) => isHardGated(actionType),
 }

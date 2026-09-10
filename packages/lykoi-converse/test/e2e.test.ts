@@ -292,7 +292,7 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
     meaning_assessment: [{ item: '他发来一句话', meaning: '他在等我', pull: 0.4 }],
     decision: {
       kind: 'tool_call',
-      tool: { name: 'research_read_text', arguments: { url: 'https://example.com' } },
+      tool: { name: 'research_browser.read_text', arguments: { url: 'https://example.com' } },
       reason: '我想自己去看看', // D-2b 起：tool_call 免溯源门，这条未接地的理由不再被挡
     },
   }))
@@ -321,7 +321,7 @@ test('沉默路（红→D-1d/D-2b 改口）：tool_call 免溯源门、真尝试
   assert.ok(unwired.length >= 1, 'D-1d：到不了 dispatch，先在 #buildAction 被拦下')
   for (const e of unwired) {
     assert.equal(e.action_type, 'research_browser.read_text')
-    assert.equal(e.name, 'research_read_text')
+    assert.equal(e.name, 'research_browser.read_text')
   }
   const gaps = audit.events.filter((e) => e.type === 'capability_gap' && e.source === 'converse')
   assert.equal(gaps.length, unwired.length, '每次被拦都补一笔 capability_gap')

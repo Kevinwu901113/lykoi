@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
-import { createDispatch, isUnwiredHandler, wiredActionCatalog }
+import { createDispatch, wiredActionCatalog }
   from 'lykoi-kernel'
 import { CapabilityRuntime } from 'lykoi-runtime'
 import type { Server } from 'node:net'
@@ -74,7 +74,7 @@ test('D-1/D-9：三动作注册往返 —— 注册后 wired 含三项，注销�
   const before = runtime.resources
   for (const action of ORGAN_ACTIONS) {
     const [prefix, method] = action.split('.', 2) as [string, string]
-    assert.equal(isUnwiredHandler(before[prefix]![method]!), true, `${action} 起点应是替身`)
+    assert.equal(typeof before[prefix]?.[method] === 'function', false, `${action} 起点应是替身`)
   }
 
   const client = new BrowserHostClient({ socketPath: join(TMP, 'nobody.sock') })
@@ -301,9 +301,8 @@ test('real Browser plugin can load after consumer, unload, and reload without st
   assert.equal(cache.block(), null)
   assert.deepEqual(runtime.bodySchema.snapshot().actions, [])
   await assert.rejects(captured({ url: 'https://good.example/doc' }), /retired/)
-  const stopped = await dispatch({ type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
-    { context: { origin: 'autonomous' } })
-  assert.equal(stopped.success, false)
+  await assert.rejects(dispatch({ type: 'research_browser.read_text', params: { url: 'https://good.example/doc' } },
+    { context: { origin: 'autonomous' } }), /unknown action/)
   const reloaded = await ctx.plugin(browserPlugin, { socketPath: host.path })
   t.after(() => reloaded.dispose())
   assert.match(cache.block()!, /research_browser.read_text/)

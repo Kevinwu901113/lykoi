@@ -1,6 +1,7 @@
+import type { CapabilityDefinition } from 'lykoi-contracts'
 /** Conversation envelope schema and current action descriptions. Provider protocol recovery belongs to lykoi-llm. */
 import {
-  TOOL_TABLE, evaluateMessage, extractJson, renderOwnerTemplate, type PersonaConfig,
+  evaluateMessage, extractJson, renderOwnerTemplate, type PersonaConfig,
   type AssessmentEntry, type Candidate, type Decision, type LogEvent,
 } from 'lykoi-decide'
 import { CAUSES } from 'lykoi-regulation'
@@ -62,38 +63,16 @@ export function buildConversationCandidates(): Candidate[] {
   return [...CONVERSATION_CATALOGUE]
 }
 
-export { TOOL_TABLE, type ToolSpec } from 'lykoi-decide'
+export const VISION_TOOL = 'conversation.describe_image'
+export const FOLLOWUP_TOOL = 'conversation.promise_followup'
+export const PROGRESS_TOOL = 'conversation.post_progress'
 
-export const TOOL_TO_ACTION: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(
-    Object.entries(TOOL_TABLE)
-      .filter(([, spec]) => spec.action !== null)
-      .map(([name, spec]) => [name, spec.action!]),
-  ),
-)
-
-export const VISION_TOOL = 'vision_describe'
-export const FOLLOWUP_TOOL = 'promise_followup'
-export const PROGRESS_TOOL = 'post_progress'
-
-export type EnvelopeToolName
-  = keyof typeof TOOL_TO_ACTION | typeof VISION_TOOL | typeof FOLLOWUP_TOOL | typeof PROGRESS_TOOL
-
-export function envelopeToolNames(wiredActions?: ReadonlySet<string>): string[] {
-  const sorted = Object.keys(TOOL_TO_ACTION).sort()
-  const names = wiredActions === undefined
-    ? sorted
-    : sorted.filter((name) => wiredActions.has(TOOL_TO_ACTION[name]))
-  return [...names, VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL]
+export function envelopeToolNames(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string[] {
+  return capabilities.filter(c => wiredActions === undefined || wiredActions.has(c.name)).map(c => c.name).sort()
 }
-
-export function renderToolTable(wiredActions?: ReadonlySet<string>): string {
-  return envelopeToolNames(wiredActions)
-    .map((name) => {
-      const spec = TOOL_TABLE[name]!
-      return `${name}(${spec.signature}) — ${spec.purpose}`
-    })
-    .join('\n')
+export function renderToolTable(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string {
+  const names = new Set(envelopeToolNames(wiredActions, capabilities))
+  return capabilities.filter(c => names.has(c.name)).map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n')
 }
 
 const PULSE_CAUSES = Object.keys(CAUSES).sort()
@@ -153,10 +132,10 @@ decision.content 字段里;它照样会送到他那里,一个字都不少。
 开场白、没有"好的"、没有代码块围栏、没有解释你为什么这么填。
 只有那一个 JSON 对象。`
 
-export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>): string {
+export function envelopeSystemPrompt(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string {
   return ENVELOPE_SYSTEM_PROMPT
     .replace('{causes}', PULSE_CAUSES.join(', '))
-    .replace('{tools}', renderToolTable(wiredActions).split('\n').join('\n  '))
+    .replace('{tools}', renderToolTable(wiredActions, capabilities).split('\n').join('\n  '))
 }
 
 /** 对话消息（tools-API 原生词汇 —— 历史共用形状）。 */
@@ -177,9 +156,10 @@ export function buildEnvelopeMessages(
   assembled: readonly ConverseMessage[],
   wiredActions?: ReadonlySet<string>,
   persona?: PersonaConfig,
+  capabilities: readonly CapabilityDefinition[] = [],
 ): ConverseMessage[] {
   const withContract: ConverseMessage[] =
-    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions), persona) }]
+    [...assembled, { role: 'system', content: renderOwnerTemplate(envelopeSystemPrompt(wiredActions, capabilities), persona) }]
   return withContract
 }
 
@@ -503,10 +483,8 @@ export function toolDispatchGate(
   name: string,
   wiredActions?: ReadonlySet<string>,
 ): DispatchGate {
-  const actionType = TOOL_TO_ACTION[name]
-  if (actionType === undefined) return 'unknown_tool'
-  if (wiredActions !== undefined && !wiredActions.has(actionType)) return 'not_wired'
-  return 'pass'
+  if (wiredActions?.has(name)) return 'pass'
+  return /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/.test(name) ? 'not_wired' : 'unknown_tool'
 }
 
 export function cycleRecord(

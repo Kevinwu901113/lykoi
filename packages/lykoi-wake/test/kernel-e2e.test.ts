@@ -65,9 +65,9 @@ test('三路自主动作经真门：action_dispatch(allow)+action_result 对、o
   const ctx = new Context()
   const runtime = new CapabilityRuntime()
   ctx.provide('lykoiRuntime', runtime)
-  runtime.register({ organId: 'outbound-fixture', handlers: {
+  runtime.register({ organId: 'outbound-fixture', capabilities: Object.entries({
     'autonomy.queue_notification': queueNotification, 'autonomy.initiate_chat': initiateChat,
-  }, sideEffects: [] })
+  }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [] })
   t.after(() => runtime.dispose())
   const audit = fakeAudit()
   ctx.provide('audit', audit)

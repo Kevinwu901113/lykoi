@@ -143,7 +143,7 @@ test('D-02：表外工具名 → cycle_unknown_tool 大声落痕 + error 结果�
 
 test('unwired dispatch：合法工具名大声失败（绝不静默成功），周期继续', async () => {
   const h = makeConversation()
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '通道还没长出来', reason: '他问我在不在' } }) })
   await h.conversation.send('在吗', { runId: 'r1' })
   const toolResult = h.llm.calls[1]!.messages.find((m) => m.role === 'tool')!
@@ -167,20 +167,20 @@ test('D-1d：wiredActions 不含该动作 → #buildAction 挡在 dispatch 之�
     },
     wiredActions: new Set(['notify.owner']), // 真接得通的只有这一个——刻意不含 research_browser.read_text
   })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看不了', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '看不了')
   assert.equal(dispatched, 0, 'D-1d：dispatchFn 从未被调用')
   const unwired = lastEvent(h.events, 'u3_cycle_tool_unwired')!
   assert.deepEqual(unwired, {
-    name: 'research_read_text', action_type: 'research_browser.read_text',
+    name: 'research_browser.read_text', action_type: 'research_browser.read_text',
     run_id: 'r1', turn_id: null,
   })
   const gap = lastEvent(h.events, 'capability_gap')!
   // 治理复核改口：wanted 记工具名（18 字，≤ WANTED_TOKEN_MAX=20 原样落），
   // 与位点④同口径；记动作类型（26 字）只会落长度，标签就丢了。
-  assert.equal(gap.wanted, 'research_read_text')
+  assert.equal(gap.wanted, 'unrecognized:len26')
   assert.equal(gap.reason, GAP_NOT_WIRED)
   assert.equal(gap.source, 'converse')
   const toolResult = h.llm.calls[1]!.messages.find((m) => m.role === 'tool')!
@@ -202,7 +202,7 @@ test('D-1d 向后兼容：不给 wiredActions → 新闸不触发，dispatchFn �
     },
     // 故意不设 wiredActions。
   })
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '看完了', reason: '他问我在不在' } }) })
   const reply = await h.conversation.send('在吗', { runId: 'r1' })
   assert.equal(reply, '看完了')
@@ -230,7 +230,7 @@ test('D-03→D-2b改口：tool_call 免溯源门（第③关）——未接地�
     content: envelope({
       decision: {
         kind: 'tool_call',
-        tool: { name: 'research_read_text', arguments: { url: 'https://a' } },
+        tool: { name: 'research_browser.read_text', arguments: { url: 'https://a' } },
         reason: '我就是想看看', // 不引用任何评估条目——D-2b 起对 tool_call 免溯源门，这不再是 demote 的理由
       },
     }),
@@ -256,13 +256,13 @@ test('missing_tool / 工具预算烧完：安全侧收场（S-46 #7/#8）', asyn
   // 收尾周期仍要动手 → u3_cycle_tool_budget_exhausted，不执行不硬编总结。
   const h2 = makeConversation()
   for (let i = 0; i < MAX_TOOL_STEPS; i += 1) {
-    h2.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+    h2.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   }
-  h2.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) }) // closing 周期
+  h2.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) }) // closing 周期
   assert.equal(await h2.conversation.send('在吗', { runId: 'r1' }), '')
   assert.deepEqual(h2.conversation.lastCycleOutcome(), { kind: 'tool_budget', step: MAX_TOOL_STEPS })
   assert.deepEqual(lastEvent(h2.events, 'u3_cycle_tool_budget_exhausted'), {
-    tool: 'research_read_text', steps: MAX_TOOL_STEPS, run_id: 'r1', turn_id: null,
+    tool: 'research_browser.read_text', steps: MAX_TOOL_STEPS, run_id: 'r1', turn_id: null,
   })
   // 收尾周期带 CYCLE_CLOSING_NOTE（S-19）。
   const closingCall = h2.llm.calls.at(-1)!
@@ -303,7 +303,7 @@ test('D-4：审批门返回非空 ask 载荷时，周期结局为 ask_pending', 
       data: { needs_approval: true, action_id: 'act-1', correlation_id: 'corr-1' },
     }),
   })
-  h.llm.push({ content: toolEnvelope('terminal_exec', { command: 'ls' }) })
+  h.llm.push({ content: toolEnvelope('terminal.exec', { command: 'ls' }) })
   assert.equal(await h.conversation.send('帮我跑 ls', { runId: 'r1' }), '')
   assert.deepEqual(h.conversation.lastCycleOutcome(), { kind: 'ask_pending', step: 0 })
 })

@@ -1,3 +1,5 @@
+import type { CapabilityDefinition, RuntimeService } from 'lykoi-contracts'
+import { runCognition } from 'lykoi-runtime/cognition'
 /** Bounded conversation cycles with explicit outcomes, context management and tool dispatch. */
 import { RunAbortedError } from './deadline.ts'
 import { randomUUID, createHash } from 'node:crypto'
@@ -21,7 +23,7 @@ import {
   CYCLE_UNKNOWN_TOOL_EVENT,
   ENVELOPE_RESPONSE_FORMAT, FOLLOWUP_TOOL,
   MAX_TOOL_STEPS, PROGRESS_TOOL, PROMISE_FOLLOWUP, REPLY, SILENCE,
-  TOOL_TO_ACTION, toolDispatchGate, VISION_TOOL,
+  toolDispatchGate, VISION_TOOL,
   type ConverseMessage, type Decision, type ToolCall,
 } from './contract.ts'
 import {
@@ -249,6 +251,8 @@ export interface ConverseDeps {
 
   limits?: Partial<{ windowTurns: number; backfillRows: number; maxInputTokens: number }>
 
+  invokeCapability?: (name: string, params: Record<string, unknown>) => Promise<unknown>
+  capabilities?: () => readonly CapabilityDefinition[]
   wiredActions?: ReadonlySet<string>
   capabilityRevision?: () => number
 }
@@ -391,6 +395,20 @@ export class Conversation {
     this.#backfill = this.#buildBackfill()
     // 熔断状态每次构造落一条 —— 改常量的重启在事件流里可见。
     this.#log('conversation_inner_state', { enabled: this.#innerEnabled() })
+  }
+
+  registerCapabilities(runtime: RuntimeService): () => void {
+    return runtime.register({ organId: 'conversation', sideEffects: [], capabilities: [
+      { name: VISION_TOOL, description: 'Describe an attachment already present in this conversation.',
+        inputSchema: { type: 'object', properties: { attachment_id: { type: 'string' }, question: { type: 'string' } }, required: ['attachment_id'], additionalProperties: false },
+        handler: args => this.#handleVision(cycleCall(0, VISION_TOOL, args)) },
+      { name: FOLLOWUP_TOOL, description: 'Register an existing continuation with a goal and current blocker.',
+        inputSchema: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'], additionalProperties: false },
+        handler: async args => this.#handleFollowup(cycleCall(0, FOLLOWUP_TOOL, args)) },
+      { name: PROGRESS_TOOL, description: 'Report progress from a background continuation.',
+        inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'], additionalProperties: false },
+        handler: async args => this.#handleProgress(cycleCall(0, PROGRESS_TOOL, args)) },
+    ] })
   }
 
   #now(): Date {
@@ -855,7 +873,7 @@ export class Conversation {
 
   async #completion(signal?: AbortSignal): Promise<ConverseLlmResult> {
     this.#enforceBudget()
-    const messages = buildEnvelopeMessages(this.#assemble(), this.#deps.wiredActions, this.#deps.persona)
+    const messages = buildEnvelopeMessages(this.#assemble(), undefined, this.#deps.persona, this.#deps.capabilities?.() ?? [])
     return await this.#deps.llm(messages, {
       purpose: 'envelope',
       responseFormat: ENVELOPE_RESPONSE_FORMAT,
@@ -879,100 +897,106 @@ export class Conversation {
   // --- 信封周期 ----------------------------------------------------------------
 
   async #runCycle(signal?: AbortSignal): Promise<string> {
-    for (let step = 0; step <= MAX_TOOL_STEPS; step += 1) {
-      const closing = step === MAX_TOOL_STEPS
-      if (closing) {
-        this.#messages.push({ role: 'system', content: CYCLE_CLOSING_NOTE })
-      }
-      const started = monotonicNowMs() // realtime-allow: cycle duration
-      const lastResult = await this.#completion(signal)
-      signal?.throwIfAborted()
-      const elapsedMs = Math.round(monotonicNowMs() - started)
-      let decision: Decision
-      try {
-        decision = parseEnvelope({ content: lastResult.content }, {
-          logEvent: this.#deps.logEvent,
-          runId: this.#lastRunId || null,
-          injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
-        })
-      } catch (error) {
-        const [reason, detail] = classifyFailure(error, lastResult.content)
-        this.#log(CYCLE_FAILURE_EVENT, { reason, detail, step, elapsed_ms: elapsedMs })
-        this.#lastCycleOutcome = { kind: 'envelope_failed', step }
-        return ''
-      }
-      // 同步提交段从这里开始；inner、进度等内部写入也不允许事后回滚。
-      this.#runSealed = true
+    const outcome = await runCognition<{ name: string; arguments: Record<string, unknown> }, string | null, string>({
+      maxActions: MAX_TOOL_STEPS, signal,
+      reason: async ({ index: step, closing }) => {
+        if (closing) {
+          this.#messages.push({ role: 'system', content: CYCLE_CLOSING_NOTE })
+        }
+        const started = monotonicNowMs() // realtime-allow: cycle duration
+        const lastResult = await this.#completion(signal)
+        signal?.throwIfAborted()
+        const elapsedMs = Math.round(monotonicNowMs() - started)
+        let decision: Decision
+        try {
+          decision = parseEnvelope({ content: lastResult.content }, {
+            logEvent: this.#deps.logEvent,
+            runId: this.#lastRunId || null,
+            injectedThoughtIds: new Set(this.#lastInjectedThoughtIds),
+          })
+        } catch (error) {
+          const [reason, detail] = classifyFailure(error, lastResult.content)
+          this.#log(CYCLE_FAILURE_EVENT, { reason, detail, step, elapsed_ms: elapsedMs })
+          this.#lastCycleOutcome = { kind: 'envelope_failed', step }
+          return { kind: 'finish', result: '' }
+        }
+        // 同步提交段从这里开始；inner、进度等内部写入也不允许事后回滚。
+        this.#runSealed = true
 
-      this.#markUndeliveredSurfaced()
-      const injected = new Set(this.#lastInjectedThoughtIds)
-      const innerApplied = this.#applyCycleInner(decision, injected)
-      this.#log(CYCLE_EVENT, cycleRecord(decision, {
-        elapsedMs,
-        assembled: this.#messages,
-        step,
-        innerApplied,
-        wiredActions: this.#deps.wiredActions,
-
-        // 数分不开「思考长」与「前缀缓存未命中」）。缺席交给 cycleRecord 兜底：
-        // usage 两项 null、reasoning_len 0。
-        promptTokens: lastResult?.promptTokens ?? null,
-        completionTokens: lastResult?.completionTokens ?? null,
-        reasoningLength: lastResult?.reasoningLength ?? 0,
-      }))
-      const kind = decision.kind
-      if (kind === SILENCE || kind === REPLY || kind === PROMISE_FOLLOWUP) {
-
-        // 工具步中间信封的脉冲不累加（它们描述的是半途，不是这一轮的落点）。
-        this.#cyclePulse = [...((decision.envelope.pulse as string[] | undefined) ?? [])]
-      }
-      if (kind === SILENCE) {
-        // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
-        this.#lastCycleOutcome = { kind: 'silence', step }
-        return ''
-      }
-      if (kind === REPLY) {
-        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
-        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
-        this.#lastCycleOutcome = { kind: 'reply', step }
-        return decision.content ?? ''
-      }
-      if (kind === PROMISE_FOLLOWUP) {
-        this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
-        this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
-        for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
-        this.#lastCycleOutcome = { kind: 'followup', step }
-        return this.#cycleUtterances.join('')
-      }
-      // --- tool_call ---
-      const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
-      if (tool === null || tool === undefined) {
-        // 信封说要动手却没给动作 —— 没有可执行物，安全侧收场。
-        this.#log(CYCLE_FAILURE_EVENT, {
-          error_type: 'MissingTool',
-          elapsed_ms: elapsedMs,
-          reason: 'missing_tool',
-          detail: 'tool:none',
+        this.#markUndeliveredSurfaced()
+        const injected = new Set(this.#lastInjectedThoughtIds)
+        const innerApplied = this.#applyCycleInner(decision, injected)
+        this.#log(CYCLE_EVENT, cycleRecord(decision, {
+          elapsedMs,
+          assembled: this.#messages,
           step,
-        })
-        this.#lastCycleOutcome = { kind: 'missing_tool', step }
-        return ''
-      }
-      if (closing) {
-        // 超界。不再执行、不硬编总结 —— 收尾周期已被告知走接力，她仍要动手，
-        // 落账收在安全侧。
-        this.#log(CYCLE_TOOL_BUDGET_EVENT, { tool: tool.name, steps: MAX_TOOL_STEPS })
-        this.#lastCycleOutcome = { kind: 'tool_budget', step }
-        return ''
-      }
-      const outcome = await this.#executeCycleTool(step, tool)
-      if (outcome !== null) {
-        this.#lastCycleOutcome = { kind: 'ask_pending', step }
-        return outcome // 撞了审批门：这一轮的结局由那条腿交代
-      }
-    }
-    this.#lastCycleOutcome = { kind: 'tool_budget', step: MAX_TOOL_STEPS }
-    return '' // 不可达（closing 那一周期必然 return），安全侧兜底
+          innerApplied,
+          wiredActions: this.#deps.wiredActions,
+
+          // 数分不开「思考长」与「前缀缓存未命中」）。缺席交给 cycleRecord 兜底：
+          // usage 两项 null、reasoning_len 0。
+          promptTokens: lastResult?.promptTokens ?? null,
+          completionTokens: lastResult?.completionTokens ?? null,
+          reasoningLength: lastResult?.reasoningLength ?? 0,
+        }))
+        const kind = decision.kind
+        if (kind === SILENCE || kind === REPLY || kind === PROMISE_FOLLOWUP) {
+
+          // 工具步中间信封的脉冲不累加（它们描述的是半途，不是这一轮的落点）。
+          this.#cyclePulse = [...((decision.envelope.pulse as string[] | undefined) ?? [])]
+        }
+        if (kind === SILENCE) {
+          // 沉默**有账没话**：上面那条事件就是它的账。历史里不补 assistant 消息。
+          this.#lastCycleOutcome = { kind: 'silence', step }
+          return { kind: 'finish', result: '' }
+        }
+        if (kind === REPLY) {
+          this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+          for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
+          this.#lastCycleOutcome = { kind: 'reply', step }
+          return { kind: 'finish', result: decision.content ?? '' }
+        }
+        if (kind === PROMISE_FOLLOWUP) {
+          this.#handleFollowup(cycleCall(step, FOLLOWUP_TOOL, { task: decision.content }))
+          this.#cycleUtterances = [...(decision.envelope.utterances as string[])]
+          for (const content of this.#cycleUtterances) this.#messages.push({ role: 'assistant', content })
+          this.#lastCycleOutcome = { kind: 'followup', step }
+          return { kind: 'finish', result: this.#cycleUtterances.join('') }
+        }
+        // --- tool_call ---
+        const tool = decision.envelope.tool as { name: string; arguments: Record<string, unknown> } | null
+        if (tool === null || tool === undefined) {
+          // 信封说要动手却没给动作 —— 没有可执行物，安全侧收场。
+          this.#log(CYCLE_FAILURE_EVENT, {
+            error_type: 'MissingTool',
+            elapsed_ms: elapsedMs,
+            reason: 'missing_tool',
+            detail: 'tool:none',
+            step,
+          })
+          this.#lastCycleOutcome = { kind: 'missing_tool', step }
+          return { kind: 'finish', result: '' }
+        }
+        if (closing) {
+          // 超界。不再执行、不硬编总结 —— 收尾周期已被告知走接力，她仍要动手，
+          // 落账收在安全侧。
+          this.#log(CYCLE_TOOL_BUDGET_EVENT, { tool: tool.name, steps: MAX_TOOL_STEPS })
+          this.#lastCycleOutcome = { kind: 'tool_budget', step }
+          return { kind: 'finish', result: '' }
+        }
+        return { kind: 'act', action: tool }
+      },
+      act: (tool, step) => this.#executeCycleTool(step, tool),
+      observe: (result, _tool, step) => {
+        if (result !== null) {
+          this.#lastCycleOutcome = { kind: 'ask_pending', step }
+          return { kind: 'finish', result }
+        }
+      },
+    })
+    if (outcome.status === 'finished') return outcome.result
+    this.#lastCycleOutcome = { kind: 'tool_budget', step: outcome.actions }
+    return ''
   }
 
   async #executeCycleTool(
@@ -982,16 +1006,10 @@ export class Conversation {
     const call = cycleCall(step, tool.name, tool.arguments)
     this.#messages.push({ role: 'assistant', content: null, tool_calls: [call] })
     const name = tool.name
-    if (name === VISION_TOOL) {
-      this.#appendToolResult(call.id, await this.#handleVision(call))
-      return null
-    }
-    if (name === FOLLOWUP_TOOL) {
-      this.#appendToolResult(call.id, this.#handleFollowup(call))
-      return null
-    }
-    if (name === PROGRESS_TOOL) {
-      this.#appendToolResult(call.id, this.#handleProgress(call))
+    if ([VISION_TOOL, FOLLOWUP_TOOL, PROGRESS_TOOL].includes(name)) {
+      if (!this.#deps.invokeCapability) throw new Error('conversation capabilities not attached')
+      try { this.#appendToolResult(call.id, await this.#deps.invokeCapability(name, tool.arguments) as Fields) }
+      catch (error) { this.#appendToolResult(call.id, { success: false, error: error instanceof Error ? error.message : String(error) }) }
       return null
     }
     const [action, errorPayload] = this.#buildAction(call)
@@ -1057,7 +1075,7 @@ export class Conversation {
       })
       return [null, { success: false, error: `unknown tool '${name}'` }]
     }
-    const actionType = TOOL_TO_ACTION[name]!
+    const actionType = name
 
     // 替身（未接线）—— 与上面的"词表外"分支是结构上不同的两件事，不许合并；
     // 不给 wiredActions 时（未接线口径缺省关）`toolDispatchGate` 永不判 not_wired，

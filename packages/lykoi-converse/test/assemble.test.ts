@@ -64,7 +64,7 @@ test('persona 头分层：内核(合成实例包的那份)→重启叙事→纪�
   const content = head.content!
   assert.ok(content.startsWith(`我是 ${FIXTURE_PERSONA.identity.name}，`), '内核第一')
   assert.ok(content.includes('[你重启了一次——之前是睡着的，现在醒了。]'), 'SA-162 重启叙事')
-  assert.ok(content.includes('以下是你的操作环境与纪律'), 'SYSTEM_PROMPT 在内核后')
+  assert.ok(content.includes('以下是你的操作环境'), 'SYSTEM_PROMPT 在内核后')
   assert.ok(content.includes('Owner 的偏好：\n- Kevin 用中文交流，技术术语用英文'), 'acquired 投影')
   assert.ok(content.includes('你自己想明白的事(专注思考里得出、已经站住的结论):\n- 我在深夜想事情更清楚'))
   assert.equal(content.includes('还没站住的结论'), false, 'S-34：shadow 一条都不进上下文')
@@ -286,12 +286,12 @@ test('S-30 硬预算：先丢最老完整轮 → 再丢 backfill → 都没了�
   const h = makeConversation({ prepared, limits: { maxInputTokens: 2000 } })
   // 第一轮种下两轮历史。
   h.llm.push({ content: envelope() })
-  await h.conversation.send('第一轮' + '话'.repeat(300), { runId: 'r1' })
+  await h.conversation.send('第一轮' + '话'.repeat(800), { runId: 'r1' })
   h.llm.push({ content: envelope() })
-  await h.conversation.send('第二轮' + '话'.repeat(300), { runId: 'r2' })
+  await h.conversation.send('第二轮' + '话'.repeat(800), { runId: 'r2' })
   // 第三轮超预算：最老轮被裁 + backfill 被丢（或先后触发），事件可见。
   h.llm.push({ content: envelope() })
-  await h.conversation.send('第三轮' + '话'.repeat(300), { runId: 'r3' })
+  await h.conversation.send('第三轮' + '话'.repeat(800), { runId: 'r3' })
   const names = eventNames(h.events)
   assert.ok(
     names.includes('context_hard_trimmed') || names.includes('context_backfill_dropped'),

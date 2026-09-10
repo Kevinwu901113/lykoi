@@ -7,7 +7,7 @@
  * 测试代码代替设备说话：
  *
  *   fake 入站「帮我跑 ls」(message_id=500)
- *     → 信封 tool_call terminal_exec
+ *     → 信封 tool_call terminal.exec
  *     → 真三层门（不可变核 HARD_ASK）→ ask → needs_approval
  *     → 认知侧 SK-77 四项载荷 `_delegated_ask`
  *     → **真设备层**（SK-77）取走载荷 → `_ask_about` 形状校验 → requestApproval
@@ -43,7 +43,6 @@ import type { TelegramAdapterService } from 'lykoi-adapter-telegram'
 import { MemoryTelegramTransport, isolateOutboundState } from 'lykoi-adapter-telegram/testing'
 import { CapabilityRuntime } from 'lykoi-runtime'
 import { bootstrapOwnerPreauthorization } from 'lykoi-kernel'
-import { TOOL_TO_ACTION } from '../src/contract.ts'
 import { ImmediateTestIngress } from './turn-fixture.ts'
 import * as converse from '../src/index.ts'
 import { FIXTURE_PERSONA_TOML, envelope, seedBinding } from './fixture.ts'
@@ -87,10 +86,10 @@ function fakeMemory(): LykoiMemoryService {
  */
 function fakeTerminal(runtime: CapabilityRuntime): { ran: string[] } {
   const ran: string[] = []
-  runtime.register({ organId: 'test-organ', handlers: { ['terminal.exec']: async (params) => {
+  runtime.register({ organId: 'test-organ', capabilities: Object.entries({ ['terminal.exec']: async (params: Record<string, unknown>) => {
     ran.push(String(params.command))
     return { stdout: 'file-a\nfile-b\n', exit_code: 0 }
-  } }, sideEffects: [] })
+  } }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [] })
   return { ran }
 }
 
@@ -169,7 +168,7 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
   isolateKernelFiles()
   const terminal = fakeTerminal(runtime)
   t.after(() => runtime.dispose())
-  const { audit, transport, telegram, service } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
+  const { audit, transport, telegram, service } = await assemble(toolEnvelope('terminal.exec', { command: 'ls' }), false, runtime
   )
   // §2b 初始预授权（approval_model_v1；GK-9：部署期 owner 侧动作，这里由测试
   // 站在 owner 侧执行）。没有它 messenger.send 默认 "ask" —— 她没有审批就回不了
@@ -178,7 +177,7 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
   assert.deepEqual(boot.granted, ['messenger.send@user:user_001'])
   assert.equal(telegram.outboundWired(), true, '出站器官必须已接线，否则这不是实弹')
 
-  // ① 入站「帮我跑 ls」→ 信封点名 terminal_exec → 真硬门
+  // ① 入站「帮我跑 ls」→ 信封点名 terminal.exec → 真硬门
   transport.queueUpdate({
     updateId: 1,
     message: { messageId: 500, chatId: '1001', senderId: '1001', text: '帮我跑 ls' },
@@ -280,7 +279,7 @@ test('实弹反向（W3 设备侧）：owner 回「不要」→ denied + DENY_CO
   isolateKernelFiles()
   const terminal = fakeTerminal(runtime)
   t.after(() => runtime.dispose())
-  const { transport, telegram, audit } = await assemble(toolEnvelope('terminal_exec', { command: 'rm -rf /tmp/x' }), false, runtime
+  const { transport, telegram, audit } = await assemble(toolEnvelope('terminal.exec', { command: 'rm -rf /tmp/x' }), false, runtime
   )
   bootstrapOwnerPreauthorization('user_001')
   transport.queueUpdate({
@@ -324,7 +323,7 @@ function selfReportedDispatches(events: AuditEvent[]): string[] {
     .filter((e) => e.type === 'u3_cycle_envelope')
     .map((e) => e.dispatched)
     .filter((name): name is string => typeof name === 'string')
-    .map((name) => TOOL_TO_ACTION[name]!)
+
 }
 
 test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_dispatch 行（逐条同型同数）', async (t) => {
@@ -338,7 +337,7 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
   // 场景与断言逐字节不变——这条用例本来就不测"未接线大声失败"，测的是审批门。
   fakeTerminal(runtime)
   t.after(() => runtime.dispose())
-  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
+  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal.exec', { command: 'ls' }), false, runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -364,10 +363,10 @@ test('GK-14 正断言：信封自称 dispatched ⟹ audit 有对应的 action_di
   // GK14-DISPATCHED-01 D-5：正断言场景闸真放行——dispatch_gate 必须是 'pass'，
   // tool_named 恒记她点的名字（此场景与 dispatched 同值，因为闸放行了）。
   const envelopeEvent = audit.events.find(
-    (e) => e.type === 'u3_cycle_envelope' && e.dispatched === 'terminal_exec',
+    (e) => e.type === 'u3_cycle_envelope' && e.dispatched === 'terminal.exec',
   )!
   assert.equal(envelopeEvent.dispatch_gate, 'pass')
-  assert.equal(envelopeEvent.tool_named, 'terminal_exec')
+  assert.equal(envelopeEvent.tool_named, 'terminal.exec')
 })
 
 /**
@@ -411,7 +410,7 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
 })
 
 /**
- * WO-GK14-DISPATCHED-01 D-5 新增：未接线路的负断言。`terminal_exec`
+ * WO-GK14-DISPATCHED-01 D-5 新增：未接线路的负断言。`terminal.exec`
  * **在** TOOL_TO_ACTION 词表里，但这次刻意不调 `fakeTerminal()`——注册表里
  * 它仍是 D-1a 打了标记的替身，`toolDispatchGate` 判 `'not_wired'`。这条路
  * 此前是 `approval-e2e.test.ts:362-371` 附注点名的缺口：没有任何用例断言过
@@ -425,7 +424,7 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
   isolateKernelFiles()
   // 刻意不调 fakeTerminal()：terminal.exec 在 KNOWN_ACTION_LIST 里，但注册表
   // 里没有真身，wiredActionCatalog 因此不把它列进 wiredActions。
-  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal_exec', { command: 'ls' }), false, runtime
+  const { audit, transport, telegram } = await assemble(toolEnvelope('terminal.exec', { command: 'ls' }), false, runtime
   )
   transport.queueUpdate({
     updateId: 1,
@@ -441,7 +440,7 @@ test('GK-14 反断言：没有自称 dispatched ⟹ audit **一行** action_disp
 
   const envelopeEvent = audit.events.find((e) => e.type === 'u3_cycle_envelope')!
   assert.equal(envelopeEvent.dispatch_gate, 'not_wired')
-  assert.equal(envelopeEvent.tool_named, 'terminal_exec')
+  assert.equal(envelopeEvent.tool_named, 'terminal.exec')
   assert.equal(envelopeEvent.dispatched, null)
 })
 

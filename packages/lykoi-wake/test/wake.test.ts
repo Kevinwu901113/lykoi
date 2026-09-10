@@ -147,7 +147,7 @@ test('SA-31/SA-169：applyInner 在 executeAndReflow **之后**——dispatch �
     { calls: dispatch.calls },
   )
   const { deps } = makeWakeDeps({
-    store, reply, overrides: { dispatchFn: probing },
+    store, reply, overrides: { dispatchFn: probing, llm: async (messages) => ({ content: messages.some(m => m.content.startsWith('实际行动结果')) ? JSON.stringify({ decision: { kind: 'rest', reason: '已经读完' } }) : reply }) },
   })
   const out = await wakeOnce(deps)
   assert.equal(out.status, 'completed')

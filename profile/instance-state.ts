@@ -98,6 +98,7 @@ export function instancePluginConfig(instance: CharacterInstance, plugin: string
     case 'lykoi-budget':
       JSON.parse(readFileSync(state('budget.json'), 'utf8')) // An installed budget must not recreate a lost ledger.
       return { ...config, ledgerPath: state('budget.json') }
+    case 'lykoi-organ-workspace': return { ...config, directory: state('workspace') }
     case 'lykoi-memory': return { ...config, dbPath: state('memory.db') }
     case 'lykoi-ingress': return { ...config, dbPath: state('inbound-spool.db') }
     case 'lykoi-heart': return { ...config, stateFile: state('heart-state.json'), salienceDb: config.salienceDb ? state('salience_shadow.db') : '' }

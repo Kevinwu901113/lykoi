@@ -676,7 +676,7 @@ test('W3 换装：messenger 2 + notify.owner + autonomy 2 是真身，其余 13 
     ['browser', 'navigate'], ['terminal', 'exec'], ['research_browser', 'open'],
     ['delegation', 'dispatch'],
   ]) {
-    await assert.rejects(() => registry[prefix!]![method!]!({}), /器官未接线/)
+    assert.equal(registry[prefix!]?.[method!], undefined)
   }
 })
 

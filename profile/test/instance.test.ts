@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
@@ -23,6 +23,7 @@ function start(registry: string, config: string, id?: string) {
 function config(path: string, model = 'model-one') {
   writeFileSync(path, JSON.stringify([
     { id: 'runtime', name: 'lykoi-runtime' },
+    { id: 'workspace', name: 'lykoi-organ-workspace', config: { directory: '/ignored/deployment/path' } },
     { id: 'audit', name: 'lykoi-audit' },
     { id: 'budget', name: 'lykoi-budget', config: { dailyTotalTokens: 100000 } },
     { id: 'llm', name: '@deepseek-ai/dsh-llm' },
@@ -63,6 +64,7 @@ test('real workers: A/B conversations survive restart, selection and model confi
     b.child.stdin.end(); await b.done
     for (const id of ['a','b']) {
       const instance = restoreInstance(registry, id)
+      assert.ok(existsSync(join(instance.stateRoot, 'workspace')), 'workspace belongs to the selected instance')
       const events = readFileSync(join(instance.stateRoot, 'audit.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
       assert.ok(events.length > 0)
       assert.ok(events.every(e => e.instance_id === id))
@@ -93,6 +95,31 @@ test('audit location belongs to deployment; a restored instance keeps its identi
     assert.ok(events.length > 0); assert.ok(events.every(e => e.instance_id === 'a'))
     assert.equal(existsSync(join(instance.stateRoot, 'audit.jsonl')), false)
     assert.equal(readFileSync(join(registry, 'a', 'instance.json'), 'utf8'), descriptor)
+  } finally {
+    if (worker?.child.exitCode === null) worker.child.kill('SIGTERM')
+    if (worker) await Promise.allSettled([worker.done])
+    rmSync(registry, { recursive: true, force: true })
+  }
+})
+
+
+test('console reports an actual instance-owned capability call, result and final reply', { timeout: 15000 }, async () => {
+  const registry = mkdtempSync(join(tmpdir(), 'lykoi-console-capability-'))
+  let worker: ReturnType<typeof start> | undefined
+  try {
+    const instance = createInstance({ registry, id: 'a', definition: fixture, ownerName: 'Owner' })
+    mkdirSync(join(instance.stateRoot, 'workspace'))
+    writeFileSync(join(instance.stateRoot, 'workspace', 'note.txt'), 'P2_FILE_A_831')
+    writeFileSync(join(instance.stateRoot, 'approval_rules.json'), JSON.stringify({ always_allow: ['workspace.read'], always_deny: [], ask: [] }))
+    const file = join(registry, 'runtime.json'); config(file)
+    worker = start(registry, file, 'a'); await worker.next()
+    worker.child.stdin.write('P2_READ read note.txt and report its observed marker\n')
+    const started = await worker.next(), result = await worker.next(), reply = await worker.next()
+    assert.equal(started.type, 'instance/capability'); assert.equal(started.name, 'workspace.read'); assert.equal(started.phase, 'started')
+    assert.equal(result.phase, 'result'); assert.match(result.preview, /P2_FILE_A_831/)
+    assert.equal(reply.type, 'instance/reply'); assert.equal(reply.outcome.kind, 'reply'); assert.match(reply.text, /P2_FILE_A_831/)
+    assert.ok([started, result, reply].every(event => event.instanceId === 'a'))
+    worker.child.stdin.end(); await worker.done
   } finally {
     if (worker?.child.exitCode === null) worker.child.kill('SIGTERM')
     if (worker) await Promise.allSettled([worker.done])

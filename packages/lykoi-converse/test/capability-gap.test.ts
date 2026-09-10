@@ -85,7 +85,7 @@ test('位点①经对话路径：未知 kind → capability_gap(unknown_kind, co
 
 test('对照组：合法工具名（表内、接地）→ **零** capability_gap —— 派发失败不是能力缺口', async () => {
   const h = makeConversation()
-  h.llm.push({ content: toolEnvelope('research_read_text', { url: 'https://a' }) })
+  h.llm.push({ content: toolEnvelope('research_browser.read_text', { url: 'https://a' }) })
   h.llm.push({ content: envelope({ decision: { kind: 'reply', content: '通道还没长出来', reason: '他问我在不在' } }) })
   await h.conversation.send('在吗', { runId: 'r4' })
 

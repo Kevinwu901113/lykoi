@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
-import { isUnwiredHandler } from 'lykoi-kernel'
 import { CapabilityRuntime } from '../src/index.ts'
 import * as runtimePlugin from '../src/index.ts'
 import type { RuntimeService } from 'lykoi-contracts'
 
 const registration = (result: string) => ({
-  organId: 'test-browser', handlers: { 'browser.navigate': async () => result }, sideEffects: [],
+  organId: 'test-browser', capabilities: Object.entries({ 'browser.navigate': async () => result }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [],
 })
 
 test('two independent runtimes: same organ/action, separate body schemas and disposers', async () => {
@@ -31,7 +30,7 @@ test('held resource/catalog/set views update on register and dispose; held handl
   assert.deepEqual(catalog.knownActions, ['browser.navigate'])
   assert.deepEqual(bodySchema.snapshot().actions, ['browser.navigate'])
   stop()
-  assert.ok(isUnwiredHandler(resources.browser!.navigate!))
+  assert.equal(Reflect.get(resources.browser!, 'navigate'), undefined)
   assert.equal(actions.size, 0)
   assert.deepEqual(catalog.knownActions, [])
   await assert.rejects(old({}), /capability retired/)
@@ -48,12 +47,12 @@ test('invalid/duplicate registration has no partial handlers or body schema', ()
   runtime.register(registration('one'))
   const before = runtime.bodySchema.snapshot()
   assert.throws(() => runtime.register(registration('two')), /already registered/)
-  assert.throws(() => runtime.register({ organId: 'bad', handlers: {
-    'terminal.exec': async () => null, 'unknown.execute': async () => null,
-  }, sideEffects: [] }), /outside the vocabulary/)
+  assert.throws(() => runtime.register({ organId: 'bad', capabilities: Object.entries({
+    'terminal.exec': async (): Promise<null> => null, 'invalid name': async (): Promise<null> => null,
+  }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })), sideEffects: [] }), /invalid capability name/)
   assert.deepEqual(runtime.bodySchema.snapshot(), before)
   assert.equal(runtime.actions.has('terminal.exec'), false)
-  assert.throws(() => runtime.register({ organId: 'bad-effect', handlers: { 'terminal.exec': async () => null },
+  assert.throws(() => runtime.register({ organId: 'bad-effect', capabilities: Object.entries({ 'terminal.exec': async (): Promise<null> => null }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })),
     sideEffects: [{ kind: 'file', target: 'test', reversible: true }] }), /no reverse/)
   assert.deepEqual(runtime.bodySchema.snapshot(), before)
   runtime.dispose()
@@ -117,7 +116,7 @@ test('telemetry observes a complete registration and retirement', () => {
   const runtime = new CapabilityRuntime(() => {
     const present = runtime.actions.has('browser.navigate')
     assert.equal(runtime.bodySchema.snapshot().actions.includes('browser.navigate'), present)
-    assert.equal(isUnwiredHandler(runtime.resources.browser!.navigate!), !present)
+    assert.equal(typeof runtime.resources.browser?.navigate === 'function', present)
     observed.push(present)
   })
   const stop = runtime.register(registration('one'))
@@ -160,9 +159,9 @@ test('an admitted turn can finish nested work during shutdown; outside admission
 test('direct capability work is drained and new calls after quiesce are refused', { timeout: 2000 }, async () => {
   const runtime = new CapabilityRuntime()
   let resume!: (value: string) => void
-  runtime.register({ organId: 'test-browser', sideEffects: [], handlers: {
+  runtime.register({ organId: 'test-browser', sideEffects: [], capabilities: Object.entries({
     'browser.navigate': () => new Promise<string>(resolve => { resume = resolve }),
-  } })
+  }).map(([name, handler]) => ({ name, description: name, inputSchema: { type: 'object' as const }, handler })) })
   const result = runtime.resources.browser!.navigate!({})
   await Promise.resolve()
   let drained = false
@@ -173,4 +172,14 @@ test('direct capability work is drained and new calls after quiesce are refused'
   resume('late result')
   assert.equal(await result, 'late result')
   await stopping
+})
+
+test('uncloneable schemas cannot publish a partial body or capability', () => {
+  const runtime = new CapabilityRuntime()
+  assert.throws(() => runtime.register({ organId: 'bad-schema', sideEffects: [], capabilities: [{
+    name: 'test.read', description: 'test', inputSchema: { type: 'object', properties: { broken: (() => {}) as any } }, handler: async () => null,
+  }] }))
+  assert.deepEqual(runtime.capabilities(), [])
+  assert.deepEqual(runtime.bodySchema.snapshot().actions, [])
+  runtime.dispose()
 })
