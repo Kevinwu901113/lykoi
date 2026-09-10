@@ -287,7 +287,7 @@ test('① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳
 
 // ============================== 出口判据②：预算边界回归 ==============================
 
-test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的问句仍被拒**，而设备层的问句照发', async (t) => {
+test('出口判据② 预算边界回归：名额耗尽后 E1 审批问句有无 reply_to 都能发送', async (t) => {
   const runtime = new CapabilityRuntime()
   isolateAll()
   fakeTerminal(runtime)
@@ -314,23 +314,16 @@ test('出口判据② 预算边界回归：名额耗尽后 **reply_to=null 的�
   assert.equal(asked.delivered, true, 'SK-77 的全部意义：名额耗尽也问得出去')
   assert.equal(transport.sends[0]!.replyTo, '500')
 
-  // ② 同一时刻，**没有 reply_to** 的同一个问句被打扰预算挡下 → undelivered →
-  //    deny_by_default（不排队、不执行）。这条边界必须**仍然存在** —— 它是纪律，
-  //    不是缺陷；SK-77 修的是"谁去问"，从来不是"把预算取消掉"。
-  const denied = await service.approval.requestApproval('terminal.exec', { command: 'whoami' }, {
-    contextId: 'chat-1',
-    replyTo: null, // 认知侧没有入站 id 时只能这样问 —— 于是它按主动打扰计费
-    origin: 'interactive',
+  // A background approval is E1 communication too; reply_to only controls threading.
+  const background = await service.approval.requestApproval('terminal.exec', { command: 'whoami' }, {
+    contextId: 'chat-1', replyTo: null, origin: 'interactive',
   })
-  assert.equal(denied.status, 'send_failed')
-  assert.equal(denied.pending_id, null, '没排队 = 那件事不做（deny-by-default）')
-  const undeliveredRow = audit.events.filter(
-    (e) => e.type === 'approval_question' && e.stage === 'undelivered',
-  ).at(-1)!
-  assert.equal(undeliveredRow.reason, 'daily_cap')
-  assert.equal(undeliveredRow.outcome, 'deny_by_default')
-  // 出站仍然只有那一条带 reply_to 的问句
-  assert.equal(transport.sends.length, 1)
+  assert.equal(background.status, 'asked')
+  assert.ok(background.pending_id, 'asking does not authorize or execute the pending action')
+  assert.equal(transport.sends.length, 2)
+  assert.equal(transport.sends[1]!.replyTo, null)
+  assert.equal(messengerProactiveRemainingToday(new Date()), 0)
+
 })
 
 // ============================== ④ D-04 横幅权威源 ==============================

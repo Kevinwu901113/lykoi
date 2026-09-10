@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { label as exemptionLabel } from './exemption.ts'
+import { label as exemptionLabel, covers as exemptionCovers } from './exemption.ts'
 import { check, isHardGated } from './approval.ts'
 import { auditSessionId } from './delegation.ts'
 import { assertNoSecrets, redact, redactObj } from './redaction.ts'
@@ -209,6 +209,7 @@ async function _executeDecision(
   actionId: string,
   correlationId: string,
   execution?: CapabilityExecutionContext,
+  exemption?: unknown,
 ): Promise<Observation> {
   if (decision === 'deny') {
     // hard/rule deny wins even over an owner approval
@@ -228,7 +229,7 @@ async function _executeDecision(
   }
   let data: unknown
   try {
-    data = await handler(action.params, execution)
+    data = await handler(action.params, execution, exemptionCovers(action.type, action.params, exemption) ? { messageBudget: 'exempt' } : undefined)
   } catch (exc) {
     // resource-boundary failure -> normal failed observation
     return { success: false, data: {}, error: redact(exc instanceof Error ? exc.message : String(exc)) }
@@ -332,7 +333,7 @@ export function createDispatch(deps: DispatchDeps): DispatchFunction {
     _clearDegraded()
 
     const observation = await _executeDecision(
-      decision, action, handler, safeParams, actionId, correlationId, context.execution,
+      decision, action, handler, safeParams, actionId, correlationId, context.execution, context.exemption,
     )
 
     const result = {

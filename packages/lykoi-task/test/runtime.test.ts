@@ -282,3 +282,46 @@ test('moving old Task tables preserves operations and delivery without leaving a
     } finally { source.close() }
   } finally { target.close() }
 })
+
+test('due work receives a live clock across runs and restart; completion delivers once', async t => {
+  const start = new Date('2026-09-11T00:00:00Z'); let now = start, deliveries = 0, reasons = 0
+  const seen: string[] = []
+  const deps: Partial<TaskDependencies> = {
+    now: () => now,
+    reason: async ({ now: clock }) => {
+      reasons++; seen.push(clock.toISOString())
+      return clock.getTime() < start.getTime() + 60000
+        ? { kind: 'finish', result: { status: 'waiting', checkpoint: 'wait without a command', wait: { kind: 'due', until: new Date(start.getTime() + 60000).toISOString(), detail: 'requested lower bound' } } }
+        : { kind: 'finish', result: { status: 'completed', checkpoint: 'time reached', content: 'delayed result', artifacts: [] } }
+    },
+    dispatch: async () => { throw new Error('no messaging, command or file operation required') },
+    deliver: async task => { assert.equal(task.delivery!.content, 'delayed result'); deliveries++; return { state: 'sent', receipt: { message_id: 'confirmed' } } },
+  }
+  const { store, runtime, db, root } = fixture(t, deps)
+  const request = { text: 'deliver after at least sixty seconds', receivedAt: start.toISOString() }
+  const task = store.create({ goal: 'deliver later', request }, start)
+  await runtime.scan(); assert.equal(store.get(task.id).wait?.kind, 'due'); await runtime.close()
+  const reopened = new TaskStore(db, 'A', root); t.after(() => reopened.close())
+  const restored = new TaskRuntime(reopened, { ...runtime.deps, ...deps }); await restored.recover()
+  assert.deepEqual(reopened.get(task.id).request, request)
+  now = new Date(start.getTime() + 59999); await restored.scan(); assert.equal(reasons, 1); assert.equal(deliveries, 0)
+  now = new Date(start.getTime() + 60000); await restored.scan()
+  assert.deepEqual(seen, [start.toISOString(), now.toISOString()]); assert.equal(deliveries, 1)
+  assert.equal(reopened.get(task.id).delivery?.state, 'sent')
+  await restored.scan(); assert.equal(deliveries, 1); await restored.close()
+})
+
+test('approval request failure is persistent and observable; explicit resume retries notification, not action', async t => {
+  let requests = 0, actions = 0
+  const { store, runtime } = fixture(t, {
+    reason: async () => ({ kind: 'act', action: { name: 'messenger.read', args: { limit: 5 } } }),
+    dispatch: async () => { actions++; return { success: false, data: { needs_approval: true } } },
+    requestApproval: async () => { requests++; if (requests === 1) throw new Error('transport rejected') },
+  })
+  const task = store.create({ goal: 'inspect when permitted' })
+  await runtime.scan()
+  assert.equal(store.get(task.id).wait?.kind, 'approval'); assert.match(store.get(task.id).failure!, /transport rejected/)
+  await runtime.control(task.id, 'resume')
+  assert.equal(requests, 2); assert.equal(actions, 1); assert.equal(store.get(task.id).failure, null)
+  assert.equal(store.get(task.id).wait?.kind, 'approval'); assert.equal(store.operations(task.id)[0]!.approved, false)
+})

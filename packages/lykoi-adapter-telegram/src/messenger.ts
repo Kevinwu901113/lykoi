@@ -1,3 +1,4 @@
+import type { CapabilityExecutionContext, ResourceAdmission } from 'lykoi-contracts'
 import { existsSync, readFileSync } from 'node:fs'
 import { writeJsonAtomicSync } from './jsonio.ts'
 
@@ -97,11 +98,12 @@ export function messengerProactiveRemainingToday(now?: Date): number {
  * `params`：`text`（必需）、`context_id`（必需 —— 哪一场对话）、`reply_to`
  * （可选 —— 答一条来话时设；**设了就免主动打扰预算**）。
  *
+ * kernel 已验证的 E1/E2/E3 预算资格通过独立 admission 传入，不从模型参数读取。
  * 被节流的主动发送返回 `{sent: false, throttled: true, reason}` —— **绝不是一个
  * 异常**，与 `autonomy.initiate_chat` / `notify.owner` 对策略拒绝已经在用的形状
  * 一致。
  */
-export async function send(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+export async function send(params: Record<string, unknown>, _execution?: CapabilityExecutionContext, admission?: ResourceAdmission): Promise<Record<string, unknown>> {
   const text = params.text
   if (!text) throw new TypeError("messenger.send requires 'text'")
   const contextId = params.context_id
@@ -109,7 +111,7 @@ export async function send(params: Record<string, unknown>): Promise<Record<stri
   const replyTo = params.reply_to
   const transport = currentTransport()
 
-  if (replyTo === null || replyTo === undefined) {
+  if ((replyTo === null || replyTo === undefined) && admission?.messageBudget !== 'exempt') {
     const reason = _reserveProactiveSlot()
     if (reason !== null) return { sent: false, throttled: true, reason }
   }

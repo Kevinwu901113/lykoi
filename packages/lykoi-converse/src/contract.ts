@@ -54,8 +54,8 @@ export const CONVERSATION_CATALOGUE: readonly Candidate[] = [
   },
   {
     kind: PROMISE_FOLLOWUP, weight: 0.3,
-    cost: '登记一个后台跟进, 回合结束后由 surface 调度',
-    note: '这一轮做不完: 写清要完成什么、卡在哪里。不是自动续跑, 挂起等他点头',
+    cost: '持久登记一个 Task，由后台执行并向所有者交付结果',
+    note: '这一轮做不完: 写清要完成什么、卡在哪里。登记成功后会自动推进；保留原请求的时限、一次性及其他约束',
   },
 ]
 
@@ -65,6 +65,7 @@ export function buildConversationCandidates(): Candidate[] {
 
 export const VISION_TOOL = 'conversation.describe_image'
 export const FOLLOWUP_TOOL = 'conversation.promise_followup'
+export const FOLLOWUP_DESCRIPTION = '持久登记 Task 后再确认承诺。Task 可等待到指定时间下限，再由宿主把完成内容单独发给所有者；支持至少延后，不保证准点。保留原请求的时限和约束，文本交付无需命令或成果文件。已有任务可按 task_id 更新。'
 export const PROGRESS_TOOL = 'conversation.post_progress'
 
 export function envelopeToolNames(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string[] {
@@ -110,7 +111,7 @@ ${mindProtocol ? '  "mind": {"records": [], "acknowledge": [], "continue": false
   名字(表外的名字不会执行):
   {tools}
   工具照旧分级 —— 需要他点头的工具不会因为你同时说了话就免了。
-- promise_followup: 这一轮做不完,content 写清要完成什么、卡在哪里;可另给 utterances 作为本轮要说的话。
+- promise_followup: ${FOLLOWUP_DESCRIPTION} content 写完整目标和约束，utterances 写本轮确认。
 ${mindProtocol ?? `- inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
   简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。`}
 - 情绪脉冲可选,是一个字符串数组,只能取下面这张表里的名字(它们是调节场唯一
