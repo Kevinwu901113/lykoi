@@ -19,6 +19,9 @@ export const Config: Schema<Config> = Schema.object({
 export function taskCapabilities(tasks: CharacterTasks): Capability[] {
   const id = { type: 'string' } as const
   return [
+    { name: 'task.create', description: 'Start self-chosen persistent work linked to a Thought. This records autonomous origin, never user authorization. For user promises use the conversation follow-up entry.',
+      inputSchema: { type: 'object', properties: { goal: id, requirements: id, criteria: id, thoughtId: id, reason: id }, required: ['goal', 'thoughtId', 'reason'], additionalProperties: false },
+      handler: async p => tasks.create({ goal: String(p.goal), requirements: p.requirements as string | undefined, criteria: p.criteria as string | undefined, thoughtId: String(p.thoughtId), reason: String(p.reason), origin: 'autonomous' }) },
     { name: 'task.list', description: 'Read this character instance’s persistent tasks and delivery status.', inputSchema: { type: 'object', additionalProperties: false }, handler: async () => tasks.list() },
     { name: 'task.history', description: 'Read confirmed operation records and observations for a task; paginate older work when continuing from a checkpoint.',
       inputSchema: { type: 'object', properties: { id, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['id'], additionalProperties: false },
@@ -38,6 +41,7 @@ const PROTOCOL = `你正在推进自己的持久任务，复用已有经历和�
 只返回一个 JSON 对象：
 {"kind":"act","action":{"name":"已注册能力名","args":{}}}
 或 {"kind":"finish","result": RESULT}。
+RESULT 可选 finding 字段：影响其他问题的重要发现，带实际证据引用；会持久回流 Mind。普通操作日志无需全局回流。
 RESULT 是下列之一：
 {"status":"continue","checkpoint":"已确认进度与下一步"}
 {"status":"waiting","checkpoint":"已确认进度","wait":{"kind":"due|operation|external|approval|verification","detail":"等待什么","until":"due 时必填 ISO 时间","operationId":"operation 时必填实际操作编号"}}
@@ -55,6 +59,7 @@ export async function apply(ctx: Context, config: Config) {
   const dispatch = createDispatch({ sink: ctx.audit, resources: ctx.lykoiRuntime.resources })
   const runtime = new TaskRuntime(store, {
     maxActions: config.maxActions, intervalMs: config.intervalMs,
+    receive: ctx.get('mind') ? event => ctx.get('mind')!.receive(event) : undefined,
     reconcile: (op, task) => ctx.lykoiRuntime.recover(op.name, op.args, { instanceId: task.instanceId, taskId: task.id, operationId: op.id, workspace: task.workspace }),
     cancel: async (op, task) => {
       const result = await ctx.lykoiRuntime.cancel(op.name, op.args, { instanceId: task.instanceId, taskId: task.id, operationId: op.id, workspace: task.workspace })
@@ -66,11 +71,11 @@ export async function apply(ctx: Context, config: Config) {
     },
     recordCompleted: task => memory.recordExperience('action_result', `[Task ${task.id}] ${task.checkpoint}\n成果：${JSON.stringify(task.artifacts)}`, { now: new Date(), reference: task.id }),
     reason: async ({ task, run, operations, closing, signal }) => {
-      const capabilities = ctx.lykoiRuntime.capabilities().filter(c => !c.name.startsWith('conversation.') && (!c.name.startsWith('task.') || c.name === 'task.history') && check(c.name, 'interactive') !== 'deny')
+      const capabilities = ctx.lykoiRuntime.capabilities().filter(c => !c.name.startsWith('conversation.') && (!c.name.startsWith('task.') || c.name === 'task.history') && check(c.name, task.origin === 'autonomous' ? 'autonomous' : 'interactive') !== 'deny')
       const result = await ctx.lykoiLlm.call({ provider: config.route, model: config.model, responseFormat: { type: 'json_object' }, signal,
         messages: [createMessage({ role: 'system', content: [{ type: 'text', text: [buildPersonaKernel(persona), buildPersonaPrompt(memory, persona), PROTOCOL].filter(Boolean).join('\n\n') }], source: { kind: 'plugin', plugin: name } }),
-          createUserMessage({ content: [{ type: 'text', text: JSON.stringify({ task, operations: operations.slice(-8), operationCount: operations.length, capabilities, closing }) }], source: { kind: 'plugin', plugin: name } })],
-      }, { runId: run.id })
+          createUserMessage({ content: [{ type: 'text', text: JSON.stringify({ task, mind: ctx.get('mind')?.view(task.thoughtId ?? task.goal), recentSkills: ctx.get('skills')?.recent(), operations: operations.slice(-8), operationCount: operations.length, capabilities, closing }) }], source: { kind: 'plugin', plugin: name } })],
+      }, { runId: run.id, lane: 'background' })
       const decision = JSON.parse(result.text)
       if (decision.kind === 'act' && typeof decision.action?.name === 'string' && decision.action.args && typeof decision.action.args === 'object' && !Array.isArray(decision.action.args)) return decision
       if (decision.kind === 'finish' && ['continue', 'waiting', 'completed', 'failed'].includes(decision.result?.status) && typeof decision.result.checkpoint === 'string') return { kind: 'finish', result: decision.result as TaskResult }
@@ -79,7 +84,7 @@ export async function apply(ctx: Context, config: Config) {
     dispatch: async (action, execution, approved) => {
       if (!ctx.lykoiRuntime.actions.has(action.name)) return { success: false, data: { rejected: true }, error: 'capability is not registered' }
       if (action.name.startsWith('conversation.') || (action.name.startsWith('task.') && action.name !== 'task.history')) return { success: false, data: { rejected: true }, error: 'task cognition cannot change user requirements or control another conversation' }
-      return dispatch({ type: action.name, params: action.args }, { context: { origin: 'interactive', execution }, preApproved: approved, actionId: execution.operationId, correlationId: execution.taskId })
+      return dispatch({ type: action.name, params: action.args }, { context: { origin: store.get(execution.taskId).origin === 'autonomous' ? 'autonomous' : 'interactive', execution }, preApproved: approved, actionId: execution.operationId, correlationId: execution.taskId })
     },
   })
   store.migrateFromMemory(config.memoryPath)
@@ -133,7 +138,10 @@ export async function apply(ctx: Context, config: Config) {
       await ctx.audit.record({ type: 'task/approval', operation_id: operationId, instance_id: instance.id })
       return runtime.approve(operationId, action)
     },
-    create: input => store.create(input), get: id => store.get(id), list: () => store.list(),
+    create: input => {
+      if (input.origin === 'autonomous' && !ctx.get('mind')?.view(input.thoughtId).records.some(r => r.id === input.thoughtId && r.kind === 'thought')) throw new Error('autonomous task needs an existing Thought')
+      return store.create(input)
+    }, get: id => store.get(id), list: () => store.list(),
     update: (id, requirements, criteria) => store.update(id, requirements, criteria),
     control: (id, command) => runtime.control(id, command), retryDelivery: id => runtime.retryDelivery(id),
     scan: () => runtime.scan(), close: () => runtime.close(),

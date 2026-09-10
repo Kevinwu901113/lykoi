@@ -410,8 +410,9 @@ export function cheapTick(opts: {
   const out = { contact_unanswered: false, silence_anomaly: false }
 
   const pending = pendingContactTs(store, notifications)
-  if (pending !== null && hoursBetween(pending, now) > CONTACT_RESPONSE_TIMEOUT_H) {
-    store.applyRegulationCause('contact_unanswered', { now })
+  const observedSilence = store.latestExperienceTs('silence')
+  if (pending !== null && hoursBetween(pending, now) > CONTACT_RESPONSE_TIMEOUT_H
+    && (observedSilence === null || observedSilence < pending)) {
     recordExperience(
       store,
 'silence',
@@ -445,7 +446,6 @@ export function cheapTick(opts: {
           + `(这个时段通常有互动,典型间隔约 ${pyFloat1(typical)} 小时)`,
           { salience: SILENCE_SALIENCE, now },
         )
-        store.applyRegulationCause('owner_silence_anomaly', { now })
         logEvent?.('mind_silence_anomaly', { hours_quiet: roundDecimal(hoursQuiet, 1) })
         out.silence_anomaly = true
       }

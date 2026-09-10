@@ -103,7 +103,7 @@ test('插件端到端：heart/beat → 六阶段一拍（fake heart/LLM/audit + 
     assert.equal(run.status, 'completed')
     assert.equal(llmCalls[0]!.runId, run.id, 'budget runId 贯穿（SA-172）')
     const n = (db.prepare('SELECT COUNT(*) AS n FROM experiences').get() as { n: number }).n
-    assert.equal(n, 2, 'wake_action + action_result')
+    assert.equal(n, 0, 'pure thought does not fabricate action experiences')
   } finally {
     db.close()
   }

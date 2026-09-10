@@ -9,6 +9,8 @@ export type TaskStatus = typeof statuses[number]
 export interface TaskWait { kind: 'due' | 'operation' | 'external' | 'approval' | 'verification'; detail: string; until?: string; operationId?: string }
 export interface Artifact { path: string; sha256: string; bytes: number }
 export interface Task {
+  result?: string; finding?: string
+  origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string
   id: string; instanceId: string; originTurnId: string | null; goal: string; requirements: string; criteria: string
   revision: number; status: TaskStatus; checkpoint: string; workspace: string; createdAt: string; updatedAt: string
   wait: TaskWait | null; failure: string | null; artifacts: Artifact[]
@@ -35,6 +37,7 @@ export class TaskStore {
     this.instanceId = instanceId; this.root = root
     this.db.exec(`PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS persistent_tasks (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, legacy_id TEXT UNIQUE, document TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_outbox(id TEXT PRIMARY KEY, document TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS task_runs (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, document TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS task_operations (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, run_id TEXT NOT NULL, document TEXT NOT NULL);`)
     const foreign = this.db.prepare('SELECT id FROM persistent_tasks WHERE instance_id <> ? LIMIT 1').get(instanceId)
@@ -74,21 +77,33 @@ export class TaskStore {
   }
   edit(id: string, change: (task: Task) => void, now = new Date()): Task {
     return this.transaction(() => {
-      const task = this.get(id); change(task); task.updatedAt = now.toISOString()
+      const task = this.get(id); const before = JSON.stringify([task.status, task.wait?.kind, task.failure, task.finding]); change(task); task.updatedAt = now.toISOString()
       this.#readTask({ id, document: JSON.stringify(task) })
       this.db.prepare('UPDATE persistent_tasks SET document=? WHERE id=? AND instance_id=?').run(JSON.stringify(task), id, this.instanceId)
+      if (before !== JSON.stringify([task.status, task.wait?.kind, task.failure, task.finding]) &&
+          (terminal.has(task.status) || task.finding !== undefined || (task.status === 'waiting' && task.wait?.kind !== 'due'))) {
+        const event = { id: randomUUID(), source: 'task', reference: task.id, createdAt: now.toISOString(),
+          content: JSON.stringify({ id: task.id, goal: task.goal, status: task.status, checkpoint: task.checkpoint, wait: task.wait, failure: task.failure, artifacts: task.artifacts, result: task.result, finding: task.finding, thoughtId: task.thoughtId }) }
+        this.db.prepare('INSERT INTO task_outbox VALUES(?,?)').run(event.id, JSON.stringify(event))
+      }
       return task
     })
   }
-  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string }, now = new Date()): Task {
+  relay(receive: (event: import('lykoi-contracts').MindEvent) => void) {
+    for (const row of this.db.prepare('SELECT id, document FROM task_outbox ORDER BY rowid').all()) {
+      receive(JSON.parse(String(row.document)))
+      this.db.prepare('DELETE FROM task_outbox WHERE id=?').run(row.id)
+    }
+  }
+  create(input: { goal: string; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
     if (!input.goal.trim()) throw new TypeError('task goal is required')
     if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now)
     const existing = input.originTurnId ? this.list().find(t => t.originTurnId === input.originTurnId) : undefined
     if (existing) return existing
     const id = `task-${randomUUID()}`, workspace = join(this.root, id, 'workspace')
     mkdirSync(workspace, { recursive: true })
-    const task: Task = { id, instanceId: this.instanceId, originTurnId: input.originTurnId ?? null, goal: input.goal,
-      requirements: input.requirements ?? input.goal, criteria: input.criteria ?? '完成用户目标并提供可核验成果', revision: 1,
+    const task: Task = { id, instanceId: this.instanceId, origin: input.origin ?? 'user', thoughtId: input.thoughtId, reason: input.reason, originTurnId: input.originTurnId ?? null, goal: input.goal,
+      requirements: input.requirements ?? input.goal, criteria: input.criteria ?? '完成目标并提供可核验成果', revision: 1,
       status: 'pending', checkpoint: '', workspace, wait: null, failure: null, artifacts: [], delivery: null,
       experienceId: null, createdAt: now.toISOString(), updatedAt: now.toISOString() }
     this.db.prepare('INSERT INTO persistent_tasks(id,instance_id,document) VALUES(?,?,?)').run(id, this.instanceId, JSON.stringify(task))

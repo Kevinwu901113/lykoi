@@ -706,7 +706,7 @@ export function evaluateMessage(
     envelope: {},
   }
 
-  for (const key of envelopeFields) {
+  for (const key of new Set([...envelopeFields, 'mind'])) {
     if (Object.hasOwn(decisionRaw, key)) {
       decision.envelope[key] = decisionRaw[key]
     } else if (Object.hasOwn(raw, key)) {

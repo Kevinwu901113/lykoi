@@ -416,6 +416,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   conversation = new Conversation({
+    mind: ctx.get('mind'),
     runOwned: work => ctx.lykoiRuntime.run(work),
     store,
     persona,
@@ -454,7 +455,7 @@ export function apply(ctx: Context, config: Config) {
     },
     taskContext: () => {
       const tasks = ctx.get('tasks')?.list()
-      return tasks?.length ? '[我的持续任务：补充同一目标时用 task.update，不另建任务]\n' + JSON.stringify(tasks) : ''
+      return JSON.stringify({ tasks: tasks?.map(({ id, goal, status, checkpoint, wait, delivery }) => ({ id, goal, status, checkpoint, wait, delivery })), recentSkills: ctx.get('skills')?.recent() })
     },
     capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
     invokeCapability: (name, params) => ctx.lykoiRuntime.invoke(name, params),
@@ -678,10 +679,21 @@ export async function handleTurn(
     chars: turn.parts.reduce((total, part) => total + [...part.text].length, 0),
   })
 
+  if (turn.isOwner && !/^\/mind(?:\s|$)/.test(turn.parts[0]!.text)) ctx.get('mind')?.receive({ id: `conversation:${turnId}`, source: 'user', reference: turnId,
+    content: turn.parts.map(part => part.text).join('\n'), createdAt: turn.committedAt })
+
   try {
     const messenger = ctx.get('messenger') as MessengerAdapterService | undefined
     if (messenger && !messenger.outboundWired()) throw new OutboundUnavailableError()
 
+    if (turn.isOwner && turn.parts.length === 1 && /^\/mind(?:\s|$)/.test(turn.parts[0]!.text)) {
+      const mind = ctx.get('mind')
+      const query = turn.parts[0]!.text.replace(/^\/mind\s*/, '')
+      const content = mind ? JSON.stringify(mind.view(query), null, 2) : '持续心智尚未装配'
+      const delivered = await messenger?.sendReply(turn.contextId, content, replyAnchor, { run_id: runId, turn_id: turnId })
+      return { terminal: { status: delivered?.outcome === 'delivered' ? 'completed' : 'failed', reason: delivered?.outcome === 'delivered' ? null : 'delivery_failed',
+        followup_registered: false, ask_sent: false, notice_sent: false, reply_chars: content.length, elapsed_ms: Math.round(performance.now() - started) } }
+    }
     if (turn.isOwner && turn.parts.length === 1 && /^\/task(?:\s|$)/.test(turn.parts[0]!.text)) {
       const tasks = ctx.get('tasks')
       if (!tasks) throw new Error('persistent task service unavailable')

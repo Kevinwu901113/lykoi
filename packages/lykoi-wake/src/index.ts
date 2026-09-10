@@ -107,6 +107,9 @@ export interface WakeDeps {
 
   wiredActions?: ReadonlySet<string>
   capabilities?: () => readonly CapabilityDefinition[]
+  workingContext?: () => string
+  mind?: import('lykoi-contracts').CharacterMind
+  maxThoughtSteps?: number
   maxActions?: number
 }
 
@@ -179,12 +182,6 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     return { status: 'yielded', beats }
   }
   const moment = deps.clock.now()
-  if (deps.store.autonomyActionsLastHour({ now: moment }) >= HOURLY_ACTION_CAP) {
-
-    recordWakeClock(deps, moment)
-    deps.logEvent('autonomy_budget_exhausted', { reason: 'hourly_cap' })
-    return { status: 'budget_exhausted', beats, reason: 'hourly_cap', next_wake_at: deps.heart.nextAt }
-  }
 
   const runId = (deps.runIdFn ?? defaultRunId)()
   deps.store.startAutonomyRun(runId, { startedAt: moment })
@@ -198,6 +195,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     const m = maintain(deps.store, deps.snapshotDeps, moment)
 
     const snap = read(deps.store, deps.snapshotDeps, m)
+    if (deps.mind) snap.念头 = [] // Old records were migrated once; new cognition has one thought writer.
     const snapLike = snap as unknown as SnapshotLike
     const candidates = buildCandidates(
       snapLike, { wired: deps.wiredActions, persona: deps.messageDeps.persona },
@@ -207,6 +205,8 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
     const injectedConcernIds = new Set(snap.关切.map((c) => c.id))
     const injectedThreadIds = new Set(snap.叙事.线.map((t) => t.id))
     const messages = buildMessages(snapLike, candidates, deps.messageDeps)
+    const workingContext = deps.workingContext?.()
+    if (workingContext) messages.push({ role: 'system', content: workingContext })
 
     // `LlmFn` 上（整合/专注两处调用不解析 JSON，不加）。
     const llmMeta = {
@@ -214,21 +214,34 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
       responseFormat: { type: 'json_object' as const },
     }
     messages[0] = { ...messages[0]!, content: messages[0]!.content + '\n你可以连续行动。每次行动后会得到实际 observation，再决定下一步；记录笔记、向内思考或休息可结束本次醒来。不要把调用尝试当成成功。' }
-    const limit = Math.min(deps.maxActions ?? 4, HOURLY_ACTION_CAP - deps.store.autonomyActionsLastHour({ now: m }))
+    const limit = Math.max(0, Math.min(deps.maxActions ?? 4, HOURLY_ACTION_CAP - deps.store.autonomyActionsLastHour({ now: m })))
+    let thoughtSteps = 0
     const cycle = await runCognition<Decision, { status: 'completed' | 'failed'; observations: unknown[] }, 'completed' | 'failed'>({
       maxActions: limit,
       reason: async ({ closing }) => {
-        if (closing) messages.push({ role: 'system', content: '本次执行预算已用完；结束本次醒来，不再调用外部能力。' })
-        const capabilities = deps.capabilities?.() ?? []
-        const available = capabilities.length ? [{ role: 'system' as const, content: '当前获准使用的能力：\n' + capabilities.map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n') + '\n要调用能力，decision.kind="tool_call"，decision.tool={"name":"能力名","arguments":{}}。结果会回到下一步。' }] : []
-        const reply = await deps.llm([...messages, ...available], llmMeta)
-        const choice = evaluateMessage({ content: reply.content }, [...candidates, ...(capabilities.length ? [{ kind: 'tool_call', weight: 0.4, cost: '一次能力调用', note: '根据结果继续思考' }] : [])], {
-          kinds: [...KINDS, ...(capabilities.length ? ['tool_call'] : [])], envelopeFields: ['tool'],
-          injectedThoughtIds, injectedConcernIds, injectedThreadIds,
-          logEvent: deps.logEvent, gap: { source: 'wake', runId },
-        })
-        messages.push({ role: 'assistant', content: reply.content ?? '' })
-        return { kind: 'act', action: choice }
+        for (;;) {
+          if (closing) messages.push({ role: 'system', content: '本次外部执行预算已用完；仍可用 contemplate 和 mind 保存、继续思考，也可 rest；不能调用外部能力。' })
+          const capabilities = deps.capabilities?.() ?? []
+          const available = capabilities.length ? [{ role: 'system' as const, content: '当前获准使用的能力：\n' + capabilities.map(c => `${c.name} ${JSON.stringify(c.inputSchema)} — ${c.description}`).join('\n') + '\n要调用能力，decision.kind="tool_call"，decision.tool={"name":"能力名","arguments":{}}。结果会回到下一步。' }] : []
+          const seen = deps.mind?.view()
+          const mindContext = deps.mind ? [{ role: 'system' as const, content: deps.mind.context() }] : []
+          const reply = await deps.llm([...messages, ...available, ...mindContext], llmMeta)
+          const choice = evaluateMessage({ content: reply.content }, [...candidates, ...(capabilities.length ? [{ kind: 'tool_call', weight: 0.4, cost: '一次能力调用', note: '根据结果继续思考' }] : [])], {
+            kinds: [...KINDS, ...(capabilities.length ? ['tool_call'] : [])], envelopeFields: ['tool'],
+            injectedThoughtIds, injectedConcernIds, injectedThreadIds,
+            logEvent: deps.logEvent, gap: { source: 'wake', runId },
+          })
+          messages.push({ role: 'assistant', content: reply.content ?? '' })
+          if (seen) deps.mind?.commit(choice.envelope.mind, 'wake', seen)
+          if (choice.kind === 'contemplate' || choice.kind === 'rest') {
+            if (!deps.mind) applyInner(choice.inner, { source: 'wake', injectedIds: injectedThoughtIds, store: deps.store, now: m, logEvent: deps.logEvent })
+            decision = choice
+            const more = (choice.envelope.mind as { continue?: boolean } | undefined)?.continue
+            if (more && ++thoughtSteps < (deps.maxThoughtSteps ?? 3)) continue
+            return { kind: 'finish', result: 'completed' }
+          }
+          return { kind: 'act', action: choice }
+        }
       },
       act: async (choice) => {
         decision = choice // Only an executed step can become the persisted decision.
@@ -242,7 +255,7 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
             return observation
           },
         })
-        applyInner(choice.inner, { source: 'wake', injectedIds: injectedThoughtIds,
+        if (!deps.mind) applyInner(choice.inner, { source: 'wake', injectedIds: injectedThoughtIds,
           store: deps.store, now: m, logEvent: deps.logEvent })
         return { status: result, observations }
       },
@@ -437,7 +450,7 @@ export function apply(ctx: Context, config: Config) {
         content: [{ type: 'text', text: m.content }],
         source: { kind: 'user' },
       })),
-    }, { runId: meta.runId })
+    }, { runId: meta.runId, lane: 'background' })
     return { content: result.text, reasoningLength: result.reasoningLength }
   }
 
@@ -451,6 +464,11 @@ export function apply(ctx: Context, config: Config) {
       },
     },
     llm,
+    mind: ctx.get('mind'),
+    workingContext: () => {
+      const recentSkills = ctx.get('skills')?.recent(), tasks = ctx.get('tasks')?.list().map(({ id, goal, status, checkpoint }) => ({ id, goal, status, checkpoint }))
+      return recentSkills?.length || tasks?.length ? JSON.stringify({ recentSkills, tasks }) : ''
+    },
     capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => checkCapabilityPermission(c.name, 'autonomous') === 'allow'),
     dispatchFn, // M3-W1 已接真 kernel（origin=autonomous 由上面的适配器盖章）
     snapshotDeps: {

@@ -38,12 +38,12 @@ test('SA-70：contact 超时 24h → contact_unanswered + silence 经验（salie
   assert.equal(exp.source, 'silence')
   assert.equal(exp.content, '我主动联系了 所有者,超过 24 小时没有回应')
   assert.equal(exp.salience, 0.6)
-  assert.deepEqual(causeSequence(store), ['contact_unanswered', 'experience_recorded'])
+  assert.deepEqual(causeSequence(store), ['experience_recorded'])
   assert.deepEqual(log.events, [['mind_contact_unanswered', { pending_since: pending }]])
-  // 第二次 tick：contact_unanswered 事件本身就是解决标记 → 不再重复写。
+  // 第二次 tick：已记录的 silence 经历就是观察标记 → 不再重复写。
   const again = cheapTick({ store, notifications: notif, now: T0, logEvent: log.logEvent })
   assert.deepEqual(again, { contact_unanswered: false, silence_anomaly: false })
-  assert.deepEqual(causeSequence(store), ['contact_unanswered', 'experience_recorded'])
+  assert.deepEqual(causeSequence(store), ['experience_recorded'])
 })
 
 test('SA-70 边界：不足 24h 的未决呼唤不动账', () => {
@@ -117,14 +117,14 @@ test('SA-68/69：沉默异常三条件全成立才写；每沉默期一次；文
     exp.content,
     '所有者 比平时安静:已经 49.0 小时没有互动(这个时段通常有互动,典型间隔约 24.0 小时)',
   )
-  assert.deepEqual(causeSequence(store), ['experience_recorded', 'owner_silence_anomaly'])
+  assert.deepEqual(causeSequence(store), ['experience_recorded'])
   assert.deepEqual(log.events, [['mind_silence_anomaly', { hours_quiet: 49 }]])
   assert.ok(store.latestExperienceTs('silence')! > lastTs, 'silence 经验晚于沉默起点')
 
   // SA-69：同一沉默期第二次 tick 不再写（latest silence >= last_ts）。
   const again = cheapTick({ store, notifications: emptyNotifications, now: T0 })
   assert.deepEqual(again, { contact_unanswered: false, silence_anomaly: false })
-  assert.deepEqual(causeSequence(store), ['experience_recorded', 'owner_silence_anomaly'])
+  assert.deepEqual(causeSequence(store), ['experience_recorded'])
 })
 
 test('SA-68 三条件缺一不可：不足 2×typical / 时段不常在 → 不算异常', () => {

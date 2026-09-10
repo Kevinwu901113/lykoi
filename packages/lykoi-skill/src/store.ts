@@ -63,6 +63,11 @@ export class SkillStore {
     }
     return { skills: matches, errors, nextOffset: cursor < files.length ? cursor : null }
   }
+  recent(limit = 10) {
+    return readdirSync(this.root).filter(f => f.endsWith('.json')).map(f => this.read(f.slice(0, -5)))
+      .sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit)
+      .map(({ id, title, summary, source, revision, updatedAt }) => ({ id, title, summary, source, revision, updatedAt }))
+  }
   save(input: SaveSkill, operationId?: string): Skill {
     this.#validate(input)
     const id = input.id ?? this.creationId(operationId)

@@ -54,6 +54,10 @@ if (process.argv.includes('--console')) {
     for await (const line of input) {
       if (closing) break
       if (!line.trim()) continue
+      if (/^\/mind(?:\s|$)/.test(line)) {
+        console.log(JSON.stringify({ type: 'mind/state', instanceId: instance.id, state: root.mind.view(line.replace(/^\/mind\s*/, '')) }))
+        continue
+      }
       try {
         const command = await root.get('tasks')?.command(line)
         if (command != null) { console.log(JSON.stringify({ type: 'task/command', text: command })); continue }

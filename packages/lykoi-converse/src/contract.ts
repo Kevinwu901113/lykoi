@@ -239,6 +239,7 @@ export function parseEnvelope(
     // 天然不落在 assessment 原文里而误伤；第②关（候选表）照旧卡。
   })
   decision.envelope = {
+    ...(decision.envelope.mind === undefined ? {} : { mind: decision.envelope.mind }),
     tool: sanitizeTool(decision.envelope.tool),
     pulse: sanitizePulse(decision.envelope['情绪脉冲']),
     ...(decision.kind === REPLY || decision.kind === PROMISE_FOLLOWUP
