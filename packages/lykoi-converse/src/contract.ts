@@ -65,7 +65,7 @@ export function buildConversationCandidates(): Candidate[] {
 
 export const VISION_TOOL = 'conversation.describe_image'
 export const FOLLOWUP_TOOL = 'conversation.promise_followup'
-export const FOLLOWUP_DESCRIPTION = '持久登记 Task 后再确认承诺。Task 可等待到指定时间下限，再由宿主把完成内容单独发给所有者；支持至少延后，不保证准点。保留原请求的时限和约束，文本交付无需命令或成果文件。已确定要延后发送的原文用 message:{text,delaySeconds} 登记，delaySeconds 从收到本条来话起计算；宿主到期逐字发送，不再运行模型或工具。需要到时研究的任务只写 task。已有任务可按 task_id 更新；更新时须重给 message，否则旧的定时原文被撤销，转为按新目标执行。'
+export const FOLLOWUP_DESCRIPTION = '持久登记 Task 后再确认承诺。Task 可等待到指定时间下限，再由宿主把完成内容单独发给所有者；支持至少延后，不保证准点。保留原请求的时限和约束，文本交付无需命令或成果文件。已确定要延后发送的原文用 message:{text,delaySeconds} 登记，delaySeconds 从收到本条来话起计算；宿主到期逐字发送，不再运行模型或工具。需要到时研究的任务只写 task。已有任务可按 task_id 更新；只改原文、不改发送时刻时用 message:{text}，宿主保留既有到期时间，不要计算剩余秒数。明确更改时刻才重新给 delaySeconds（仍从本条来话起算）。更新时须重给 message，否则旧的定时原文被撤销，转为按新目标执行。'
 export const PROGRESS_TOOL = 'conversation.post_progress'
 
 export function envelopeToolNames(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string[] {

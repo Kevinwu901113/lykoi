@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createRequire } from 'node:module'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -29,4 +30,10 @@ test('production YAML is bound to the selected state and definition; model/chann
     assert.equal(entries.find(e => e.name === 'lykoi-converse')?.config.route, 'deepseek-official')
     assert.equal(entries.find(e => e.name === 'lykoi-adapter-telegram/production')?.config.tokenEnv, 'LYKOI_TELEGRAM_BOT_TOKEN')
   } finally { rmSync(registry, { recursive: true, force: true }) }
+})
+
+test('deployment YAML charges empty merge sources against the parser work limit', () => {
+  const yaml = createRequire(import.meta.url)('js-yaml')
+  assert.throws(() => yaml.load('empty: &empty {}\nmerged: { <<: [*empty, *empty] }', {maxTotalMergeKeys:1}), /maxTotalMergeKeys/)
+  assert.deepEqual(yaml.load('empty: &empty {}\nmerged: { <<: [*empty] }', {maxTotalMergeKeys:1}), {empty:{},merged:{}})
 })

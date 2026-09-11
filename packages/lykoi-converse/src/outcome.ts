@@ -18,6 +18,8 @@ export type TurnFailReason =
   | 'budget_exceeded'
   | 'delivery_failed'
   | 'no_transport'
+  | 'approval_suppressed'
+  | 'approval_unavailable'
   | 'unknown'
 
 export interface TurnOutcome {
@@ -53,4 +55,6 @@ export function cycleFailure(outcome: CycleOutcome | null): TurnFailReason | nul
 
 /** 技术失败给 owner 的确定性、无供应商正文回执。 */
 export const SYSTEM_FAILURE_NOTICE = (reason: TurnFailReason): string =>
-  `[系统] 这一轮没有得到可靠回复（代号 ${reason}）。`
+  reason === 'approval_suppressed' ? '[系统] 本次操作未执行：近期对同范围操作的拒绝仍然生效，没有新建审批。'
+    : reason === 'approval_unavailable' ? '[系统] 本次操作未执行，审批请求未能建立。'
+    : `[系统] 这一轮没有得到可靠回复（代号 ${reason}）。`

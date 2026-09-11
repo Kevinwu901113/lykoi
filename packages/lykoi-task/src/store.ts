@@ -27,9 +27,11 @@ export interface Operation {
 }
 const terminal = new Set<TaskStatus>(['completed', 'failed', 'cancelled'])
 
-function scheduledMessage(message: TaskMessage | undefined, receivedAt: string) {
+function scheduledMessage(message: TaskMessage | undefined, receivedAt: string, previous?: Task['scheduledMessage']) {
   if (message === undefined) return undefined
-  if (typeof message.text !== 'string' || !message.text.trim() || !Number.isFinite(message.delaySeconds) || message.delaySeconds < 0) throw new TypeError('message needs nonempty text and a nonnegative delaySeconds')
+  if (typeof message.text !== 'string' || !message.text.trim()) throw new TypeError('message needs nonempty text')
+  if (message.delaySeconds === undefined && previous) return { text: message.text, dueAt: previous.dueAt }
+  if (typeof message.delaySeconds !== 'number' || !Number.isFinite(message.delaySeconds) || message.delaySeconds < 0) throw new TypeError('message needs nonempty text and a nonnegative delaySeconds')
   return { text: message.text, dueAt: new Date(Date.parse(receivedAt) + message.delaySeconds * 1000).toISOString() }
 }
 
@@ -110,7 +112,7 @@ export class TaskStore {
   create(input: { goal: string; message?: TaskMessage; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
     if (!input.goal.trim()) throw new TypeError('task goal is required')
     if (input.message && input.origin === 'autonomous') throw new Error('scheduled delivery requires a user request')
-    const message = scheduledMessage(input.message, input.request?.receivedAt ?? now.toISOString())
+    const message = scheduledMessage(input.message, input.request?.receivedAt ?? now.toISOString(), input.taskId ? this.get(input.taskId).scheduledMessage : undefined)
     if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now, message)
     const existing = input.originTurnId ? this.list().find(t => t.originTurnId === input.originTurnId) : undefined
     if (existing) return existing

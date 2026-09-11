@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { TaskStore } from '../../lykoi-task/src/store.ts'
 import assert from 'node:assert/strict'
 import { join, dirname } from 'node:path'
 import { MindStore } from 'lykoi-runtime/mind'
@@ -50,4 +51,46 @@ test('mind.read brings historical records into the next Conversation snapshot be
   })
   try {assert.equal(await h.conversation.send('重新看看旧问题'),'重新打开了。');assert.equal(mind.view('archived').records[0]!.revision,2)}
   finally {mind.close();prepared.store.close()}
+})
+
+test('a rejected Mind proposal cannot lose the business request or execute its proposed tool', async () => {
+  const prepared = makeStore(), mind = new MindStore(join(dirname(prepared.path), 'mind.sqlite'), () => T0)
+  let calls = 0, dispatches = 0
+  const h = makeConversation({ prepared, mind, dispatchFn: async () => { dispatches++; return { success: true } },
+    llm: async messages => {
+      if (++calls === 1) return { content: JSON.stringify({
+        decision: { kind: 'tool_call', tool: { name: 'terminal.exec', arguments: { command: 'must not run' } } },
+        mind: { acknowledge: ['not-in-the-observed-snapshot'] },
+      }) }
+      assert.ok(messages.some(m => m.content?.includes('unseen_event')))
+      assert.ok(messages.some(m => m.content?.includes('17 加 25')))
+      return { content: JSON.stringify({ decision: { kind: 'reply', content: '42；没有执行命令。' } }) }
+    },
+  })
+  try {
+    assert.equal(await h.conversation.send('17 加 25？不要运行命令。'), '42；没有执行命令。')
+    assert.equal(calls, 2); assert.equal(dispatches, 0)
+    assert.ok(h.events.some(([name, fields]) => name === 'mind/commit_rejected' && fields.code === 'unseen_event'))
+    assert.equal(mind.view().events.length, 1)
+  } finally { h.store.close(); mind.close() }
+})
+
+test('rejected Mind plus scheduled followup is corrected before creating exactly one task', async () => {
+  const prepared = makeStore(), root = dirname(prepared.path)
+  const mind = new MindStore(join(root, 'mind.sqlite'), () => T0)
+  const tasks = new TaskStore(join(root, 'tasks.sqlite'), 'fixture', join(root, 'tasks'))
+  let calls = 0
+  const h = makeConversation({prepared,mind,createTask:input=>tasks.create(input),llm:async messages=>{
+    calls++
+    assert.equal(tasks.list().length,0)
+    if(calls===2) assert.ok(messages.some(m=>m.content?.includes('unseen_event')))
+    return {content:JSON.stringify({decision:{kind:'promise_followup',content:'一次定时消息',utterances:['已登记。'],
+      tool:{name:'conversation.promise_followup',arguments:{message:{text:'原文',delaySeconds:60}}}},
+      ...(calls===1?{mind:{acknowledge:['unseen']}}:{})})}
+  }})
+  try {
+    assert.equal(await h.conversation.send('60秒后发送原文',{turnId:'mind-followup',receivedAt:T0.toISOString()}),'已登记。')
+    assert.equal(calls,2);assert.equal(tasks.list().length,1)
+    assert.equal(tasks.list()[0]!.scheduledMessage?.text,'原文')
+  } finally {tasks.close();mind.close();prepared.store.close()}
 })

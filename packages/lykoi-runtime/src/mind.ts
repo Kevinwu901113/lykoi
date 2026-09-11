@@ -4,6 +4,26 @@ import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { CharacterMind, MindEvent, MindRecord, MindPatch, MindView } from 'lykoi-contracts'
 
+export class MindPatchError extends Error {
+  readonly code: 'invalid_patch' | 'invalid_record' | 'missing_evidence' | 'revision_conflict' | 'unseen_event'
+  constructor(code: MindPatchError['code'], message: string) {
+    super(message)
+    this.name = 'MindPatchError'
+    this.code = code
+  }
+}
+
+/** Only semantic rejections are observations. Storage faults must still fail the run. */
+export function commitMind(mind: CharacterMind, patch: unknown, source: string, seen: MindView): string | null {
+  try { mind.commit(patch, source, seen); return null }
+  catch (error) {
+    if (!(error instanceof MindPatchError)) throw error
+    return error.code
+  }
+}
+
+export const MIND_REJECTION_NOTE = '本步 Mind 更新未提交，附带的回复或动作也尚未执行。请依据当前工作集修正；必要时先 mind.read，或省略不需要的 Mind 更新。不要声称已保存。拒绝原因：'
+
 export const MIND_PROTOCOL = `共享持续心智。可在返回 JSON 顶层加入 mind：
 {"records":[{"id":"已有 ID 或新的稳定名字","kind":"thought|preference","topic":"原问题或偏好维度","understanding":"当前理解/进展","open":"这个原问题仍缺什么证据或还有什么没完成；全部解决才填 null","evidence":["来源引用"],"links":["task/skill ID"],"reconsiderAt":null,"basis":"explicit|inferred","scope":"适用情境"}],"acknowledge":["已理解事件的原始 ID"],"continue":false}
 records 是完整的语义内容，所有示例字段都要提供。open 只接受非空字符串或 null；reconsiderAt 是 ISO 时间或 null；evidence 必须有来源。
@@ -85,9 +105,9 @@ export class MindStore implements CharacterMind {
   context() { return MIND_PROTOCOL + '\n' + JSON.stringify(this.view()) }
   commit(raw: unknown, source: string, seen: MindView) {
     if (raw === undefined) return
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new TypeError('mind must be an object')
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new MindPatchError('invalid_patch', 'mind must be an object')
     const patch = raw as MindPatch
-    if ((patch.records !== undefined && !Array.isArray(patch.records)) || (patch.acknowledge !== undefined && !Array.isArray(patch.acknowledge))) throw new TypeError('invalid mind patch')
+    if ((patch.records !== undefined && !Array.isArray(patch.records)) || (patch.acknowledge !== undefined && !Array.isArray(patch.acknowledge))) throw new MindPatchError('invalid_patch', 'invalid mind patch')
     const now = this.now().toISOString()
     this.db.exec('BEGIN IMMEDIATE')
     try {
@@ -98,16 +118,16 @@ export class MindStore implements CharacterMind {
           || !Array.isArray(record.links) || !record.links.every(x => typeof x === 'string')
           || ['topic','understanding','scope'].some(k => typeof (record as unknown as Record<string,unknown>)[k] !== 'string')
           || (record.open !== null && (typeof record.open !== 'string' || !record.open.trim()))
-          || (record.reconsiderAt !== null && !Number.isFinite(Date.parse(record.reconsiderAt)))) throw new TypeError('invalid mind record')
-        if (!record.evidence.length) throw new TypeError('mind record requires evidence references')
+          || (record.reconsiderAt !== null && !Number.isFinite(Date.parse(record.reconsiderAt)))) throw new MindPatchError('invalid_record', 'invalid mind record')
+        if (!record.evidence.length) throw new MindPatchError('missing_evidence', 'mind record requires evidence references')
         const row = this.db.prepare('SELECT document FROM mind_records WHERE id=?').get(record.id)
         const previous = row ? JSON.parse(String(row.document)) as MindRecord : null
         const expected = seen.records.find(r => r.id === record.id)?.revision ?? 0
-        if ((previous?.revision ?? 0) !== expected) throw new Error(`mind revision conflict: ${record.id}`)
+        if ((previous?.revision ?? 0) !== expected) throw new MindPatchError('revision_conflict', 'mind revision conflict')
         this.db.prepare('INSERT OR REPLACE INTO mind_records VALUES(?,?)').run(record.id, JSON.stringify({ id: record.id, kind: record.kind, topic: record.topic, understanding: record.understanding, open: record.open, evidence: record.evidence, links: record.links, reconsiderAt: record.reconsiderAt === null ? null : new Date(record.reconsiderAt).toISOString(), basis: record.basis, scope: record.scope, revision: expected + 1, status: record.open === null ? 'resolved' : record.reconsiderAt ? 'waiting' : 'open', updatedAt: now }))
       }
       for (const id of patch.acknowledge ?? []) {
-        if (!seen.events.some(e => e.id === id)) throw new Error('cannot acknowledge an unseen event')
+        if (!seen.events.some(e => e.id === id)) throw new MindPatchError('unseen_event', 'cannot acknowledge an unseen event')
         this.db.prepare('UPDATE mind_events SET handled_at=? WHERE id=? AND handled_at IS NULL').run(now, id)
       }
       this.db.prepare('INSERT INTO mind_commits VALUES(?,?,?,?)').run(randomUUID(), source, JSON.stringify(patch), now)

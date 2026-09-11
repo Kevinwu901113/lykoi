@@ -1,5 +1,5 @@
 import type { CapabilityDefinition } from 'lykoi-contracts'
-import { MIND_PROTOCOL, mindWorkingView } from 'lykoi-runtime/mind'
+import { MIND_PROTOCOL, MIND_REJECTION_NOTE, commitMind, mindWorkingView } from 'lykoi-runtime/mind'
 import { runCognition } from 'lykoi-runtime/cognition'
 /** Wake orchestration: perceive, choose, execute and record an explicit outcome. */
 import type { Context } from '@deepseek-ai/cordis'
@@ -235,7 +235,14 @@ export async function wakeOnce(deps: WakeDeps): Promise<WakeOutcome> {
             logEvent: deps.logEvent, gap: { source: 'wake', runId },
           })
           messages.push({ role: 'assistant', content: reply.content ?? '' })
-          if (seen) deps.mind?.commit(choice.envelope.mind, 'wake', seen)
+          if (seen && deps.mind) {
+            const rejection = commitMind(deps.mind, choice.envelope.mind, 'wake', seen)
+            if (rejection) {
+              deps.logEvent?.('mind/commit_rejected', { code: rejection, run_id: runId, step: index })
+              messages.push({ role: 'user', content: MIND_REJECTION_NOTE + rejection })
+              return { kind: 'revise' }
+            }
+          }
           if (choice.kind === 'contemplate' || choice.kind === 'rest') {
             applyInternalReflow(choice.kind, deps.store, m)
             if (!deps.mind) applyInner(choice.inner, { source: 'wake', injectedIds: injectedThoughtIds, store: deps.store, now: m, logEvent: deps.logEvent })
