@@ -614,7 +614,7 @@ function resolveTurnOutcome(input: TurnResolution): Pick<TurnOutcome, 'status' |
 
 const NOTICE_REASONS = new Set<TurnFailReason>([
 'outbound_unavailable', 'envelope_failed', 'missing_tool', 'tool_budget_exhausted', 'llm_failed',
-'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown',
+'deadline_exceeded', 'context_budget', 'budget_exceeded', 'unknown', 'approval_suppressed', 'approval_unavailable',
 ])
 
 /** 保留每条原文，时间戳是投影元数据；不回写 parts 正本。 */
@@ -752,6 +752,7 @@ export async function handleTurn(
       })
     }
 
+    let approvalFailure: TurnFailReason | null = null
     const askAbout = async (): Promise<void> => {
       if (delegatedAsk === null || !deviceSideWired) return
       const asked = await messenger!.askAbout(
@@ -759,6 +760,9 @@ export async function handleTurn(
         { run_id: runId, turn_id: turnId },
       )
       askSent = asked.asked && asked.status === 'asked'
+      if (!asked.pending_id || !['asked', 'already_pending'].includes(asked.status ?? '')) {
+        approvalFailure = asked.status === 'quiet_period' ? 'approval_suppressed' : 'approval_unavailable'
+      }
     }
 
     const parts = utterances ?? (reply.trim() ? [reply] : [])
@@ -771,7 +775,7 @@ export async function handleTurn(
         terminal = resolveTurnOutcome({ kind: 'no_transport' })
       } else {
         await askAbout()
-        terminal = resolveTurnOutcome({
+        terminal = approvalFailure ? resolveTurnOutcome({ kind: 'failure', reason: approvalFailure }) : resolveTurnOutcome({
           kind: 'empty',
           cycleOutcome: result.outcome,
           askSent,

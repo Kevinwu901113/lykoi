@@ -19,3 +19,14 @@ test('budget prevents the next side effect; errors and cancellation remain expli
   await assert.rejects(runCognition({ ...options, act: async () => { throw new Error('actual failure') } }), /actual failure/)
   await assert.rejects(runCognition({ ...options, signal: AbortSignal.abort() }), /abort/i)
 })
+
+test('semantic revisions share the step bound and never count as executed actions', async () => {
+  let calls = 0, dispatches = 0
+  const result = await runCognition({ maxActions: 2,
+    reason: async () => { calls++; return { kind: 'revise' as const } },
+    act: async () => ++dispatches, observe: () => {},
+  })
+  assert.equal(calls, 3)
+  assert.equal(dispatches, 0)
+  assert.deepEqual(result, { status: 'budget_exhausted', actions: 0 })
+})

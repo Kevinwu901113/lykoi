@@ -369,6 +369,11 @@ test('cancelled scheduled message never sends; revised and ordinary goals cannot
   now = new Date('2026-09-11T00:02:00Z'); await runtime.scan(); await runtime.scan()
   assert.deepEqual(sent, ['new cognitive result', 'new exact text']); assert.equal(reasonCalls, 1)
   assert.equal(store.get(cancelled.id).status, 'cancelled')
+  const retained = store.create({goal:'retain time',message:{text:'before',delaySeconds:300}}, now)
+  const dueAt = retained.scheduledMessage!.dueAt
+  store.create({taskId:retained.id,goal:'only change text',message:{text:'after'},request:{text:'keep original time',receivedAt:new Date(now.getTime()+101561).toISOString()}},new Date(now.getTime()+102000))
+  assert.deepEqual(store.get(retained.id).scheduledMessage,{text:'after',dueAt})
+  assert.throws(()=>store.create({goal:'new needs time',message:{text:'missing time'}},now),/delaySeconds/)
   assert.throws(() => store.create({ goal: 'invalid', message: { text: 'x', delaySeconds: -1 } }), /delaySeconds/)
   assert.throws(() => store.create({ goal: 'self-chosen', origin: 'autonomous', message }), /user request/)
 })

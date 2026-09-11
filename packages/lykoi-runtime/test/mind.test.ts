@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MindStore, mindWorkingView } from '../src/mind.ts'
+import { commitMind, MindStore, mindWorkingView } from '../src/mind.ts'
 
 const record = { id: 'question', revision: 0, kind: 'thought' as const, topic: '共享结构？', understanding: '还缺第二个案例', open: '比较不同领域', evidence: ['case:A'], links: [], status: 'open' as const, reconsiderAt: null, basis: 'inferred' as const, scope: '方法研究' }
 test('restart resumes progress; event replay deduplicates; stale commits roll back updates and acknowledgements together', t => {
@@ -101,4 +101,15 @@ test('old contradictory lifecycle migrates once without discarding unresolved co
   assert.equal(mind.view().records[0]!.revision, 5)
   mind.close(); mind = new MindStore(path)
   assert.equal(mind.view().records[0]!.revision, 5)
+})
+
+test('Mind semantic observations keep atomic rollback; storage faults are not softened', t => {
+  const root = mkdtempSync(join(tmpdir(), 'mind-rejection-')), mind = new MindStore(join(root, 'mind.sqlite'))
+  t.after(() => rmSync(root, {recursive:true,force:true}))
+  const seen = mind.view()
+  assert.equal(commitMind(mind, {records:[record],acknowledge:['unseen']}, 'conversation', seen), 'unseen_event')
+  assert.equal(mind.view().records.length, 0)
+  assert.equal(commitMind(mind, {records:[{...record,evidence:[]}]}, 'conversation', seen), 'missing_evidence')
+  mind.close()
+  assert.throws(() => commitMind(mind, {records:[record]}, 'conversation', seen), /closed|not open/i)
 })

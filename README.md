@@ -8,6 +8,8 @@ Lykoi 是一个面向长期持续运行的个人 AI Agent，核心关注 **持�
 
 当前运行时基于 **TypeScript、Node.js 和 Cordis** 构建。
 
+当前部署、收尾修复与真实验收状态见 [当前版本结论](governance/CURRENT_VERSION.md)。
+
 ## 目前具备的能力
 
 - **持久记忆**：保存对话、经历、思考、关注项、叙事状态及学习结果，并跨重启持续存在。

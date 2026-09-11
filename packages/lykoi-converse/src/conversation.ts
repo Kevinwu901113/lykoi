@@ -1,5 +1,5 @@
 import type { CapabilityDefinition, RuntimeService, TaskMessage, TaskRequest, OwnerInteraction } from 'lykoi-contracts'
-import { MIND_PROTOCOL, mindWorkingView } from 'lykoi-runtime/mind'
+import { MIND_PROTOCOL, MIND_REJECTION_NOTE, commitMind, mindWorkingView } from 'lykoi-runtime/mind'
 import { runCognition } from 'lykoi-runtime/cognition'
 /** Bounded conversation cycles with explicit outcomes, context management and tool dispatch. */
 import { RunAbortedError } from './deadline.ts'
@@ -410,7 +410,7 @@ export class Conversation {
         inputSchema: { type: 'object', properties: { attachment_id: { type: 'string' }, question: { type: 'string' } }, required: ['attachment_id'], additionalProperties: false },
         handler: args => this.#handleVision(cycleCall(0, VISION_TOOL, args)) },
       { name: FOLLOWUP_TOOL, description: FOLLOWUP_DESCRIPTION,
-        inputSchema: { type: 'object', properties: { task: { type: 'string' }, task_id: { type: 'string' }, message: { type: 'object', properties: { text: { type: 'string' }, delaySeconds: { type: 'number', minimum: 0 } }, required: ['text', 'delaySeconds'], additionalProperties: false } }, required: ['task'], additionalProperties: false },
+        inputSchema: { type: 'object', properties: { task: { type: 'string' }, task_id: { type: 'string' }, message: { type: 'object', properties: { text: { type: 'string' }, delaySeconds: { type: 'number', minimum: 0 } }, required: ['text'], additionalProperties: false } }, required: ['task'], additionalProperties: false },
         handler: async args => this.#handleFollowup(cycleCall(0, FOLLOWUP_TOOL, args)) },
       { name: PROGRESS_TOOL, description: 'Report progress from a persistent task.',
         inputSchema: { type: 'object', properties: { content: { type: 'string' } }, required: ['content'], additionalProperties: false },
@@ -939,6 +939,15 @@ export class Conversation {
 
         this.#markUndeliveredSurfaced()
         const injected = new Set(this.#lastInjectedThoughtIds)
+        if (this.#mindView && this.#deps.mind) {
+          const rejection = commitMind(this.#deps.mind, decision.envelope.mind, 'conversation', this.#mindView)
+          if (rejection) {
+            this.#log('mind/commit_rejected', { code: rejection, step })
+            this.#messages.push({ role: 'assistant', content: lastResult.content ?? '' },
+              { role: 'user', content: MIND_REJECTION_NOTE + rejection })
+            return { kind: 'revise' }
+          }
+        }
         const innerApplied = this.#applyCycleInner(decision, injected)
         this.#log(CYCLE_EVENT, cycleRecord(decision, {
           elapsedMs,
@@ -1211,7 +1220,6 @@ export class Conversation {
 
   #applyCycleInner(decision: Decision, injectedIds: Set<number>): boolean {
     if (this.#mindView) {
-      this.#deps.mind?.commit(decision.envelope.mind, 'conversation', this.#mindView)
       return decision.envelope.mind !== undefined
     }
     const inner: InnerBlock = decision.inner ?? { thoughts: [], resolve: [] }

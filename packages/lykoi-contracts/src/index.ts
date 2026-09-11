@@ -151,7 +151,7 @@ declare module '@deepseek-ai/cordis' { interface Context { mind: CharacterMind }
 
 /** Result of an owner intent already handled by the interaction layer. The full message still reaches cognition. */
 export interface OwnerInteraction { kind: 'approval_answer' | 'suggestion_answer'; outcome: string; executed?: boolean; replied?: boolean; observation?: unknown }
-export interface TaskMessage { text: string; delaySeconds: number }
+export interface TaskMessage { text: string; delaySeconds?: number }
 export interface TaskRequest { text: string; receivedAt: string }
 export interface TaskSummary {
   scheduledMessage?: { text: string; dueAt: string }

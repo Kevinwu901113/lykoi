@@ -81,3 +81,18 @@ test('Wake refreshes searched history and hides tool catalog when the action bud
   try {assert.equal((await wakeOnce(deps)).status,'completed');assert.equal(mind.view('archived').records[0]!.revision,2)}
   finally {mind.close();store.close()}
 })
+
+test('Wake receives a Mind rejection before executing and can correct it within the same bound', async () => {
+  const {store,path} = makeStore(), mind = new MindStore(join(dirname(path),'mind.sqlite'),()=>T0)
+  let calls = 0, dispatches = 0
+  const {deps} = makeWakeDeps({store,reply:'',overrides:{mind,maxActions:1,
+    dispatchFn:async()=>{dispatches++;return {success:true}},
+    llm:async messages=>{
+      if (++calls === 1) return {content:JSON.stringify({decision:{kind:'rest'},mind:{acknowledge:['unseen']}})}
+      assert.ok(messages.some(m=>m.content.includes('unseen_event')))
+      return {content:JSON.stringify({decision:{kind:'rest'}})}
+    },
+  }})
+  try {assert.equal((await wakeOnce(deps)).status,'completed');assert.equal(calls,2);assert.equal(dispatches,0)}
+  finally {mind.close();store.close()}
+})

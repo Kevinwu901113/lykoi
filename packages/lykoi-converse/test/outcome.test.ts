@@ -301,12 +301,22 @@ const handleScenarios: { name: string; scenario: HandleScenario }[] = [
     },
   },
   {
-    name: '空答复 + 审批问句未新发 → deferred 但 ask_sent=false',
+    name: '空答复 + 审批静默期没有新建 pending → failed 并说明未执行',
     scenario: {
       reply: '', cycleKind: 'ask_pending', delegatedAsk: true, askStatus: 'quiet_period',
-      expectedStatus: 'deferred', expectedReason: 'approval_pending', expectedNotice: false,
+      expectedStatus: 'failed', expectedReason: 'approval_suppressed', expectedNotice: true,
       expectedAsk: false,
     },
+  },
+  {
+    name: '已有真实审批仍为 deferred，不重复通知',
+    scenario: { reply: '', cycleKind: 'ask_pending', delegatedAsk: true, askStatus: 'already_pending',
+      expectedStatus: 'deferred', expectedReason: 'approval_pending', expectedNotice: false },
+  },
+  {
+    name: '审批请求发送失败不能记成等待用户',
+    scenario: { reply: '', cycleKind: 'ask_pending', delegatedAsk: true, askStatus: 'send_failed',
+      expectedStatus: 'failed', expectedReason: 'approval_unavailable', expectedNotice: true },
   },
   {
     name: '回复已交付后 askAbout 抛错 → 保留 replied 且不补系统回执',

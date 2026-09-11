@@ -2,6 +2,7 @@
 export type CognitionDecision<Action, Result> =
   | { kind: 'act'; action: Action }
   | { kind: 'finish'; result: Result }
+  | { kind: 'revise' }
 export type CognitionOutcome<Result> =
   | { status: 'finished'; result: Result; actions: number }
   | { status: 'budget_exhausted'; actions: number }
@@ -14,14 +15,16 @@ export async function runCognition<Action, Observation, Result>(options: {
   observe(observation: Observation, action: Action, index: number): Promise<{ kind: 'finish'; result: Result } | void> | { kind: 'finish'; result: Result } | void
 }): Promise<CognitionOutcome<Result>> {
   if (!Number.isSafeInteger(options.maxActions) || options.maxActions < 0) throw new TypeError('maxActions must be a non-negative integer')
-  for (let index = 0; ; index++) {
+  for (let index = 0, actions = 0; ; index++) {
     options.signal?.throwIfAborted()
     const decision = await options.reason({ index, closing: index === options.maxActions })
     options.signal?.throwIfAborted()
-    if (decision.kind === 'finish') return { status: 'finished', result: decision.result, actions: index }
-    if (index === options.maxActions) return { status: 'budget_exhausted', actions: index }
+    if (decision.kind === 'finish') return { status: 'finished', result: decision.result, actions }
+    if (index === options.maxActions) return { status: 'budget_exhausted', actions }
+    if (decision.kind === 'revise') continue // A rejected proposal consumes a step, never an external action.
     const observation = await options.act(decision.action, index)
+    actions++
     const observed = await options.observe(observation, decision.action, index)
-    if (observed?.kind === 'finish') return { status: 'finished', result: observed.result, actions: index + 1 }
+    if (observed?.kind === 'finish') return { status: 'finished', result: observed.result, actions }
   }
 }
