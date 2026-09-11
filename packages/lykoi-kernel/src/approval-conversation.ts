@@ -62,6 +62,7 @@ export interface RequestApprovalResult {
 }
 
 export interface HandleOwnerAnswerResult {
+  observation?: Observation | null
   outcome: 'ignored' | 'expired' | 'clarify' | 'granted' | 'execute_once' | 'denied'
   pending_id: string | null
   executed: boolean
@@ -128,14 +129,7 @@ export function _resultBody(data: unknown): string {
   if (data === null || data === undefined) return ''
   if (typeof data === 'string') return _truncate(data)
 
-  if (Array.isArray(data)) {
-    try {
-      return _truncate(JSON.stringify(data))
-    } catch {
-      return _truncate(String(data))
-    }
-  }
-  if (typeof data !== 'object') return _truncate(String(data))
+  if (Array.isArray(data) || typeof data !== 'object') return ''
   const obj = data as Record<string, unknown>
   const parts: string[] = []
   for (const key of ['stdout', 'output', 'result', 'text', 'content']) {
@@ -145,11 +139,8 @@ export function _resultBody(data: unknown): string {
   const stderr = obj.stderr
   if (typeof stderr === 'string' && stderr.trim() !== '') parts.push('stderr: ' + stderr.trim())
   if (parts.length > 0) return _truncate(parts.join('\n'))
-  try {
-    return _truncate(JSON.stringify(obj))
-  } catch {
-    return _truncate(String(obj))
-  }
+  // Structured observations belong to cognition/audit, not the default chat receipt.
+  return ''
 }
 
 export function executionReport(
@@ -487,6 +478,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
     const pendingId = record === null ? null : (record.id === undefined ? null : String(record.id))
     let executed = false
     let replied = false
+    let observation: Observation | null | undefined
 
     if (outcome === 'clarify') {
       const followUp = await _send(contextId, result.clarify_text ?? '', _replyRef(opts.messageId))
@@ -498,6 +490,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
     } else if (outcome === 'granted' || outcome === 'execute_once') {
       const execution = await _executeOnce(record!)
       executed = execution.executed
+      observation = execution.observation
       // 做完就说 —— 引用他的批准，这也正是把它排除在主动打扰预算之外的东西
       // （S1A：回答 Kevin 不算打扰他）。
       replied = await _reportExecution(contextId, record ?? {}, execution, opts.messageId)
@@ -521,7 +514,7 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
       standing_grant_created: result.grant !== null,
     })
     logEvent('approval_answer_routed', { outcome, pending_id: pendingId, executed })
-    return { outcome, pending_id: pendingId, executed, replied, scope_key: result.scope_key }
+    return { outcome, pending_id: pendingId, executed, replied, scope_key: result.scope_key, ...(observation === undefined ? {} : { observation }) }
   }
 
   return { requestApproval, handleOwnerAnswer, executionReport }

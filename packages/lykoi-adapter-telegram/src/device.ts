@@ -1,3 +1,4 @@
+import type { OwnerInteraction } from 'lykoi-contracts'
 import {
   appendOutbox, outboxNewestId, readOutboxAfter, type OutboxItem,
 } from './outbox.ts'
@@ -69,7 +70,7 @@ export interface ApprovalLeg {
     contextId: string
     replyTo?: string | number | null
     messageId?: string | number | null
-  }): Promise<{ outcome: string; executed: boolean }>
+  }): Promise<{ outcome: string; executed: boolean; replied?: boolean; observation?: unknown }>
 }
 
 export interface SuggestionLeg {
@@ -77,7 +78,7 @@ export interface SuggestionLeg {
     contextId: string
     replyTo?: string | number | null
     messageId?: string | number | null
-  }): Promise<{ outcome: string; suggestion_id: number | null }>
+  }): Promise<{ outcome: string; suggestion_id: number | null; replied?: boolean }>
 }
 
 export interface DelegatedAsk {
@@ -251,7 +252,7 @@ export class OutboundOrgan {
     contextId: string
     replyTo: string | number | null
     messageId: string | number | null
-  }): Promise<'approval_answer' | 'suggestion_answer' | null> {
+  }): Promise<OwnerInteraction | null> {
     const approval = this.#deps.approval
     if (approval !== undefined && approval !== null) {
       const routed = await approval.handleOwnerAnswer(opts.text, {
@@ -261,7 +262,7 @@ export class OutboundOrgan {
         this.#log('telegram_approval_turn', {
           outcome: routed.outcome, executed: routed.executed,
         })
-        return 'approval_answer' // 这条消息**就是**那次审批回合 —— 不再同时当成一次对话提示
+        return { kind: 'approval_answer', outcome: routed.outcome, executed: routed.executed, replied: routed.replied, ...(routed.observation === undefined ? {} : { observation: routed.observation }) }
       }
     }
 
@@ -274,7 +275,7 @@ export class OutboundOrgan {
         this.#log('telegram_rule_suggestion_turn', {
           outcome: suggested.outcome, suggestion_id: suggested.suggestion_id,
         })
-        return 'suggestion_answer' // 这条消息是那条建议的答复 —— 不再当成一次普通对话
+        return { kind: 'suggestion_answer', outcome: suggested.outcome, replied: suggested.replied }
       }
     }
     return null

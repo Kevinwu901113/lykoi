@@ -65,7 +65,7 @@ export function buildConversationCandidates(): Candidate[] {
 
 export const VISION_TOOL = 'conversation.describe_image'
 export const FOLLOWUP_TOOL = 'conversation.promise_followup'
-export const FOLLOWUP_DESCRIPTION = '持久登记 Task 后再确认承诺。Task 可等待到指定时间下限，再由宿主把完成内容单独发给所有者；支持至少延后，不保证准点。保留原请求的时限和约束，文本交付无需命令或成果文件。已有任务可按 task_id 更新。'
+export const FOLLOWUP_DESCRIPTION = '持久登记 Task 后再确认承诺。Task 可等待到指定时间下限，再由宿主把完成内容单独发给所有者；支持至少延后，不保证准点。保留原请求的时限和约束，文本交付无需命令或成果文件。已确定要延后发送的原文用 message:{text,delaySeconds} 登记，delaySeconds 从收到本条来话起计算；宿主到期逐字发送，不再运行模型或工具。需要到时研究的任务只写 task。已有任务可按 task_id 更新；更新时须重给 message，否则旧的定时原文被撤销，转为按新目标执行。'
 export const PROGRESS_TOOL = 'conversation.post_progress'
 
 export function envelopeToolNames(wiredActions?: ReadonlySet<string>, capabilities: readonly CapabilityDefinition[] = []): string[] {
@@ -111,7 +111,7 @@ ${mindProtocol ? '  "mind": {"records": [], "acknowledge": [], "continue": false
   名字(表外的名字不会执行):
   {tools}
   工具照旧分级 —— 需要他点头的工具不会因为你同时说了话就免了。
-- promise_followup: ${FOLLOWUP_DESCRIPTION} content 写完整目标和约束，utterances 写本轮确认。
+- promise_followup: ${FOLLOWUP_DESCRIPTION} content 写完整目标和约束，utterances 写本轮确认。定时原文或更新任务时，tool.name 填 conversation.promise_followup，tool.arguments 填 message 或 task_id。
 ${mindProtocol ?? `- inner 可选。这是你的**念头本体**,不是回复末尾的附言:未说出口的、没想完的,
   简短记在这里;没有就留空。inner.resolve 只能引用上面"念头"块里出现过的 id。`}
 - 情绪脉冲可选,是一个字符串数组,只能取下面这张表里的名字(它们是调节场唯一
@@ -186,7 +186,7 @@ export function sanitizeTool(raw: unknown): { name: string; arguments: Record<st
   } catch {
     return { name, arguments: {} }
   }
-  if (encoded === undefined || [...encoded].length > TOOL_ARGS_CHARS_MAX) {
+  if (encoded === undefined || (name !== FOLLOWUP_TOOL && [...encoded].length > TOOL_ARGS_CHARS_MAX)) {
     return { name, arguments: {} }
   }
   return { name, arguments: args as Record<string, unknown> }

@@ -149,8 +149,12 @@ export interface CharacterMind {
 }
 declare module '@deepseek-ai/cordis' { interface Context { mind: CharacterMind } }
 
+/** Result of an owner intent already handled by the interaction layer. The full message still reaches cognition. */
+export interface OwnerInteraction { kind: 'approval_answer' | 'suggestion_answer'; outcome: string; executed?: boolean; replied?: boolean; observation?: unknown }
+export interface TaskMessage { text: string; delaySeconds: number }
 export interface TaskRequest { text: string; receivedAt: string }
 export interface TaskSummary {
+  scheduledMessage?: { text: string; dueAt: string }
   request?: TaskRequest
   origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string; result?: string; finding?: string
   id: string; goal: string; requirements: string; status: string; checkpoint: string
@@ -167,7 +171,7 @@ export interface CharacterTasks {
   command(text: string): Promise<string | null>
   bindInteractions(interactions: TaskInteractions): () => void
   approve(operationId: string, action?: { name: string; args: Record<string, unknown> }): Promise<boolean>
-  create(input: { goal: string; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
+  create(input: { goal: string; message?: TaskMessage; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
   get(id: string): TaskSummary
   list(): TaskSummary[]
   update(id: string, requirements: string, criteria?: string): TaskSummary

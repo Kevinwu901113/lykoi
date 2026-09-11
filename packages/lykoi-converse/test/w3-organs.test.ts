@@ -184,7 +184,7 @@ test('③ markReplied 接真队列：显式引用一次呼唤 → 关联戳落�
 
 // ============================== ② S-08 第二级实弹 ==============================
 
-test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机消费，不再当成一次普通对话', async () => {
+test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机处理，再进入普通对话', async () => {
   const runtime = new CapabilityRuntime()
   isolateAll()
   const { audit, transport, telegram, service, dbPath } = await assemble(envelope({}), runtime)
@@ -226,10 +226,10 @@ test('② S-08 第二级：owner 引用建议问句回话 → 建议问答机消
   assert.equal(turn.suggestion_id, suggestionId)
   assert.ok(['unclear', 'declined', 'accepted'].includes(String(turn.outcome)))
   assert.equal(turn.outcome, 'unclear', '判不出来 = unclear，永远不是 accept')
-  // “收到”照常有正本；part_consumed 证明它没有进入普通 Conversation cognition。
+  // “收到”和已处理意图分别留痕，原消息仍进入 Conversation cognition。
   assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 1)
-  assert.equal(audit.events.filter((e) => e.type === 'turn/part_consumed').length, 1)
-  assert.equal(audit.events.filter((e) => e.type === 'u3_cycle_envelope').length, 0)
+  assert.equal(audit.events.filter((e) => e.type === 'turn/intent_handled').length, 1)
+  assert.equal(audit.events.filter((e) => e.type === 'u3_cycle_envelope').length, 1)
   // 铁律的审计面：每一条都自证没碰规则文件
   const rows = audit.events.filter((e) => e.type === 'rule_suggestion_interaction')
   assert.ok(rows.length > 0)

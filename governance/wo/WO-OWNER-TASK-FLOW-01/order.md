@@ -1,0 +1,11 @@
+# WO-OWNER-TASK-FLOW-01
+
+Kevin authorized structural repair after the deployed R2 acceptance failed on 2026-09-11. Baseline b2104080; branch wo/owner-task-flow-01. Production task records and private messages stay outside Git. No new merge or production mutation is implied.
+
+Repair three shared boundaries: an explicitly scheduled, already-known message is persisted in the existing Task and delivered after its host-calculated due time without new cognition; approval processing reports the handled intent while the original inbound continues into Conversation; machine observations no longer become arbitrary JSON chat receipts. Existing Task update, cancellation, restart, and delivery accounting remain authoritative. No extra scheduler, policy router, keyword promise recognizer, or messenger.read ban.
+
+Kernel scope is intentional: human-facing execution report projection and interactive task.control pause/cancel admission after explicit denies and hard floors. Resume, approval, autonomous execution and external effects retain existing policy. Governance review must verify those distinctions, mixed approval/business messages, real cancellation results, and absence of internal state in default receipts.
+
+Validation: host-clock lower bound, restart and cancellation, exact stored bytes, revisions, pure and mixed approval answers with one execution and original input intact, explicit deny precedence, full tests/typecheck, and a real-model foreground registration through the actual controlled Telegram transport. Live production acceptance remains separate. Deliver implementation, evidence, report and reviewable branch; root operations remain Kevin's.
+
+Final scope refinements from code review: retiring a Task approval also retires the matching kernel pending record; completed/expired approvals must not capture a new identical request. A completed result still pending transport can be cancelled before dispatch. Kernel execution observations return to Conversation as untrusted tool data, separate from trusted receipt metadata; suppressing raw JSON must not discard the result needed to answer a business question. An already-delivered approval receipt counts toward the owner turn outcome even when cognition has nothing further to say.

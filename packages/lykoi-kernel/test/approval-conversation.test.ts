@@ -16,7 +16,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  AUDIT_ANSWER_ROUTED, AUDIT_EXECUTION, AUDIT_QUESTION, createApprovalConversation,
+  AUDIT_ANSWER_ROUTED, AUDIT_EXECUTION, AUDIT_QUESTION, createApprovalConversation, executionReport,
   DENY_CONFIRM, EXPIRED_REPLY, RESULT_MAX_CHARS, RETRACT_TEMPLATE, questionText,
 } from '../src/approval-conversation.ts'
 import {
@@ -310,15 +310,14 @@ test('SK-33 回执四分支：EXEC_OK / NO_OUTPUT / FAIL / SKIPPED', async () =>
     await ac.handleOwnerAnswer('执行', { contextId: CTX, replyTo: 'msg-1', messageId: 'in' })
     assert.equal(sends().at(-1)!.action.params.text, "做完了: 在终端执行命令: 'ls'\n(没有输出)")
   }
-  // 分支①附：_resultBody 取值序的末位是**朴素 dump**，永不空手 —— 一个空 dict
-  // 走 dump 分支渲染成 "{}"（与活体 json.dumps 逐字同向），不是 NO_OUTPUT。
+  // 结构化对象留给认知和审计，默认回执不倾倒 JSON。
   {
     setup()
     const { dispatch, sends } = fakeDispatch({ execResult: { success: true, data: {}, error: null } })
     const ac = createApprovalConversation({ dispatch })
     await askOne(ac)
     await ac.handleOwnerAnswer('执行', { contextId: CTX, replyTo: 'msg-1', messageId: 'in' })
-    assert.equal(sends().at(-1)!.action.params.text, "做完了: 在终端执行命令: 'ls'\n\n{}")
+    assert.equal(sends().at(-1)!.action.params.text, "做完了: 在终端执行命令: 'ls'\n(没有输出)")
   }
   // 分支①：取值序 stdout → output → result → text → content，stderr 追加
   {
@@ -576,4 +575,24 @@ test('SK-27 配合：enqueuePending 的 actionId 就是 pending id（审批端�
   })
   assert.equal(out.pending_id, 'act-xyz')
   assert.equal(enqueuePending('terminal.exec', { command: 'whoami' }), 'act-xyz') // 去重同 id
+})
+
+test('approval execution reports explicit receipt text, never fallback Task JSON or arrays', () => {
+  const record = { action_type: 'task.control', params: { command: 'cancel', id: 'task-test' } }
+  for (const data of [{ request: { text: 'PRIVATE_REQUEST' }, workspace: '/private/state', status: 'cancelled' }, [{ secret: 'PRIVATE_REQUEST' }]]) {
+    const text = executionReport(record, { executed: true, reason: null, observation: { success: true, data: data as unknown as Record<string, unknown>, error: null } })
+    assert.doesNotMatch(text, /PRIVATE_REQUEST|workspace|\{|\[/)
+  }
+  assert.match(executionReport(record, { executed: true, reason: null, observation: { success: true, data: { id: 'task-test', status: 'cancelled', text: '任务 task-test：已取消。' }, error: null } }), /已取消/)
+})
+
+
+test('structured approval result is returned to the caller without being dumped into chat', async () => {
+  setup()
+  const observation = { success: true, data: { count: 5, workspace: '/internal/path' }, error: null }
+  const { dispatch, sends } = fakeDispatch({ execResult: observation })
+  const ac = createApprovalConversation({ dispatch }); await askOne(ac)
+  const answer = await ac.handleOwnerAnswer('执行', { contextId: CTX, replyTo: 'msg-1', messageId: 'in' })
+  assert.deepEqual(answer.observation, observation)
+  assert.doesNotMatch(String(sends().at(-1)!.action.params.text), /count|workspace|internal/)
 })

@@ -146,6 +146,14 @@ async function assemble(replyText: string, lateTelegram = false, runtime = new C
     visionRoute: "disabled",
     visionModel: "disabled",
   })
+  // The model now sees the handled receipt. Pure approval answers choose silence;
+  // the actual kernel execution/receipt is still exercised by the test below.
+  const call = ctx.lykoiLlm.call.bind(ctx.lykoiLlm)
+  ctx.lykoiLlm.call = async (options, meta) => {
+    const result = await call(options, meta)
+    if (JSON.stringify(options.messages).includes('交互层已处理本条来话')) return { ...result, text: envelope({ decision: { kind: 'silence', reason: '审批已有回执' } }) }
+    return result
+  }
   if (lateTelegram) telegramFiber = await startTelegram()
   await new Promise(resolve => setImmediate(resolve))
   return {
@@ -229,9 +237,9 @@ test('出口判据 · 终端硬门实弹全链（W3 设备侧承重）：两次�
   const turn = audit.events.find((e) => e.type === 'telegram_approval_turn')!
   assert.equal(turn.outcome, 'execute_once')
   assert.equal(turn.executed, true)
-  // 接收正本仍留痕；消费位钉住它没有进入 Conversation cognition。
+  // 接收正本与已处理意图分别留痕；模型仍收到原文和回执。
   assert.equal(audit.events.filter((e) => e.type === 'converse/received').length, 2)
-  assert.equal(audit.events.filter((e) => e.type === 'turn/part_consumed').length, 1)
+  assert.equal(audit.events.filter((e) => e.type === 'turn/intent_handled').length, 1)
 
   // ④ 执行：consume 原子点 → pre_approved 重派 → terminal.exec 真跑一次
   assert.deepEqual(terminal.ran, ['ls'])

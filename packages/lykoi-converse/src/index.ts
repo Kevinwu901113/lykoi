@@ -705,40 +705,25 @@ export async function handleTurn(
         followup_registered: false, ask_sent: false, notice_sent: false, reply_chars: content.length, elapsed_ms: Math.round(performance.now() - started) } }
     }
 
-    // 不进入 cognition。parts[] 本身不改写，terminal 仍能反查整轮所有外界输入。
-    const conversationalParts = [] as UserTurn['parts']
-    let consumedReason: 'approval_answer' | 'suggestion_answer' | null = null
+    // Approval resolves an intent, not ownership of the entire message.
+    const handledInteractions = []
     for (const part of turn.parts) {
-      const consumed = turn.isOwner && messenger !== undefined
-        ? await messenger.routeOwnerMessage({
-            text: part.text,
-            contextId: part.contextId,
-            replyTo: part.replyToPlatformMessageId ?? null,
-            messageId: part.platformMessageId,
-          })
-        : null
-      if (consumed === null) {
-        conversationalParts.push(part)
-      } else {
-        consumedReason = consumed
-        await ctx.audit.record({
-          type: 'turn/part_consumed',
-          turn_id: turnId,
-          inbound_id: part.inboundId,
-          platform_message_id: part.platformMessageId,
-          reason: consumed,
-        })
+      const handled = turn.isOwner && messenger !== undefined
+        ? await messenger.routeOwnerMessage({ text: part.text, contextId: part.contextId,
+            replyTo: part.replyToPlatformMessageId ?? null, messageId: part.platformMessageId }) : null
+      if (handled) {
+        handledInteractions.push(handled)
+        const { observation: _observation, ...receipt } = handled
+        await ctx.audit.record({ type: 'turn/intent_handled', turn_id: turnId, inbound_id: part.inboundId,
+          platform_message_id: part.platformMessageId, ...receipt })
       }
     }
     routeComplete = true
 
-    if (conversationalParts.length === 0) {
-      terminal = { status: 'completed', reason: consumedReason }
-    } else {
-      // 唯一 render 边界：不改各 part 原文，以换行确定性拼接给既有单字符串模型面。
-      const rendered = renderTurnParts(conversationalParts, turn.commitReason === 'restart_replay')
+    {
+      const rendered = renderTurnParts(turn.parts, turn.commitReason === 'restart_replay')
       let captured: CycleResult | undefined
-      const reply = await conversation.send(rendered, { runId, turnId, receivedAt: conversationalParts.at(-1)!.receivedAt, onCycleResult: result => {
+      const reply = await conversation.send(rendered, { runId, turnId, receivedAt: turn.parts.at(-1)!.receivedAt, handledInteractions, onCycleResult: result => {
         captured = result
         if (messenger?.outboundWired()) conversation.takeDelegatedAsk()
         conversation.takeFollowupRequest()
@@ -791,6 +776,8 @@ export async function handleTurn(
           cycleOutcome: result.outcome,
           askSent,
         })
+        const receipt = handledInteractions.find(handled => handled.replied)
+        if (terminal.status === 'intentional_silence' && receipt) terminal = { status: 'completed', reason: receipt.kind }
       }
     } else {
       await ctx.audit.record({

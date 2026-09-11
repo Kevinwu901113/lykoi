@@ -1,3 +1,4 @@
+import type { OwnerInteraction } from 'lykoi-contracts'
 import { outboundCapabilities } from './resources.ts'
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -127,7 +128,7 @@ export interface MessengerAdapterService {
     contextId: string
     replyTo: string | null
     messageId: string
-  }): Promise<'approval_answer' | 'suggestion_answer' | null>
+  }): Promise<OwnerInteraction | null>
   /**
    * messenger 的 transport 真身（`messenger._TRANSPORT = transport` 对应物）。
    * `replyTo` 可为 null —— 主动出站走这里，裸 `send` 是它的 reply-only 门面。
@@ -274,7 +275,7 @@ export class TelegramAdapter implements MessengerAdapterService {
     contextId: string
     replyTo: string | null
     messageId: string
-  }): Promise<'approval_answer' | 'suggestion_answer' | null> {
+  }): Promise<OwnerInteraction | null> {
     if (this.#outbound === null) return null
     return await this.#outbound.routeOwnerMessage(input)
   }

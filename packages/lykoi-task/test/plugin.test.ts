@@ -84,3 +84,31 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
     finally { check.close() }
   } finally { learned.close(); rmSync(root, { recursive: true, force: true }) }
 })
+
+test('Task cancellation retires the actual kernel approval and returns a small human receipt', async () => {
+  const { enqueuePending, pendingActions, _setPolicyCoreForTest } = await import('lykoi-kernel')
+  const root = mkdtempSync(join(tmpdir(), 'lykoi-task-receipt-')), db = join(root, 'memory.db')
+  createStateFixture(db)
+  process.env.LYKOI_APPROVAL_RULES = join(root, 'rules.json')
+  process.env.LYKOI_STANDING_GRANTS = join(root, 'grants.json')
+  process.env.LYKOI_PENDING_ACTIONS = join(root, 'pending.json')
+  _setPolicyCoreForTest(undefined)
+  const instance = { version: 1 as const, id: 'A', origin: 'created' as const, createdAt: new Date().toISOString(), definitionHash: 'test', personaPath: definition, stateRoot: root }
+  const ctx = new Context(); ctx.provide('lykoiRuntime', new CapabilityRuntime(() => {}, instance))
+  ctx.provide('audit', { record: async () => {} })
+  ctx.provide('lykoiLlm', { call: async () => ({ text: JSON.stringify({ kind: 'act', action: { name: 'test.read', args: {} } }), reasoningLength: 0 }) })
+  ctx.lykoiRuntime.register({ organId: 'test', sideEffects: [], capabilities: [{ name: 'test.read', inputSchema: { type: 'object' }, description: 'read fixture', handler: async () => assert.fail('unapproved read') }] })
+  const fiber = await ctx.plugin(taskPlugin, { dbPath: join(root, 'tasks.sqlite'), memoryPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 1, intervalMs: 60000 })
+  ctx.tasks.bindInteractions({ deliver: async () => ({ state: 'sent' }), requestApproval: async op => { enqueuePending(op.name, op.args, { actionId: op.operationId, correlationId: op.taskId }) } })
+  try {
+    const task = ctx.tasks.create({ goal: 'private goal', request: { text: 'PRIVATE_RAW_REQUEST', receivedAt: new Date().toISOString() } })
+    await ctx.tasks.scan(); assert.equal(pendingActions().length, 1)
+    const control = taskPlugin.taskCapabilities(ctx.tasks).find(c => c.name === 'task.control')!
+    const receipt = await control.handler({ id: task.id, command: 'cancel' }) as { id: string; status: string; text: string }
+    assert.equal(receipt.status, 'cancelled'); assert.match(receipt.text, /已取消/)
+    assert.deepEqual(Object.keys(receipt).sort(), ['id', 'status', 'text'])
+    assert.equal(pendingActions().length, 0); assert.equal(ctx.tasks.get(task.id).wait, null)
+    const report = await ctx.tasks.command(`/task get ${task.id}`)
+    assert.match(report!, /已取消/); assert.doesNotMatch(report!, /PRIVATE_RAW_REQUEST|workspace|requirements|\{/)
+  } finally { await ctx.tasks.close(); await fiber.dispose(); rmSync(root, { recursive: true, force: true }) }
+})

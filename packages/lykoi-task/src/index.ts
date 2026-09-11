@@ -3,9 +3,9 @@ import Schema from '@deepseek-ai/schemastery'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { loadPersona, buildPersonaKernel, buildPersonaPrompt } from 'lykoi-decide'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
-import { check, createDispatch } from 'lykoi-kernel'
+import { check, createDispatch, pendingActions, resolvePending } from 'lykoi-kernel'
 import type {} from 'lykoi-llm'
-import type { Capability, CharacterTasks } from 'lykoi-contracts'
+import type { Capability, CharacterTasks, TaskSummary } from 'lykoi-contracts'
 import { TaskRuntime, type TaskResult } from './runtime.ts'
 import { TaskStore } from './store.ts'
 
@@ -16,6 +16,22 @@ export const Config: Schema<Config> = Schema.object({
   dbPath: Schema.string().required(), memoryPath: Schema.string().required(), root: Schema.string().required(), personaToml: Schema.string().required(),
   route: Schema.string().required(), model: Schema.string().required(), maxActions: Schema.number().default(6), intervalMs: Schema.number().default(10000),
 })
+/** Human receipt is separate from the machine-readable task and operation records. */
+export function taskReceipt(task: TaskSummary): { id: string; status: string; text: string } {
+  const labels: Record<string, string> = { pending: '待执行', running: '执行中', waiting: '等待中', paused: '已暂停', completed: '执行已完成', failed: '执行失败', cancelled: '已取消' }
+  const lines = [`任务 ${task.id}：${labels[task.status] ?? task.status}。`]
+  if (task.status === 'cancelled' && task.wait && ['operation', 'verification'].includes(task.wait.kind)) lines.push('任务已停止推进；在途外部操作的停止结果尚未确认。')
+  if (task.status === 'waiting') {
+    const waits: Record<string, string> = { due: '等待到期', approval: '等待审批', operation: '等待操作完成', verification: '等待核实', external: '等待外部条件' }
+    lines.push((waits[task.wait?.kind ?? ''] ?? '等待继续') + (task.wait?.until ? `：${task.wait.until}` : '') + '。')
+  }
+  if (task.delivery) {
+    const states: Record<string, string> = { pending: '待送达', sending: '发送中', sent: '已送达', failed: '送达失败', unknown: '送达结果尚未确认' }
+    lines.push(`成果：${states[task.delivery.state] ?? task.delivery.state}。`)
+  }
+  return { id: task.id, status: task.status, text: lines.join('\n') }
+}
+
 export function taskCapabilities(tasks: CharacterTasks): Capability[] {
   const id = { type: 'string' } as const
   return [
@@ -32,7 +48,7 @@ export function taskCapabilities(tasks: CharacterTasks): Capability[] {
       handler: async p => tasks.update(String(p.id), String(p.requirements), p.criteria as string | undefined) },
     { name: 'task.control', description: 'Pause, resume or cancel an existing task. Cancellation cannot undo completed external actions.',
       inputSchema: { type: 'object', properties: { id, command: { type: 'string', enum: ['pause', 'resume', 'cancel'] } }, required: ['id', 'command'], additionalProperties: false },
-      handler: async p => tasks.control(String(p.id), p.command as 'pause' | 'resume' | 'cancel') },
+      handler: async p => taskReceipt(await tasks.control(String(p.id), p.command as 'pause' | 'resume' | 'cancel')) },
     { name: 'task.retry_delivery', description: 'Retry a confirmed failed result delivery without repeating the work.',
       inputSchema: { type: 'object', properties: { id }, required: ['id'], additionalProperties: false }, handler: async p => tasks.retryDelivery(String(p.id)) },
   ]
@@ -95,6 +111,14 @@ export async function apply(ctx: Context, config: Config) {
   })
   store.migrateFromMemory(config.memoryPath)
   await runtime.recover()
+  // Task revisions/cancellation retire their approval intent in the existing kernel queue too.
+  const retireApprovals = () => {
+    for (const pending of pendingActions()) {
+      const op = store.operation(String(pending.id))
+      if (op?.status === 'completed' && op.approvalRevision !== undefined && !op.approved) resolvePending(String(pending.id), 'task_intent_retired', { actor: 'task' })
+    }
+  }
+  retireApprovals()
   const service: CharacterTasks = {
     history: (id, offset = 0, limit = 10) => {
       store.get(id)
@@ -107,12 +131,12 @@ export async function apply(ctx: Context, config: Config) {
       if (!match) return '/task list | get ID | create GOAL | update ID REQUIREMENTS | pause/resume/cancel ID | approve OPERATION_ID | retry-delivery ID | verify ID EVIDENCE | delivery ID sent/failed'
       const [, command, id, rest] = match
       await ctx.audit.record({ type: 'task/owner_command', command, task_id: id ?? null, instance_id: instance.id })
-      let result: unknown
+      let result: TaskSummary | TaskSummary[] | { approved: boolean; operationId: string }
       if (command === 'list') result = service.list()
       else if (command === 'create') result = service.create({ goal: [id, rest].filter(Boolean).join(' ') })
       else {
         if (!id) throw new Error('task command requires an ID')
-        if (command === 'get') result = { ...store.get(id), operations: store.operations(id) }
+        if (command === 'get') result = store.get(id)
         else if (command === 'update') { if (!rest) throw new Error('requirements required'); result = service.update(id, rest) }
         else if (command === 'approve') result = { approved: await service.approve(id), operationId: id }
         else if (command === 'pause' || command === 'resume' || command === 'cancel') result = await service.control(id, command)
@@ -131,7 +155,9 @@ export async function apply(ctx: Context, config: Config) {
         })
         else throw new Error('unknown task command')
       }
-      return JSON.stringify(result, null, 2)
+      if (Array.isArray(result)) return result.length ? result.map(task => taskReceipt(task).text).join('\n\n') : '没有任务。'
+      if ('approved' in result) return result.approved ? '已批准该操作，任务将继续执行。' : '未找到可批准的任务操作。'
+      return taskReceipt(result).text
     },
     bindInteractions: interactions => {
       const requestApproval = (op: import('./store.ts').Operation, task: import('./store.ts').Task) => interactions.requestApproval({ name: op.name, args: op.args, operationId: op.id, taskId: task.id })
@@ -146,10 +172,10 @@ export async function apply(ctx: Context, config: Config) {
     },
     create: input => {
       if (input.origin === 'autonomous' && !ctx.get('mind')?.view(input.thoughtId).records.some(r => r.id === input.thoughtId && r.kind === 'thought')) throw new Error('autonomous task needs an existing Thought')
-      return store.create(input)
+      const task = store.create(input); retireApprovals(); return task
     }, get: id => store.get(id), list: () => store.list(),
-    update: (id, requirements, criteria) => store.update(id, requirements, criteria),
-    control: (id, command) => runtime.control(id, command), retryDelivery: id => runtime.retryDelivery(id),
+    update: (id, requirements, criteria) => { const task = store.update(id, requirements, criteria); retireApprovals(); return task },
+    control: async (id, command) => { try { return await runtime.control(id, command) } finally { retireApprovals() } }, retryDelivery: id => runtime.retryDelivery(id),
     scan: () => runtime.scan(), close: () => runtime.close(),
   }
   ctx.provide('tasks', service)

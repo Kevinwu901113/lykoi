@@ -379,24 +379,23 @@ for (const { name, scenario } of handleScenarios) {
 async function runConsumed(reason: 'approval_answer' | 'suggestion_answer'): Promise<void> {
   const audit = fakeAudit()
   const telegram = fakeTelegram()
-  telegram.routeOwnerMessage = async () => reason
+  telegram.routeOwnerMessage = async () => ({ kind: reason, outcome: 'denied', executed: false, replied: true })
   const ctx = {
     audit,
     get(name: string) { return name === 'messenger' ? telegram : undefined },
   } as unknown as Context
-  const conversation = fakeConversation({ reply: '不应执行' })
+  const conversation = fakeConversation({ reply: '会回答同条问题', cycleKind: 'reply' })
   const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
   assert.equal(result.terminal.status, 'completed')
-  assert.equal(result.terminal.reason, reason)
-  assert.deepEqual(conversation.messages, [], '消费 part 不进入 cognition')
-  assert.equal(audit.events.filter((event) => event.type === 'turn/part_consumed').length, 1)
+  assert.deepEqual(conversation.messages, [TURN.parts[0]!.text], '处理意图后原文仍进入 cognition')
+  assert.equal(audit.events.filter((event) => event.type === 'turn/intent_handled').length, 1)
 }
 
-test('FIFO executor 中 approval answer 被消费 → completed/approval_answer', async () => {
+test('审批意图处理后仍回答原消息', async () => {
   await runConsumed('approval_answer')
 })
 
-test('FIFO executor 中 suggestion answer 被消费 → completed/suggestion_answer', async () => {
+test('建议意图处理后仍回答原消息', async () => {
   await runConsumed('suggestion_answer')
 })
 
@@ -420,4 +419,15 @@ test('T10：多 part 只在末端确定性 render，普通回复锚定最后 pla
   await handleTurn(ctx, conversation.conversation, merged, RUN_ID)
   assert.deepEqual(conversation.messages, ['[2026-09-05T00:00:00.000Z]\n第一句\n[2026-09-05T00:00:00.000Z]\n第二句\n[2026-09-05T00:00:00.000Z]\n第三句'])
   assert.deepEqual(telegram.replyAnchors, ['103'])
+})
+
+test('pure approval with an already-delivered receipt completes even if cognition chooses silence', async () => {
+  const audit = fakeAudit(), telegram = fakeTelegram()
+  telegram.routeOwnerMessage = async () => ({ kind: 'approval_answer', outcome: 'execute_once', executed: true, replied: true })
+  const ctx = { audit, get: (name: string) => name === 'messenger' ? telegram : undefined } as unknown as Context
+  const conversation = fakeConversation({ cycleKind: 'silence' })
+  const result = await handleTurn(ctx, conversation.conversation, TURN, RUN_ID)
+  assert.equal(result.terminal.status, 'completed'); assert.equal(result.terminal.reason, 'approval_answer')
+  assert.deepEqual(conversation.messages, [TURN.parts[0]!.text])
+  assert.deepEqual(telegram.replyAnchors, [], 'do not send a duplicate receipt')
 })

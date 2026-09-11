@@ -230,3 +230,16 @@ test('坏文件③pending_actions：**无保护 —— 可见崩溃**（GK-2 照
   assert.throws(() => enqueuePending('terminal.exec', { cmd: 'ls' }, { now: T0 }), SyntaxError)
   assert.throws(() => consumePending('x', {}, { now: T0 }), SyntaxError)
 })
+
+test('a retired or consumed approval does not capture a later identical request', () => {
+  isolateKernelState()
+  const params = { limit: 5 }
+  const first = enqueuePending('messenger.read', params, { actionId: 'op-first', now: T0 })
+  resolvePending(first, 'task_intent_retired', { now: T0 })
+  const second = enqueuePending('messenger.read', params, { actionId: 'op-second', now: T0 })
+  assert.equal(second, 'op-second')
+  assert.equal(consumePending(second, params, { now: T0 })[0], 'ok')
+  const third = enqueuePending('messenger.read', params, { actionId: 'op-third', now: T0 })
+  assert.equal(third, 'op-third')
+  assert.deepEqual(pendingActions({ now: T0 }).map(item => item.id), ['op-third'])
+})
