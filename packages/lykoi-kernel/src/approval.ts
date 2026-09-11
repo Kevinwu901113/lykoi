@@ -232,6 +232,8 @@ export function check(
   if (hard === 'ask') return 'ask' // ⑤ interactive hard floor (e.g. terminal.exec) preserved
   if (_matches(actionType, rules.always_allow)) return 'allow'
 
+  // An interactive stop reduces existing work. Resume still requires ordinary authorization.
+  if (origin === 'interactive' && actionType === 'task.control' && (params?.command === 'pause' || params?.command === 'cancel')) return 'allow'
   if (DELEGATION_READONLY.has(actionType)) return 'allow'
   if (_scopedAllowed(actionType, params, rules.always_allow)) return 'allow'
 
@@ -542,14 +544,13 @@ export function enqueuePending(
   } = {},
 ): string {
   const items = _loadPending()
-  const key = paramsKey(params)
+  const key = paramsKey(params), now = opts.now ?? new Date()
   for (const item of items) {
-    if (item.action_type === actionType && paramsKey(item.params) === key) {
+    if (!item.consumed_at && !item.resolved && !_expired(item, now) && item.action_type === actionType && paramsKey(item.params) === key) {
       return String(item.id) // already queued (same action+params) -> same grant
     }
   }
   const pendingId = opts.actionId ?? _randomHex32()
-  const now = opts.now ?? new Date()
   items.push({
     id: pendingId,
     ts: now.toISOString(),

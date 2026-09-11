@@ -181,7 +181,13 @@ export class TaskRuntime {
         if (this.store.get(id).status === 'waiting') { this.store.finishRun(run, 'finished'); return }
       }
       const outcome = await runCognition<TaskAction, unknown, TaskResult>({ maxActions: this.deps.maxActions - (approved ? 1 : 0), signal,
-        reason: async ({ closing }) => this.deps.reason({ task: current(), run, operations: this.store.operations(id), closing, signal, now: this.#now() }),
+        reason: async ({ closing }) => {
+          const task = current(), now = this.#now(), message = task.scheduledMessage
+          if (message) return { kind: 'finish', result: now.getTime() < Date.parse(message.dueAt)
+            ? { status: 'waiting', checkpoint: '已登记消息，尚未到发送时间', wait: { kind: 'due', until: message.dueAt, detail: '等待已登记消息的发送时间' } }
+            : { status: 'completed', checkpoint: '已到发送时间，交由宿主送达登记原文', content: message.text, artifacts: [] } }
+          return this.deps.reason({ task, run, operations: this.store.operations(id), closing, signal, now })
+        },
         act: action => act(action),
 
         observe: () => {

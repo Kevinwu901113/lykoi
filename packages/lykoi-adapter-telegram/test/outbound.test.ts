@@ -630,12 +630,12 @@ test('SK-82 三级路由：审批答复 → 建议答复 → 普通对话；**�
 
   // ①第一级消费 → 第二级根本不跑
   seq.length = 0
-  assert.equal(await organWith('granted', 'accepted').routeOwnerMessage(args), 'approval_answer')
+  assert.deepEqual(await organWith('granted', 'accepted').routeOwnerMessage(args), { kind: 'approval_answer', outcome: 'granted', executed: false, replied: undefined })
   assert.deepEqual(seq, ['approval'])
 
   // ②第一级 ignored → 落到第二级；第二级消费
   seq.length = 0
-  assert.equal(await organWith('ignored', 'accepted').routeOwnerMessage(args), 'suggestion_answer')
+  assert.deepEqual(await organWith('ignored', 'accepted').routeOwnerMessage(args), { kind: 'suggestion_answer', outcome: 'accepted', replied: undefined })
   assert.deepEqual(seq, ['approval', 'suggestion'])
 
   // ③两级都 ignored → 不消费，落普通对话

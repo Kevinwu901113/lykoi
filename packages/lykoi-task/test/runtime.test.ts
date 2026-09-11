@@ -325,3 +325,73 @@ test('approval request failure is persistent and observable; explicit resume ret
   assert.equal(requests, 2); assert.equal(actions, 1); assert.equal(store.get(task.id).failure, null)
   assert.equal(store.get(task.id).wait?.kind, 'approval'); assert.equal(store.operations(task.id)[0]!.approved, false)
 })
+
+test('registered message waits from receipt time, survives restart/resume, and delivers exact bytes once without cognition', async t => {
+  let now = new Date('2026-09-11T00:00:00Z')
+  const sent: string[] = []
+  const deps: Partial<TaskDependencies> = { now: () => now,
+    reason: async () => { throw new Error('known message must not invoke cognition') },
+    dispatch: async () => { throw new Error('known message must not invoke tools') },
+    deliver: async task => { sent.push(task.delivery!.content); return { state: 'sent' } } }
+  const { store, root, db, runtime } = fixture(t, deps)
+  const text = ' 原文🙂\r\n第二行  '
+  const task = store.create({ goal: 'send later', request: { text: 'wait then send', receivedAt: now.toISOString() }, message: { text, delaySeconds: 60 } }, new Date(now.getTime() + 15000))
+  assert.equal(task.wait?.until, '2026-09-11T00:01:00.000Z')
+  await runtime.control(task.id, 'resume'); await runtime.scan()
+  assert.equal(store.get(task.id).status, 'waiting'); assert.deepEqual(sent, [])
+  await runtime.close()
+  const reopened = new TaskStore(db, 'A', root), resumed = new TaskRuntime(reopened, { maxActions: 2, intervalMs: 1000, reason: deps.reason!, dispatch: deps.dispatch!, ...deps })
+  try {
+    await resumed.recover()
+    now = new Date('2026-09-11T00:00:59.999Z'); await resumed.scan(); assert.deepEqual(sent, [])
+    now = new Date('2026-09-11T00:01:00.000Z'); await resumed.scan(); await resumed.scan()
+    assert.deepEqual(sent, [text]); assert.equal(reopened.get(task.id).delivery?.state, 'sent')
+    assert.equal(reopened.operations(task.id).length, 0)
+  } finally { await resumed.close(); reopened.close() }
+})
+
+test('cancelled scheduled message never sends; revised and ordinary goals cannot deliver old text', async t => {
+  let now = new Date('2026-09-11T00:00:00Z'), reasonCalls = 0
+  const sent: string[] = []
+  const { store, runtime } = fixture(t, { now: () => now,
+    reason: async () => { reasonCalls++; return { kind: 'finish', result: { status: 'completed', checkpoint: 'new result', content: 'new cognitive result', artifacts: [] } } },
+    deliver: async task => { sent.push(task.delivery!.content); return { state: 'sent' } } })
+  const message = { text: 'old', delaySeconds: 60 }
+  const cancelled = store.create({ goal: 'cancel me', message }, now)
+  await runtime.control(cancelled.id, 'cancel')
+  assert.equal(store.get(cancelled.id).wait, null)
+  const updated = store.create({ goal: 'revise me', message }, now)
+  store.create({ taskId: updated.id, goal: 'new message', message: { text: 'new exact text', delaySeconds: 120 } }, now)
+  const ordinary = store.create({ goal: 'change to research', message }, now)
+  store.update(ordinary.id, 'research instead', undefined, now)
+  now = new Date('2026-09-11T00:01:00Z'); await runtime.scan()
+  assert.deepEqual(sent, ['new cognitive result'])
+  now = new Date('2026-09-11T00:02:00Z'); await runtime.scan(); await runtime.scan()
+  assert.deepEqual(sent, ['new cognitive result', 'new exact text']); assert.equal(reasonCalls, 1)
+  assert.equal(store.get(cancelled.id).status, 'cancelled')
+  assert.throws(() => store.create({ goal: 'invalid', message: { text: 'x', delaySeconds: -1 } }), /delaySeconds/)
+  assert.throws(() => store.create({ goal: 'self-chosen', origin: 'autonomous', message }), /user request/)
+})
+
+test('cancelling an approval wait closes the operation; a later approval cannot run it', async t => {
+  const { store, runtime } = fixture(t, { requestApproval: async () => {},
+    reason: async () => ({ kind: 'act', action: { name: 'messenger.read', args: { limit: 5 } } }),
+    dispatch: async () => ({ data: { needs_approval: true } }) })
+  const task = store.create({ goal: 'test approval' })
+  await runtime.scan(); const op = store.operations(task.id)[0]!
+  await runtime.control(task.id, 'cancel')
+  assert.equal(store.get(task.id).status, 'cancelled'); assert.equal(store.get(task.id).wait, null)
+  assert.equal(store.operation(op.id)!.status, 'completed')
+  assert.throws(() => runtime.approve(op.id), /not awaiting approval/)
+})
+
+test('owner can cancel a completed result that has not entered transport yet', async t => {
+  const { store, runtime } = fixture(t)
+  const task = store.create({ goal: 'known output', message: { text: 'do not send', delaySeconds: 0 } }, new Date(0))
+  await runtime.scan()
+  assert.equal(store.get(task.id).status, 'completed'); assert.equal(store.get(task.id).delivery?.state, 'pending')
+  await runtime.control(task.id, 'cancel')
+  runtime.deps.deliver = async () => assert.fail('cancelled pending output must not enter transport')
+  await runtime.scan()
+  assert.equal(store.get(task.id).status, 'cancelled'); assert.equal(store.get(task.id).delivery, null)
+})

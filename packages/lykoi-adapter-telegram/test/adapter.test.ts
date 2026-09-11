@@ -431,12 +431,12 @@ test('WO-TURN-01：owner 应答先 durable accept；S-08 路由由 FIFO executor
   assert.equal(inbound.length, 1)
   assert.equal(inbound[0]!.text, '批准')
   assert.equal(audit.events.filter((event) => event.type === 'converse/turn_terminal').length, 0)
-  assert.equal(await svc.routeOwnerMessage({
+  assert.deepEqual(await svc.routeOwnerMessage({
     text: inbound[0]!.text,
     contextId: inbound[0]!.contextId,
     replyTo: inbound[0]!.replyToPlatformMessageId ?? null,
     messageId: inbound[0]!.platformMessageId,
-  }), 'approval_answer')
+  }), { kind: 'approval_answer', outcome: 'granted', executed: true, replied: undefined })
 })
 
 test('WO-TURN-01：路由错误发生在 accept/cursor 之后，不倒写 durable 接收', async () => {

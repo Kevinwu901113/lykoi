@@ -1,4 +1,4 @@
-import type { TaskRequest } from 'lykoi-contracts'
+import type { TaskMessage, TaskRequest } from 'lykoi-contracts'
 import { parseStateTimestamp } from 'lykoi-memory'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID, createHash } from 'node:crypto'
@@ -11,6 +11,7 @@ export interface TaskWait { kind: 'due' | 'operation' | 'external' | 'approval' 
 export interface Artifact { path: string; sha256: string; bytes: number }
 export interface Task {
   request?: TaskRequest
+  scheduledMessage?: { text: string; dueAt: string }
   result?: string; finding?: string
   origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string
   id: string; instanceId: string; originTurnId: string | null; goal: string; requirements: string; criteria: string
@@ -25,6 +26,12 @@ export interface Operation {
   status: 'inflight' | 'completed' | 'unknown' | 'approval'; approved?: boolean; approvalRevision?: number; observation: unknown; createdAt: string
 }
 const terminal = new Set<TaskStatus>(['completed', 'failed', 'cancelled'])
+
+function scheduledMessage(message: TaskMessage | undefined, receivedAt: string) {
+  if (message === undefined) return undefined
+  if (typeof message.text !== 'string' || !message.text.trim() || !Number.isFinite(message.delaySeconds) || message.delaySeconds < 0) throw new TypeError('message needs nonempty text and a nonnegative delaySeconds')
+  return { text: message.text, dueAt: new Date(Date.parse(receivedAt) + message.delaySeconds * 1000).toISOString() }
+}
 
 /** Instance-owned Task database, independent of memory storage. Every mutation is a short synchronous transaction. */
 export class TaskStore {
@@ -59,6 +66,7 @@ export class TaskStore {
       || task.workspace !== join(this.root, task.id, 'workspace') || !Array.isArray(task.artifacts)) throw new Error(`invalid persisted task: ${String(row.id)}`)
     if (task.wait && (typeof task.wait.detail !== 'string' || !['due', 'operation', 'external', 'approval', 'verification'].includes(task.wait.kind)
       || (task.wait.kind === 'due' && (!task.wait.until || !Number.isFinite(Date.parse(task.wait.until)))))) throw new Error(`invalid persisted task wait: ${task.id}`)
+    if (task.scheduledMessage && (typeof task.scheduledMessage.text !== 'string' || !task.scheduledMessage.text.trim() || !Number.isFinite(Date.parse(task.scheduledMessage.dueAt)))) throw new Error(`invalid scheduled message: ${task.id}`)
     if (task.delivery && (typeof task.delivery.content !== 'string' || !['pending', 'sending', 'sent', 'failed', 'unknown'].includes(task.delivery.state))) throw new Error(`invalid persisted task delivery: ${task.id}`)
     return task
   }
@@ -99,24 +107,29 @@ export class TaskStore {
       this.db.prepare('DELETE FROM task_outbox WHERE id=?').run(row.id)
     }
   }
-  create(input: { goal: string; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
+  create(input: { goal: string; message?: TaskMessage; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }, now = new Date()): Task {
     if (!input.goal.trim()) throw new TypeError('task goal is required')
-    if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now)
+    if (input.message && input.origin === 'autonomous') throw new Error('scheduled delivery requires a user request')
+    const message = scheduledMessage(input.message, input.request?.receivedAt ?? now.toISOString())
+    if (input.taskId) return this.update(input.taskId, input.requirements ?? input.goal, input.criteria, now, message)
     const existing = input.originTurnId ? this.list().find(t => t.originTurnId === input.originTurnId) : undefined
     if (existing) return existing
     const id = `task-${randomUUID()}`, workspace = join(this.root, id, 'workspace')
     mkdirSync(workspace, { recursive: true })
-    const task: Task = { request: input.request, id, instanceId: this.instanceId, origin: input.origin ?? 'user', thoughtId: input.thoughtId, reason: input.reason, originTurnId: input.originTurnId ?? null, goal: input.goal,
+    const task: Task = { request: input.request, scheduledMessage: message, id, instanceId: this.instanceId, origin: input.origin ?? 'user', thoughtId: input.thoughtId, reason: input.reason, originTurnId: input.originTurnId ?? null, goal: input.goal,
       requirements: input.requirements ?? input.goal, criteria: input.criteria ?? '完成目标并提供可核验成果', revision: 1,
-      status: 'pending', checkpoint: '', workspace, wait: null, failure: null, artifacts: [], delivery: null,
+      status: message ? 'waiting' : 'pending', checkpoint: '', workspace, wait: message ? { kind: 'due', until: message.dueAt, detail: '等待已登记消息的发送时间' } : null, failure: null, artifacts: [], delivery: null,
       experienceId: null, createdAt: now.toISOString(), updatedAt: now.toISOString() }
     this.db.prepare('INSERT INTO persistent_tasks(id,instance_id,document) VALUES(?,?,?)').run(id, this.instanceId, JSON.stringify(task))
     return task
   }
-  update(id: string, requirements: string, criteria?: string, now = new Date()): Task {
+  update(id: string, requirements: string, criteria?: string, now = new Date(), message?: Task['scheduledMessage']): Task {
     return this.edit(id, task => {
       if (task.status === 'completed' || task.status === 'cancelled') throw new Error('terminal task cannot be revised; create a new task explicitly')
       if (task.status === 'failed') { task.status = 'pending'; task.delivery = null }
+      if (message && task.origin === 'autonomous') throw new Error('scheduled delivery requires a user task')
+      // A new goal without a frozen message returns to ordinary cognition; never send stale text.
+      task.scheduledMessage = message
       task.requirements = requirements; if (criteria !== undefined) task.criteria = criteria
       for (const op of this.operations(id)) if (op.status === 'approval') this.saveOperation({ ...op, status: 'completed', approved: false, observation: { success: false, error: 'requirements changed before execution' } })
       task.revision++; task.failure = null
@@ -125,9 +138,17 @@ export class TaskStore {
   }
   control(id: string, command: 'pause' | 'resume' | 'cancel', now = new Date()): Task {
     return this.edit(id, task => {
+      if (command === 'cancel' && task.delivery?.state === 'pending') {
+        task.status = 'cancelled'; task.delivery = null; task.wait = null
+        return
+      }
       if (terminal.has(task.status)) throw new Error('task is already terminal')
       if (command === 'pause') task.status = 'paused'
-      else if (command === 'cancel') task.status = 'cancelled'
+      else if (command === 'cancel') {
+        task.status = 'cancelled'
+        for (const op of this.operations(id)) if (op.status === 'approval') this.saveOperation({ ...op, status: 'completed', approved: false, observation: { success: false, error: 'task cancelled before execution' } })
+        if (task.wait?.kind === 'due' || task.wait?.kind === 'approval' || task.wait?.kind === 'external') task.wait = null
+      }
       else {
         if (task.status !== 'paused' && task.status !== 'waiting') throw new Error('task is not paused or waiting')
         task.status = task.wait?.kind === 'verification' || task.wait?.kind === 'operation' || (task.wait?.kind === 'approval' && task.wait.operationId && this.operation(task.wait.operationId)?.status === 'approval' && !this.operation(task.wait.operationId)?.approved) ? 'waiting' : 'pending'
