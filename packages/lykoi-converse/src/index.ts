@@ -482,7 +482,7 @@ export function apply(ctx: Context, config: Config) {
 
   //   （AbortSignal 形态 —— signal 递进 dsh-llm 的 `GenerateOptions.signal`，
   //   于是超时不只是"这边不等了"，是真把那一跳掐掉）+ 有界重试。失败方向由
-  //   kernel 那侧钉死：`interpret` 的五失败路之一是「transport 抛 → unclear」，
+  //   kernel 那侧钉死：`interpret` 的技术失败路是「transport 抛 → unavailable」，
   //   所以从这里抛出去永不 approve、永不挡路，只是"这次问不到"。
   setApprovalInterpretLlm(async (messages, opts) => {
     const systemParts: string[] = []
@@ -508,6 +508,7 @@ export function apply(ctx: Context, config: Config) {
         content: [{ type: 'text', text: m.content }],
         source: { kind: 'plugin', plugin: 'lykoi-converse' },
       })),
+      reasoningEffort: ReasoningEffortId('off'), // Short approval classification must not inherit the dialogue reasoning budget.
       maxTokens: opts.maxTokens, // = INTERPRET_MAX_TOKENS
       temperature: opts.temperature, // = INTERPRET_TEMPERATURE
       // 加派项⑥同批接通：判读输出是一份 schema，json 强制照样通到 wire。

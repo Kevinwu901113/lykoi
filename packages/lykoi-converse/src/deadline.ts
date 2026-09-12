@@ -1,4 +1,5 @@
 /** Deadlines and explicitly selected transient retries. JSON recovery belongs to lykoi-llm. */
+import { LlmJsonError } from 'lykoi-llm'
 import type { LogEvent } from 'lykoi-decide'
 
 // --- 三旋钮的源码缺省（单一出处） --------------------------------------------
@@ -147,6 +148,7 @@ export async function runInterpretWithDeadline<T>(
       }
 
       opts.logEvent(INTERPRET_FAILURE_EVENT, {
+        ...(exc instanceof LlmJsonError ? { json_attempts: exc.diagnostics } : {}),
         action_type: actionType,
         error_type: errorType,
         elapsed_ms: elapsedMs,

@@ -596,3 +596,35 @@ test('structured approval result is returned to the caller without being dumped 
   assert.deepEqual(answer.observation, observation)
   assert.doesNotMatch(String(sends().at(-1)!.action.params.text), /count|workspace|internal/)
 })
+
+test('repeated technical failures preserve the request and never turn the owner approval into a denial', async () => {
+  const { clarifyRounds } = await import('../src/approval-interpreter.ts')
+  const { recentDenial, standingGrants } = await import('../src/approval.ts')
+  const sink = setup()
+  setApprovalInterpretLlm(async () => { throw new Error('invalid JSON from provider') })
+  const { dispatch, calls, sends } = fakeDispatch()
+  const ac = createApprovalConversation({ dispatch })
+  const params = { path: 'order-log-report.md', content: '# 範例報告\n兩次超時，原因未知。' }
+  const requested = await ac.requestApproval('workspace.write', params, { contextId: CTX, now: T0 })
+  const id = requested.pending_id!
+  assert.ok(id)
+  assert.match(String(sends()[0]!.action.params.text), /order-log-report\.md/)
+  assert.match(String(sends()[0]!.action.params.text), /內容|内容/)
+  for (const answer of ['可以，寫這份報告就好。對了，訂單C後來10:07重試也成功了。', '我剛才說可以就是同意了，請做成檔案，不用再貼一次全文。']) {
+    const out = await ac.handleOwnerAnswer(answer, { contextId: CTX, replyTo: findPending(id)!.question_message_id as string, now: T0 })
+    assert.equal(out.outcome, 'unavailable')
+    assert.equal(out.executed, false)
+    assert.ok(pendingActions({ now: T0 }).some(p => p.id === id))
+    assert.equal(clarifyRounds(findPending(id)!), 0)
+    assert.equal(recentDenial('workspace.write', 'type:workspace.write', { now: T0 }), null)
+    assert.match(String(sends().at(-1)!.action.params.text), /故障/)
+    assert.equal(calls.filter(c => c.action.type === 'workspace.write').length, 0)
+  }
+  assert.deepEqual(standingGrants(), [])
+  assert.equal(sink.records.filter(e => e.type === AUDIT_ANSWER_ROUTED && e.outcome === 'denied').length, 0)
+  setApprovalInterpretLlm(async () => ({ content: '{"verdict":"approve","confidence":1,"scope":"this_only","conditions":[],"reason":"同意此次写入"}' }))
+  const done = await ac.handleOwnerAnswer('可以，寫這份報告就好。', { contextId: CTX, replyTo: findPending(id)!.question_message_id as string, now: T0 })
+  assert.equal(done.outcome, 'execute_once')
+  assert.equal(calls.filter(c => c.action.type === 'workspace.write').length, 1)
+  assert.deepEqual(standingGrants(), [])
+})

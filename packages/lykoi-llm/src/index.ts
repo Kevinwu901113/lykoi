@@ -119,8 +119,13 @@ declare module'@deepseek-ai/cordis' {
 
 /** Maximum provider attempts for a JSON response, including the initial request. */
 export const JSON_MAX_ATTEMPTS = 3
+export interface JsonAttemptDiagnostic {
+  attempt: number; finishKind: string | null; textLength: number; reasoningLength: number
+  inputTokens?: number; outputTokens?: number
+}
 export class LlmJsonError extends Error {
-  constructor() { super('lykoi-llm: provider did not return valid JSON'); this.name = 'LlmJsonError' }
+  readonly diagnostics: JsonAttemptDiagnostic[]
+  constructor(diagnostics: JsonAttemptDiagnostic[] = []) { super('lykoi-llm: provider did not return valid JSON'); this.name = 'LlmJsonError'; this.diagnostics = diagnostics }
 }
 
 class LykoiLlm implements LykoiLlmService {
@@ -137,6 +142,7 @@ class LykoiLlm implements LykoiLlmService {
 
   async #generate(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {
     const attempts = options.responseFormat?.type === 'json_object' ? JSON_MAX_ATTEMPTS : 1
+    const diagnostics: JsonAttemptDiagnostic[] = []
     for (let attempt = 0; attempt < attempts; attempt++) {
       options.signal?.throwIfAborted()
       let request = options
@@ -165,10 +171,11 @@ class LykoiLlm implements LykoiLlmService {
         // invent content, so it must go through a fresh, budgeted generation.
         const repaired = result.finish?.kind === 'max-tokens' ? null : repairTrailingClosers(result.text)
         if (repaired) return { ...result, text: repaired.text }
+        diagnostics.push({ attempt: attempt + 1, finishKind: result.finish?.kind ?? null, textLength: [...result.text].length, reasoningLength: result.reasoningLength, inputTokens: result.usage?.inputTokens, outputTokens: result.usage?.outputTokens })
         this.#ctx.logger.debug('llm_json_invalid run=%s attempt=%d text_chars=%d', meta.runId, attempt + 1, [...result.text].length)
       }
     }
-    throw new LlmJsonError()
+    throw new LlmJsonError(diagnostics)
   }
 
   async #callOnce(options: LykoiGenerateOptions, meta: LlmCallMeta): Promise<LlmCallResult> {

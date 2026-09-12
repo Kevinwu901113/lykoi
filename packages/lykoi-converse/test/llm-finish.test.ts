@@ -181,17 +181,18 @@ test('WO-LLM-FINISH-01 落点：finish{error} → converse 既有失败路（tur
 
 for (const emptyFinish of [false, true]) {
   test(`production approval wiring has one protocol retry owner (${emptyFinish ? 'EMPTY_RESPONSE' : 'invalid JSON'})`, async () => {
-    const adapter = emptyFinish ? new class extends LlmAdapter {
+    const adapter = emptyFinish ? new class extends MockAdapter {
       calls = 0
-      async *stream(): AsyncIterable<StreamChunk> {
+      async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+        assert.equal(options.reasoningEffort, 'off')
         this.calls++
         yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 0 } }
         yield { type: 'finish', reason: { kind: 'error', failure: { code: 'EMPTY_RESPONSE', message: 'empty response' } } }
       }
-    }() : new MockAdapter({ replyText: 'invalid JSON', promptTokens: 2, completionTokens: 1 })
+    }({ replyText: 'unused', promptTokens: 2, completionTokens: 0 }) : new MockAdapter({ replyText: 'invalid JSON', promptTokens: 2, completionTokens: 1 })
     const { audit } = await assemble(adapter)
     const result = await interpret('可以考虑', { actionType: 'messenger.send', params: { to: 'owner', content: 'fixture' } })
-    assert.equal(result.verdict, 'unclear')
+    assert.equal(result.verdict, 'unavailable')
     assert.equal(adapter.calls, 3)
     assert.equal(audit.events.filter(e => e.type === 'budget/charge').length, 3)
     assert.equal(audit.events.filter(e => e.type === 'approval_interpret_retried').length, 0)
@@ -199,5 +200,11 @@ for (const emptyFinish of [false, true]) {
     assert.equal(failures.length, 1)
     assert.equal(failures[0]!.attempts, 1)
     assert.equal(failures[0]!.error_type, emptyFinish ? 'LlmFinishError' : 'LlmJsonError')
+    if (!emptyFinish) {
+      const attempts = failures[0]!.json_attempts as Record<string, unknown>[]
+      assert.equal(attempts.length, 3)
+      assert.equal(attempts[0]!.textLength, 12)
+      assert.equal(JSON.stringify(attempts).includes('invalid JSON'), false)
+    }
   })
 }
