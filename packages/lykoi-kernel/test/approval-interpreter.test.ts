@@ -60,7 +60,7 @@ function setup(): ReturnType<typeof fakeSink> {
 
 // --- ① interpret 五失败路 ------------------------------------------------------
 
-test('SK-36：interpret 五失败路**全落 unclear**，永不 approve', async () => {
+test('SK-36：interpret 技术故障 unavailable 与空答复 unclear 分离，永不 approve', async () => {
   setup()
   const ctx = { actionType: 'messenger.send', params: { text: 'x', context_id: 'c' } }
 
@@ -68,22 +68,22 @@ test('SK-36：interpret 五失败路**全落 unclear**，永不 approve', async 
   fakeLlm('{"verdict":"approve","confidence":1,"reason":"r"}')
   assert.equal((await interpret('   ', ctx)).verdict, 'unclear')
   // ②无 action_type
-  assert.equal((await interpret('可以', { actionType: '' })).verdict, 'unclear')
+  assert.equal((await interpret('可以', { actionType: '' })).verdict, 'unavailable')
   // ③transport 抛（超时/供应商/未接线）
   setApprovalInterpretLlm(async () => { throw new Error('timeout') })
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
   setApprovalInterpretLlm(null) // 未接线 = 同一条路
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
   // ④空补全
   fakeLlm('   ')
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
   fakeLlm(null)
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
   // ⑤裁决解析不出来（含未知 verdict 串）
   fakeLlm('我觉得应该可以吧')
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
   fakeLlm('{"verdict":"yes","confidence":1,"reason":"r"}')
-  assert.equal((await interpret('可以', ctx)).verdict, 'unclear')
+  assert.equal((await interpret('可以', ctx)).verdict, 'unavailable')
 
   // 每一路都是 confidence 0 —— 裁决的**缺席**，不是低置信的裁决。
   const out = await interpret('可以', ctx)

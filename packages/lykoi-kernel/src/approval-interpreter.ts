@@ -173,11 +173,16 @@ export function buildInterpretMessages(fields: {
 }
 
 export interface Interpretation {
-  verdict: Verdict
+  verdict: Verdict | 'unavailable'
   confidence: number
   scope: 'this_only' | 'this_scope' | 'unspecified'
   conditions: string[]
   reason: string
+}
+
+function _unavailable(reason: string, fields: Record<string, unknown> = {}): Interpretation {
+  logEvent('approval_interpret_unavailable', { reason, ...fields })
+  return { verdict: 'unavailable', confidence: 0, scope: 'unspecified', conditions: [], reason }
 }
 
 function _unclear(reason: string, fields: Record<string, unknown> = {}): Interpretation {
@@ -212,6 +217,10 @@ export function describeAction(actionType: string, params: Record<string, unknow
     const chars = [...command]
     const preview = chars.length <= 200 ? command : chars.slice(0, 200).join('') + '…'
     return `在终端执行命令: ${_pyRepr(preview)}`
+  }
+  if (actionType === 'workspace.write') {
+    const content = [...String(p.content ?? '')]
+    return `写入文件 ${_pyRepr([...String(p.path ?? '')].slice(0, 200).join(''))}, 共 ${content.length} 字符, 内容预览: ${_pyRepr(content.slice(0, 120).join('') + (content.length > 120 ? '…' : ''))}`
   }
   const keys = Object.keys(p).map(String).sort().join(', ') || '(无参数)'
   return `执行 ${actionType}, 参数字段: ${keys}`
@@ -277,7 +286,7 @@ export const APPROVAL_RUN_PREFIX = 'approval-interpret'
 
 let _llm: ApprovalInterpretLlm | null = null
 
-/** 接线方（插件 apply）/测试设置判读 transport；null 恢复未接线（→ unclear）。 */
+/** 接线方（插件 apply）/测试设置判读 transport；null 恢复未接线（→ unavailable）。 */
 export function setApprovalInterpretLlm(fn: ApprovalInterpretLlm | null): void {
   _llm = fn
 }
@@ -295,7 +304,7 @@ export async function interpret(
   if (typeof answerText !== 'string' || answerText.trim() === '') {
     return _unclear('empty_answer', { action_type: actionType })
   }
-  if (!actionType) return _unclear('no_action_type')
+  if (!actionType) return _unavailable('no_action_type')
   const params = questionContext?.params ?? {}
   let key = questionContext?.scopeKey
   if (key === null || key === undefined) key = resolveScopeKey(actionType, params)
@@ -316,18 +325,18 @@ export async function interpret(
       runId: `${APPROVAL_RUN_PREFIX}-${actionType}`,
     })
   } catch (exc) {
-    // transport/timeout/provider：永不挡路，也永不放行
-    return _unclear('llm_unavailable', {
+    // transport/timeout/provider：保留未决，不计为用户含糊或拒绝，也不放行
+    return _unavailable('llm_unavailable', {
       action_type: actionType,
       error: exc instanceof Error ? exc.message : String(exc),
     })
   }
   const content = message === null || message === undefined ? null : message.content
   if (typeof content !== 'string' || content.trim() === '') {
-    return _unclear('empty_completion', { action_type: actionType })
+    return _unavailable('empty_completion', { action_type: actionType })
   }
   const result = _coerce(_extractJson(content))
-  if (result === null) return _unclear('unparseable_verdict', { action_type: actionType })
+  if (result === null) return _unavailable('unparseable_verdict', { action_type: actionType })
   return result
 }
 
@@ -481,7 +490,7 @@ export function resetClarifyRounds(record: Record<string, unknown> | null = null
 }
 
 export interface GateResult {
-  outcome: 'grant' | 'deny' | 'clarify' | 'execute_once'
+  outcome: 'grant' | 'deny' | 'clarify' | 'execute_once' | 'unavailable'
   risk_level: string
   scope_key: string | null
   may_grant: boolean
@@ -505,6 +514,10 @@ export function gate(
     scope_key: key,
     may_grant: false,
     conditions,
+  }
+  if (verdict === 'unavailable') {
+    result.outcome = 'unavailable'
+    return result
   }
   if (verdict === 'deny') {
     result.outcome = 'deny'
@@ -649,7 +662,7 @@ export const _AMBIGUOUS_CLARIFY = '我这边有不止一件事在等你点头, �
   + '你说的是这里面哪一个? {listing}'
 
 export interface HandleAnswerResult {
-  outcome: 'ignored' | 'clarify' | 'granted' | 'execute_once' | 'denied'
+  outcome: 'ignored' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable'
   reason: string
   question: Record<string, unknown> | null
   interpretation: Interpretation | null

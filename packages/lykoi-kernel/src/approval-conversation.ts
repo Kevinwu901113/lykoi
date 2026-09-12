@@ -16,6 +16,7 @@ export const QUESTION_TEMPLATE = '有件事得你点头我才做: {description}�
 /** 51 字，sha256 a7019f4a…。 */
 export const RETRACT_TEMPLATE = '刚才那个问题先作废 —— 我这边没记住它({reason}), 所以这件事我不做了。要的话你再说一次。'
 /** 8 字，sha256 0356d3db…。 */
+export const INTERPRET_UNAVAILABLE_REPLY = '刚才审批处理出了故障，没能完成判读；这不代表你拒绝。我还没有执行，原请求仍待处理。'
 export const DENY_CONFIRM = '好, 这次不做。'
 
 export const EXPIRED_REPLY = '那条已经过期了, 要我重新问吗?'
@@ -63,7 +64,7 @@ export interface RequestApprovalResult {
 
 export interface HandleOwnerAnswerResult {
   observation?: Observation | null
-  outcome: 'ignored' | 'expired' | 'clarify' | 'granted' | 'execute_once' | 'denied'
+  outcome: 'ignored' | 'expired' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable'
   pending_id: string | null
   executed: boolean
   replied: boolean
@@ -480,7 +481,11 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
     let replied = false
     let observation: Observation | null | undefined
 
-    if (outcome === 'clarify') {
+    if (outcome === 'unavailable') {
+      const notice = await _send(contextId, INTERPRET_UNAVAILABLE_REPLY, _replyRef(opts.messageId))
+      replied = notice.sent
+      if (pendingId && notice.sent) setQuestionMessageId(pendingId, notice.message_id)
+    } else if (outcome === 'clarify') {
       const followUp = await _send(contextId, result.clarify_text ?? '', _replyRef(opts.messageId))
       replied = followUp.sent
       if (pendingId && followUp.sent) {
