@@ -6,6 +6,23 @@ import { join } from 'node:path'
 import { commitMind, MindStore, mindWorkingView } from '../src/mind.ts'
 
 const record = { id: 'question', revision: 0, kind: 'thought' as const, topic: '共享结构？', understanding: '还缺第二个案例', open: '比较不同领域', evidence: ['case:A'], links: [], status: 'open' as const, reconsiderAt: null, basis: 'inferred' as const, scope: '方法研究' }
+test('learned self persists; relationship moments expire from working context but remain searchable after restart', t => {
+  const root = mkdtempSync(join(tmpdir(), 'mind-personality-')), path = join(root, 'mind.sqlite')
+  let now = new Date('2026-09-12T00:00:00Z'), mind = new MindStore(path, () => now)
+  t.after(() => { mind.close(); rmSync(root, { recursive: true, force: true }) })
+  mind.commit({ records: [
+    { ...record, id: 'self', kind: 'self', open: null, understanding: '我喜欢先验证再下结论' },
+    { ...record, id: 'moment', kind: 'moment', open: null, understanding: '刚被夸奖，有些开心', scope: '与 Owner 的相处', expiresAt: '2026-09-12T01:00:00Z' },
+  ] }, 'conversation', mind.view())
+  assert.equal(mind.view().records.length, 2)
+  assert.throws(() => mind.commit({ records: [{ ...record, kind: 'moment' }] }, 'wake', mind.view()), /expiresAt/)
+  mind.close(); now = new Date('2026-09-12T01:00:00Z'); mind = new MindStore(path, () => now)
+  assert.deepEqual(mind.view().records.map(r => r.id), ['self'])
+  assert.equal(mind.view('moment').records[0]!.understanding, '刚被夸奖，有些开心')
+  const seen = mind.view('self')
+  mind.commit({ records: [{ ...seen.records[0], understanding: '我会核对重要结论，简单事情直接回应' }] }, 'wake', seen)
+  assert.equal(mind.view().records[0]!.revision, 2)
+})
 test('restart resumes progress; event replay deduplicates; stale commits roll back updates and acknowledgements together', t => {
   const root = mkdtempSync(join(tmpdir(), 'mind-')), path = join(root, 'mind.sqlite')
   let mind = new MindStore(path)
@@ -44,13 +61,18 @@ test('legacy open thoughts migrate once without changing original memory or rese
   const root = mkdtempSync(join(tmpdir(), 'mind-migration-')), source = join(root, 'memory.db')
   const db = new DatabaseSync(source)
   db.exec("CREATE TABLE thoughts(id INTEGER, content TEXT, related_concern_id INTEGER, status TEXT); INSERT INTO thoughts VALUES(1,'历史问题',2,'open'),(2,'已完成',NULL,'resolved')")
+  db.exec("CREATE TABLE narrative_versions(id INTEGER, content TEXT, created_at TEXT, narrative_class TEXT); INSERT INTO narrative_versions VALUES(1,'可评估自我','2026-09-12T00:00:00Z','cognitive'),(2,'仅供叙事','2026-09-12T01:00:00Z','narrative_only')")
   const mind = new MindStore(join(root, 'mind.sqlite'))
   t.after(() => { mind.close(); db.close(); rmSync(root, { recursive: true, force: true }) })
   mind.migrate(source)
   assert.equal(mind.view().records.length, 1)
+  assert.equal(mind.view().events[0]!.id, 'legacy-narrative:1')
+  assert.ok(!mind.context().includes('仅供叙事'))
+  mind.commit({ acknowledge: ['legacy-narrative:1'] }, 'wake', mind.view())
   const view = mind.view(), old = view.records[0]!
   mind.commit({ records: [{ ...old, understanding: '后来的理解' }] }, 'wake', view)
   mind.migrate(source)
+  assert.equal(mind.view().events.length, 0)
   assert.equal(mind.view().records[0]!.understanding, '后来的理解')
   assert.equal(db.prepare('SELECT content FROM thoughts WHERE id=1').get()!.content, '历史问题')
 })

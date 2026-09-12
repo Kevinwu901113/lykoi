@@ -28,6 +28,9 @@ test('production YAML is bound to the selected state and definition; model/chann
     assert.equal(entries.find(e => e.name === 'lykoi-audit')?.config.path, '/var/log/lykoi-audit/audit.jsonl')
     assert.equal(entries.find(e => e.name === 'lykoi-heart')?.config.salienceDb, '')
     assert.equal(entries.find(e => e.name === 'lykoi-converse')?.config.route, 'deepseek-official')
+    assert.equal(entries.find(e => e.name === 'lykoi-organ-workspace')?.config.directory, join(instance.stateRoot, 'workspace'))
+    assert.equal(entries.find(e => e.name === '@deepseek-ai/dsh-attachment-local')?.config.dshHome, join(instance.stateRoot, 'media'))
+    assert.equal(entries.find(e => e.name === 'lykoi-panel')?.config.port, 3210)
     assert.equal(entries.find(e => e.name === 'lykoi-adapter-telegram/production')?.config.tokenEnv, 'LYKOI_TELEGRAM_BOT_TOKEN')
   } finally { rmSync(registry, { recursive: true, force: true }) }
 })

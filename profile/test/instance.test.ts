@@ -54,11 +54,13 @@ test('real workers: A/B conversations survive restart, selection and model confi
     const a = start(registry, file); workers.push(a); await a.next()
     a.child.stdin.write('P1_WAIT Recall our prior marker\n')
     selectInstance(registry, 'b') // changes the next launch while A has work in flight
+    const b = start(registry, file); workers.push(b); await b.next()
+    const duplicate = spawnSync(process.execPath, [cli, 'run', '--registry', registry, '--config', file, '--id', 'a', '--console'], { encoding: 'utf8', timeout: 3000 })
+    assert.equal(duplicate.status, 1); assert.match(duplicate.stderr, /already active/)
+    b.child.stdin.write('Recall our prior marker\n')
     const reply = await a.next()
     assert.equal(reply.instanceId, 'a'); assert.match(reply.text, /P1_MEMORY_A_127/); assert.doesNotMatch(reply.text, /P1_MEMORY_B/)
     a.child.stdin.end(); await a.done
-    const b = start(registry, file); workers.push(b); await b.next()
-    b.child.stdin.write('Recall our prior marker\n')
     const bReply = await b.next()
     assert.equal(bReply.instanceId, 'b'); assert.match(bReply.text, /P1_MEMORY_B_127/); assert.doesNotMatch(bReply.text, /P1_MEMORY_A/)
     b.child.stdin.end(); await b.done

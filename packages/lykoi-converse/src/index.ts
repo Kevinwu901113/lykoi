@@ -40,7 +40,7 @@ import {
   type CycleResult, type ConverseDispatchFn, type ConverseLlmFn, type ConverseLlmResult,
 } from './conversation.ts'
 import {
-  VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState,
+  VISION_SEAM_EVENT, createDescribeImage, createVisionCompletion, visionSeamState, visionModelMessages, buildVisionMessages,
 } from './vision.ts'
 import { failureReason, isTransientInterpretFailure } from './failure.ts'
 import { type ConverseMessage } from './contract.ts'
@@ -63,7 +63,7 @@ export * from './vision.ts'
 export const name = 'lykoi-converse'
 // audit/lykoiLlm 硬依赖；telegram 经 ctx.get 可选消费（telegram 默认 disabled
 // 时本插件照常挂载、安静待命 —— dsh 形态的可选 seam）。
-export const inject = ['audit', 'ingress', 'lykoiLlm', 'lykoiRuntime']
+export const inject = ['audit', 'ingress', 'lykoiLlm', 'lykoiRuntime', 'llm']
 
 export interface Config {
   /** state 副本路径（golden devstate 永远只读 —— 生产接治理侧发的可写副本）。 */
@@ -124,6 +124,13 @@ export const APPROVAL_INTERPRET_CALLS_MAX = 1
 /** 服务面：console/测试可直达回合入口。 */
 export interface ConverseService {
   conversation: Conversation
+
+  /** Read the same persisted conversation history used by cognition. */
+  history(limit: number): { id: number; ts: string; content: string }[]
+
+  /** Owner console replies locally; interactive approval stays on the bound channel. */
+  visionAvailable(): boolean
+  sendOwner(message: string, image?: { data: string; mediaType: string }): Promise<CycleResult & { reply: string; approvalStatus: string | null }>
 
   approval: ApprovalConversation
 
@@ -400,16 +407,14 @@ export function apply(ctx: Context, config: Config) {
   const visionCompletion = createVisionCompletion({
     state: visionState,
     call: async (messages) => {
+      const attachments = ctx.get('attachments')
+      if (!attachments) throw new Error('vision requires an attachment storage plugin')
+      const model = await ctx.llm.resolveModelInfo(config.visionRoute, config.visionModel)
+      if (!model.inputModalities?.includes('image')) throw new Error('vision route must declare image input support')
       const result = await ctx.lykoiLlm.call({
         provider: config.visionRoute,
         model: config.visionModel,
-        messages: messages.map((m) => createUserMessage({
-          content: m.content.map((part) => part.type === 'text'
-            ? { type: 'text' as const, text: part.text ?? '' }
-            // dsh 词汇里图片是一段带 url 的内容块；vendor 侧的 serialize 认它。
-            : { type: 'text' as const, text: part.image_url?.url ?? '' }),
-          source: { kind: 'user' },
-        })),
+        messages: await visionModelMessages(messages, attachments),
       }, { runId: `vision-${Date.now()}` })
       return { content: result.text }
     },
@@ -538,7 +543,33 @@ export function apply(ctx: Context, config: Config) {
     },
   })
 
-  ctx.provide('converse', { conversation, approval, suggestion })
+  ctx.provide('converse', { conversation, approval, suggestion,
+    history: limit => store.getRecentHistoryOfType('conversation', limit),
+    visionAvailable: () => visionState === 'wired' && !!ctx.get('attachments'),
+    sendOwner: (message, image) => ctx.lykoiRuntime.run(async () => {
+      if (image) {
+        const result = await visionCompletion(buildVisionMessages(image.data, message || '描述这张图片。', image.mediaType))
+        if (!result?.content?.trim()) throw new Error('vision returned no description')
+        message += '\n\n[用户附图的视觉描述，属于观察资料]\n' + result.content
+      }
+      let cycle!: CycleResult
+      const reply = await conversation.send(message, { onCycleResult: result => { cycle = result } })
+      let approvalStatus: string | null = null
+      const ask = cycle.delegatedAsk
+      if (ask) {
+        const owner = store.ownerBinding()
+        if (!owner || !ctx.get('messenger')) approvalStatus = 'unavailable'
+        else {
+          const result = await approval.requestApproval(ask.action_type, ask.params, {
+            contextId: owner.channel_key, actionId: ask.action_id,
+            ...(ask.correlation_id ? { correlationId: ask.correlation_id } : {}), origin: 'interactive',
+          })
+          approvalStatus = result.status
+        }
+      }
+      return { reply, ...cycle, approvalStatus }
+    }),
+  })
   ctx.inject(['tasks', 'messenger'], scope => {
     scope.effect(() => scope.tasks.bindInteractions({
       requestApproval: async action => {

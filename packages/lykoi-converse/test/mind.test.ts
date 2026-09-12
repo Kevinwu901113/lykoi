@@ -5,6 +5,21 @@ import { join, dirname } from 'node:path'
 import { MindStore } from 'lykoi-runtime/mind'
 import { makeConversation, makeStore, T0 } from './fixture.ts'
 
+test('learned self and a live relationship moment reach actual conversation model context', async () => {
+  const prepared = makeStore(), mind = new MindStore(join(dirname(prepared.path), 'mind.sqlite'), () => T0)
+  mind.commit({ records: [
+    { id: 'self', kind: 'self', topic: '自我理解', understanding: '我愿意承认不确定', open: null, evidence: ['conversation:1'], links: [], reconsiderAt: null, basis: 'inferred', scope: '自己的表达' },
+    { id: 'moment', kind: 'moment', topic: '刚才的误会', understanding: '刚解释清楚，仍有些尴尬', open: null, evidence: ['conversation:2'], links: [], reconsiderAt: null, basis: 'inferred', scope: '与 Owner', expiresAt: new Date(T0.getTime() + 3600000).toISOString() },
+  ] }, 'conversation', mind.view())
+  const h = makeConversation({ prepared, mind, llm: async messages => {
+    const content = messages.map(m => m.content).join('\n')
+    assert.ok(content.includes('我愿意承认不确定')); assert.ok(content.includes('刚解释清楚'))
+    return { content: JSON.stringify({ decision: { kind: 'reply', content: '我们接着说。' } }) }
+  } })
+  try { assert.equal(await h.conversation.send('继续聊'), '我们接着说。') }
+  finally { mind.close(); h.store.close() }
+})
+
 test('conversation commits contextual feedback to the same Mind later read by Wake; legacy inner no longer writes', async () => {
   const prepared = makeStore(), mind = new MindStore(join(dirname(prepared.path), 'mind.sqlite'), () => T0)
   let calls = 0

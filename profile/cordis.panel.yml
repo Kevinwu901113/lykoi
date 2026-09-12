@@ -1,0 +1,59 @@
+# Local synthetic instance. Deterministic mock models, no network or live character data.
+- id: runtime
+  name: lykoi-runtime
+- id: audit
+  name: lykoi-audit
+- id: budget
+  name: lykoi-budget
+- id: llm
+  name: '@deepseek-ai/dsh-llm'
+- id: chat-model
+  name: lykoi-llm/mock
+  config:
+    provider: panel-chat
+    replyText: '{"meaning_assessment":[],"decision":{"kind":"reply","content":"这是本地 Panel 体验实例，当前使用固定测试回复。你的消息已通过真实 Converse 保存；接入正式模型后，会由该实例实际回答。","reason":"说明本地体验实例的模型边界"}}'
+- id: task-model
+  name: lykoi-llm/mock
+  config:
+    provider: panel-task
+    replyText: '{"kind":"finish","result":{"status":"waiting","checkpoint":"本地固定模型样本已运行；尚未执行目标中的外部工作。","wait":{"kind":"external","detail":"本地体验实例使用固定模型；实际执行需要在正式装配中接入真实模型和所需能力。"}}}'
+- id: vision-model
+  name: lykoi-llm/mock
+  config:
+    provider: panel-vision
+    imageInput: true
+    replyText: '这是固定视觉测试回复。图片已通过真实附件存储；测试模型没有识别图片内容，不应据此描述图片。'
+- id: attachments
+  name: '@deepseek-ai/dsh-attachment-local'
+  config:
+    maxImageBytes: 8388608
+    maxImagesPerMessage: 1
+    maxMessageImageBytes: 8388608
+- id: lykoi-llm
+  name: lykoi-llm
+- id: memory
+  name: lykoi-memory
+- id: ingress
+  name: lykoi-ingress
+  config:
+    autoStart: false
+- id: converse
+  name: lykoi-converse
+  config:
+    route: panel-chat
+    model: mock
+    visionRoute: panel-vision
+    visionModel: mock
+- id: tasks
+  name: lykoi-task
+  config:
+    route: panel-task
+    model: mock
+- id: skill
+  name: lykoi-skill
+- id: heart
+  name: lykoi-heart
+- id: panel
+  name: lykoi-panel
+  config:
+    port: 3210

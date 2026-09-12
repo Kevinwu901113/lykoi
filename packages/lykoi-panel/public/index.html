@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lykoi · Panel</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><span class="mark">λ</span><span>lykoi<small>PERSONAL RUNTIME</small></span></a>
+    <div class="nav-label">工作空间</div>
+    <nav aria-label="主导航">
+      <a href="#overview"><span>◈</span>概览</a><a href="#chat"><span>◌</span>对话</a>
+      <a href="#tasks"><span>☷</span>任务<span id="task-count" class="count">0</span></a>
+      <a href="#mind"><span>◎</span>Mind</a><a href="#skills"><span>▤</span>方法库</a>
+      <a href="#capabilities"><span>◇</span>能力与器官</a>
+    </nav>
+    <div class="sidebar-bottom"><span class="connection" id="connection">正在连接</span><p>同一个实例，同一份状态。</p><small id="updated">等待运行时</small></div>
+  </aside>
+  <main>
+    <header><div class="breadcrumb">工作空间 <span>/</span> <span id="page-name">概览</span></div><span class="instance-chip" id="instance-chip">INSTANCE</span></header>
+    <div id="error" class="notice error" role="alert" hidden></div>
+    <div id="receipt" class="notice" role="status" hidden></div>
+    <section id="overview" class="page">
+      <div class="page-heading"><div><p class="eyebrow">LYKOI / OBSERVATORY</p><h1>在这里，看见她的日常。</h1><p class="subtitle">思考、工作与方法，都来自正在运行的实例。</p></div><button class="secondary" id="refresh">刷新状态 ↻</button></div>
+      <div class="metrics" id="metrics"></div>
+      <div class="overview-grid"><article class="card"><div class="card-heading"><h2>正在推进</h2><a href="#tasks">全部任务 ↗</a></div><div id="overview-tasks"></div></article>
+      <article class="card"><div class="card-heading"><h2>心跳</h2><span class="tag">HEART</span></div><div id="heart"></div></article>
+      <article class="card"><div class="card-heading"><h2>留在心里的问题</h2><a href="#mind">打开 Mind ↗</a></div><div id="overview-mind"></div></article>
+      <article class="card"><div class="card-heading"><h2>当前实例</h2><span class="tag">INSTANCE</span></div><div id="instance"></div></article></div>
+      <div class="quiet-note">这里只展示已保存的理解与真实状态，不展示模型原始推理过程。</div>
+    </section>
+    <section id="chat" class="page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">CONVERSATION</p><h1>对话</h1><p class="subtitle">共享当前实例的对话上下文。最近 50 个持久回合。</p></div></div>
+      <div class="card chat-history" id="chat-history" aria-label="对话记录"></div>
+      <form id="chat-form" class="composer"><label class="sr-only" for="chat-text">消息</label><textarea id="chat-text" rows="3" maxlength="16000" placeholder="有什么想和她说的？" required></textarea><label>附图<input id="chat-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled></label><div><span id="chat-status" role="status">Enter 发送 · Shift + Enter 换行</span><button type="submit">发送 ↗</button></div></form>
+    </section>
+    <section id="tasks" class="page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">PERSISTENT WORK</p><h1>任务</h1><p class="subtitle">进度、等待条件、成果与送达状态，分别记录。</p></div></div>
+      <form id="task-form" class="inline-form"><label class="sr-only" for="task-text">新任务目标</label><input id="task-text" placeholder="交给她一个新的任务…" maxlength="16000" required><button type="submit">创建任务 +</button></form>
+      <div id="task-list" class="stack"></div>
+    </section>
+    <section id="mind" class="page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">PERSISTENT MIND</p><h1>Mind</h1><p class="subtitle">持续的理解、未解的问题，以及有来源的情境偏好。</p></div></div>
+      <form id="mind-search" class="inline-form"><label class="sr-only" for="mind-query">检索 Mind</label><input id="mind-query" placeholder="搜索主题、理解或历史问题"><button type="submit" class="secondary">检索</button></form>
+      <div id="mind-list" class="stack"></div><h2 class="section-title">待处理事件</h2><div id="mind-events" class="stack"></div>
+    </section>
+    <section id="skills" class="page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">METHOD LIBRARY</p><h1>方法库</h1><p class="subtitle">从经验和教导中保存的方法，正文按需展开。</p></div></div>
+      <form id="skill-search" class="inline-form"><label class="sr-only" for="skill-query">检索方法</label><input id="skill-query" placeholder="搜索方法、摘要或正文"><button type="submit" class="secondary">检索</button></form>
+      <div id="skill-list" class="stack"></div><button id="skill-more" class="secondary" hidden>继续查找下一页</button>
+    </section>
+    <section id="capabilities" class="page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">LIVING CAPABILITIES</p><h1>能力与器官</h1><p class="subtitle">来自 Runtime 的当前注册表，插件卸载后同步消失。</p></div><span class="tag" id="cap-revision"></span></div>
+      <div id="capability-list" class="stack"></div>
+    </section>
+  </main>
+  <dialog id="detail"><div class="dialog-heading"><h2 id="detail-title">详情</h2><button id="detail-close" class="secondary" aria-label="关闭详情">关闭 ×</button></div><div id="detail-content"></div></dialog>
+</body>
+</html>

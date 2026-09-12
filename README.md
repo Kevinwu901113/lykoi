@@ -10,6 +10,10 @@ Lykoi 是一个面向长期持续运行的个人 AI Agent，核心关注 **持�
 
 当前部署、收尾修复与真实验收状态见 [当前版本结论](governance/CURRENT_VERSION.md)。
 
+本机 Web 控制台：`npm run panel`，打开 `http://127.0.0.1:3210`。默认是独立合成实例与固定测试模型；接入实际实例、功能和边界见 [Panel](docs/panel.md)。
+
+补齐阶段的使用方式与部署边界见 [旧 defer 收尾](docs/deferred-completion.md)。角色定义支持兼容旧格式的 [Persona v2](docs/persona-v2.md)：名称与自由描述即可创建角色，按需补充语气、关系、情境和对话示例。
+
 ## 目前具备的能力
 
 - **持久记忆**：保存对话、经历、思考、关注项、叙事状态及学习结果，并跨重启持续存在。

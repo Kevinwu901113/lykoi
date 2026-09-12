@@ -291,3 +291,28 @@
 # Private methods use the selected Runtime instance; no configurable storage path.
 - id: skills
   name: lykoi-skill
+
+# Owner-authorized deferred capability activation. Paths are bound by Instance assembly.
+- id: workspace
+  name: lykoi-organ-workspace
+- id: pi
+  name: lykoi-runner-pi
+  config:
+    command: ["/opt/node-v24.18.0/bin/node", "/opt/lykoi-pi/node_modules/@earendil-works/pi-coding-agent/dist/cli.js", "--thinking", "low"]
+    provider: deepseek
+    budgetRoute: deepseek-official
+    model: deepseek-v4-flash
+    agentDir: /home/lykoi/runtime/deployment/pi
+    credentialEnv: [DEEPSEEK_API_KEY]
+    timeoutMs: 300000
+    maxTurns: 12
+- id: attachments
+  name: '@deepseek-ai/dsh-attachment-local'
+  config:
+    maxImageBytes: 8388608
+    maxImagesPerMessage: 1
+    maxMessageImageBytes: 8388608
+- id: panel
+  name: lykoi-panel
+  config:
+    port: 3210

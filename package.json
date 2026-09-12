@@ -12,6 +12,7 @@
     "profile"
   ],
   "scripts": {
+    "panel": "node profile/panel.ts",
     "start": "node profile/index.ts",
     "test": "npm test --workspaces --if-present",
     "typecheck": "tsc --noEmit"

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { instanceEntries } from './assembly.ts'
-import { adoptInstance, createInstance, instanceEnvironment, restoreInstance, selectedInstance, selectInstance } from './instance-state.ts'
+import { acquireInstanceLock, adoptInstance, createInstance, instanceEnvironment, restoreInstance, selectedInstance, selectInstance } from './instance-state.ts'
 
 function value(args: string[], key: string): string | undefined {
   const i = args.indexOf(key)
@@ -44,21 +44,11 @@ export async function main(args: string[]): Promise<void> {
   const instance = value(args, '--id') ? restoreInstance(registry, required(args, '--id')) : selectedInstance(registry)
   const config = resolve(required(args, '--config'))
   const entries = instanceEntries(config, instance) // reject configuration before acquiring the run lock
-  const lock = join(registry, '.active')
-  if (existsSync(lock)) {
-    const owner = JSON.parse(readFileSync(join(lock, 'owner.json'), 'utf8')) as { pid: number }
-    if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error('invalid active-instance lock; inspect it before recovery')
-    try { process.kill(owner.pid, 0); throw new Error('an instance is already active; stop it before switching') }
-    catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') throw e }
-    rmSync(lock, { recursive: true }) // only a proven dead worker's process lock, never character state
-  }
-  mkdirSync(lock)
-  // Keep the supervisor PID until the worker has reported its own lifetime.
-  writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, instanceId: instance.id }), { flag: 'wx' })
+  const lock = acquireInstanceLock(instance, registry)
   const worker = fileURLToPath(new URL('./instance-worker.ts', import.meta.url))
   const child = spawn(process.execPath, [worker, '--registry', registry, '--id', instance.id, '--config', config,
     ...(args.includes('--console') ? ['--console'] : [])], { stdio: 'inherit', env: instanceEnvironment(instance, entries.find(e => e.name === 'lykoi-audit')?.config?.path) })
-  if (child.pid) writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: child.pid, instanceId: instance.id }))
+  if (child.pid) lock.update(child.pid)
   const forward = (signal: NodeJS.Signals) => child.kill(signal)
   const term = () => forward('SIGTERM'), interrupt = () => forward('SIGINT')
   process.on('SIGTERM', term); process.on('SIGINT', interrupt)
@@ -67,7 +57,7 @@ export async function main(args: string[]): Promise<void> {
     if (code !== 0) throw new Error(`instance ${instance.id} exited with code ${code}`)
   } finally {
     process.off('SIGTERM', term); process.off('SIGINT', interrupt)
-    rmSync(lock, { recursive: true, force: true })
+    lock.release()
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
