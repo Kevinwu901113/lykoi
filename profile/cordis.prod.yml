@@ -61,10 +61,10 @@
   name: lykoi-budget
   config:
     ledgerPath: /home/lykoi/state/budget.json
-    dailyTotalTokens: 2000000
+    dailyTotalTokens: 4000000
     dailyRouteTokens:
       # 键名 = LLM 调用的 route 名（gate/charge 按它记账）——随下方 route 位同名。
-      deepseek-official: 2000000
+      deepseek-official: 4000000
 
 # ---- 心脏 -------------------------------------------------------------------
 # 基线节律走源码缺省（30 分钟）：`LYKOI_HEARTBEAT_BASELINE_MIN` 是 GK-6 的
