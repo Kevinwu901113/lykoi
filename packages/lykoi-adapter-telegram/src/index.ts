@@ -1,3 +1,4 @@
+import type { DocumentSend } from './document.ts'
 import type { OwnerInteraction } from 'lykoi-contracts'
 import { outboundCapabilities } from './resources.ts'
 
@@ -61,6 +62,8 @@ export interface TelegramSendResult {
 }
 
 export interface TelegramTransport {
+  sendDocument?(opts: DocumentSend): Promise<{ message_id: string | null; sent: boolean; [key: string]: unknown }>
+
 
   poll(offset: number, options: { timeoutS: number }): Promise<TelegramUpdate[]>
 
@@ -133,6 +136,7 @@ export interface MessengerAdapterService {
    * messenger 的 transport 真身（`messenger._TRANSPORT = transport` 对应物）。
    * `replyTo` 可为 null —— 主动出站走这里，裸 `send` 是它的 reply-only 门面。
    */
+  transportDocument?(opts: DocumentSend): Promise<{ message_id: string | null; sent: boolean; [key: string]: unknown }>
   transportSend(
     contextId: string,
     text: string,
@@ -457,6 +461,11 @@ export class TelegramAdapter implements MessengerAdapterService {
     return await this.transportSend(contextId, text, replyTo, options)
   }
 
+  async transportDocument(opts: DocumentSend) {
+    if (!this.#transport.sendDocument) throw new Error('document transport unavailable')
+    return await this.#transport.sendDocument(opts)
+  }
+
   async transportSend(
     contextId: string,
     text: string,
@@ -638,7 +647,7 @@ export function apply(ctx: Context, config: Config) {
   })
   ctx.provide('messenger', adapter)
   ctx.effect(() => ctx.lykoiRuntime.register({
-    organId: 'telegram', capabilities: outboundCapabilities(), sideEffects: [],
+    organId: 'telegram', capabilities: outboundCapabilities(ctx.lykoiRuntime.instance), sideEffects: [],
   }), 'telegram capabilities')
 
   setMessengerTransport(messengerTransportBridge(adapter))
@@ -669,6 +678,10 @@ export function apply(ctx: Context, config: Config) {
 
 export function messengerTransportBridge(adapter: TelegramAdapterService): MessengerTransport {
   return {
+    async sendDocument(opts) {
+      if (!adapter.transportDocument) throw new Error('document transport unavailable')
+      return await adapter.transportDocument(opts)
+    },
     async sendMessage(opts) {
       const result = await adapter.transportSend(opts.contextId, opts.text, opts.replyTo ?? null)
       return {

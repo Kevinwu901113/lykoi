@@ -97,6 +97,7 @@ test('模型分段再经真实BotApiTransport拆4096包，HTTP载荷拼回完全
   const calls: Record<string, unknown>[] = []
   const transport = new BotApiTransport({ token: 'synthetic-token', apiBase: 'https://example.invalid', sleep: async () => {},
     post: async (_url, payload) => {
+      assert.ok(!(payload instanceof FormData))
       calls.push(payload)
       return { status: 200, json: () => ({ ok: true, result: { message_id: calls.length, date: 1 } }) }
     },

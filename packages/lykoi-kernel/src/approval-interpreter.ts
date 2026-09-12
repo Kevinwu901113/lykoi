@@ -202,6 +202,9 @@ function _pyRepr(text: string): string {
 
 export function describeAction(actionType: string, params: Record<string, unknown> | null = null): string {
   const p = params ?? {}
+  if (actionType === 'messenger.send_file') {
+    return `发送工作区文件 ${_pyRepr([...String(p.path ?? '')].slice(0, 200).join(''))} 到对话 ${_pyRepr([...String(p.context_id ?? '')].slice(0, 100).join(''))}`
+  }
   if (actionType === 'messenger.send') {
     const text = String(p.text ?? '')
     const chars = [...text]

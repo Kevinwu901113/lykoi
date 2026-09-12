@@ -1,3 +1,4 @@
+import type { DocumentSend } from './document.ts'
 import { readFileSync } from 'node:fs'
 import { parseDeploy } from './deployment.ts'
 import type { Context } from '@deepseek-ai/cordis'
@@ -43,6 +44,10 @@ export class ProductionTelegramTransport implements TelegramTransport {
       proxy,
       ...(options.apiBase === undefined ? {} : { apiBase: options.apiBase }),
     })
+  }
+
+  async sendDocument(opts: DocumentSend) {
+    return await this.#api.sendDocument(opts)
   }
 
   async poll(offset: number, options: { timeoutS: number }): Promise<TelegramUpdate[]> {

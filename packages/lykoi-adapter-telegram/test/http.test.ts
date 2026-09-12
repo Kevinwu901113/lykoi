@@ -66,7 +66,7 @@ test('前置#8 调用形状：POST + application/json + JSON 正文；status 与
   assert.equal(seen.length, 1)
   assert.equal(seen[0]!.init.method, 'POST')
   assert.equal(seen[0]!.init.headers['content-type'], 'application/json')
-  assert.deepEqual(JSON.parse(seen[0]!.init.body), { chat_id: '1001', text: '嗨' })
+  assert.deepEqual(JSON.parse(seen[0]!.init.body as string), { chat_id: '1001', text: '嗨' })
   assert.equal(response.status, 200)
   // `HttpResponse.json()` 是**同步**的（正文在 post 里读完）—— 上层照 httpx 形态用。
   assert.deepEqual(response.json(), { ok: true, result: { message_id: 7 } })
@@ -256,7 +256,7 @@ test('前置#8 生产桥：poll/send 桥到 BotApiTransport（纪律不复制一
   assert.equal(updates[0]!.message!.chatId, '1001')
   assert.equal(updates[0]!.message!.text, '在吗')
   assert.equal(updates[0]!.message!.replyToMessageId, '880')
-  assert.deepEqual(JSON.parse(poll.seen[0]!.init.body), { offset: 5, timeout: 25 })
+  assert.deepEqual(JSON.parse(poll.seen[0]!.init.body as string), { offset: 5, timeout: 25 })
 
   const sending = fakeFetch(200, JSON.stringify({ ok: true, result: { message_id: 4242 } }))
   const sender = new ProductionTelegramTransport(SECRET, {
@@ -266,7 +266,7 @@ test('前置#8 生产桥：poll/send 桥到 BotApiTransport（纪律不复制一
   })
   const sent = await sender.send('1001', '在的', '900')
   assert.deepEqual(sent, { messageId: '4242', sent: true })
-  assert.equal(JSON.parse(sending.seen[0]!.init.body).reply_to_message_id, 900)
+  assert.equal(JSON.parse(sending.seen[0]!.init.body as string).reply_to_message_id, 900)
 })
 
 test('前置#8 生产桥：发失败 = 类别 + sent:false（两种结局的另一头已在账本里）', async () => {
