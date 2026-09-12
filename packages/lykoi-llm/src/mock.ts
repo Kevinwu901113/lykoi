@@ -4,6 +4,7 @@ import { LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
 
 export interface MockAdapterOptions {
+  imageInput?: boolean
   replyText: string
   promptTokens: number
   completionTokens: number
@@ -27,6 +28,7 @@ export class MockAdapter extends LlmAdapter {
       provider,
       id: model,
       name: model,
+      ...(this.#options.imageInput ? { inputModalities: ['text', 'image'] as const } : {}),
       // 故意不给 defaultEffort：真身的默认策略是生产配置的事（不在本 WO 范围
       // 内），mock 只需要证明「off 档位存在、可被显式请求」——给了
       // defaultEffort 会让 dsh-llm 在**没被请求**时也把 reasoningEffort 材
@@ -57,6 +59,7 @@ export const name = 'lykoi-llm-mock'
 export const inject = ['llm']
 
 export interface Config {
+  imageInput: boolean
   /** 注册到 LlmRuntime 的 provider 路由名。 */
   provider: string
   replyText: string
@@ -66,6 +69,7 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
+  imageInput: Schema.boolean().default(false),
   provider: Schema.string().default('mock'),
   replyText: Schema.string().default('lykoi mock reply'),
   promptTokens: Schema.number().default(21),
@@ -75,6 +79,7 @@ export const Config: Schema<Config> = Schema.object({
 export function apply(ctx: Context, config: Config) {
   // 注册路由；disposer 随 fiber 注销（见 dsh-llm registerAdapter 文档）。
   ctx.llm.registerAdapter([config.provider], new MockAdapter({
+    imageInput: config.imageInput,
     replyText: config.replyText,
     promptTokens: config.promptTokens,
     completionTokens: config.completionTokens,

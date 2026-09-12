@@ -133,7 +133,7 @@ declare module '@deepseek-ai/cordis' {
 
 export interface MindEvent { id: string; source: string; reference: string; content: string; createdAt: string }
 export interface MindRecord {
-  id: string; revision: number; kind: 'thought' | 'preference'; topic: string; understanding: string; open: string | null
+  id: string; revision: number; kind: 'thought' | 'preference' | 'self' | 'moment'; expiresAt?: string | null; topic: string; understanding: string; open: string | null
   evidence: string[]; links: string[]; status: 'open' | 'waiting' | 'resolved' | 'released'; reconsiderAt: string | null
   basis: 'explicit' | 'inferred'; scope: string; updatedAt: string
 }

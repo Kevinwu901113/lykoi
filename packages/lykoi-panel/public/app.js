@@ -132,9 +132,9 @@ function renderMind(view) {
   if (mindKey === key) return
   mindKey = key
   $('mind-list').replaceChildren(...(view?.records.length ? view.records.map(r => el('article', 'card',
-    el('div', 'card-heading', el('h2', '', r.topic), badge(r.kind === 'preference' ? '情境偏好' : r.status)),
+    el('div', 'card-heading', el('h2', '', r.topic), badge(({ preference: '情境偏好', self: '后天自我', moment: '短期关系态' })[r.kind] ?? r.status)),
     el('div', 'body-text', r.understanding), r.open ? el('p', 'row-note', '尚未解决：' + r.open) : null,
-    el('div', 'task-meta', `版本 ${r.revision}`, date(r.updatedAt), r.kind === 'preference' ? (r.basis === 'explicit' ? '明确表达' : '推断') : ''),
+    el('div', 'task-meta', `版本 ${r.revision}`, date(r.updatedAt), r.expiresAt ? `有效至 ${date(r.expiresAt)}` : '', r.kind === 'preference' ? (r.basis === 'explicit' ? '明确表达' : '推断') : ''),
     details('来源与适用情境', { evidence: r.evidence, links: r.links, scope: r.scope, reconsiderAt: r.reconsiderAt }))) : [empty(view === null ? 'Mind 未装配。' : '没有匹配的理解记录。')]))
   $('mind-events').replaceChildren(...(view?.events.length ? view.events.map(event => el('article', 'card', el('div', 'task-meta', event.source, date(event.createdAt)), el('div', 'body-text', event.content), el('p', 'row-note', event.reference))) : [empty('没有待处理事件。')]))
 }
@@ -163,7 +163,7 @@ async function refresh() {
   if (refreshInFlight) return
   refreshInFlight = true
   try {
-    state = await api('state')
+    state = await api('state'); $('chat-image').disabled = !state.visionAvailable; $('chat-image').title = state.visionAvailable ? '附加一张图片' : '当前实例未接入视觉模型'
     $('connection').textContent = '运行时已连接'; $('connection').classList.remove('offline')
     $('updated').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false })
     renderOverview(); renderChat()
@@ -189,7 +189,15 @@ $('chat-form').onsubmit = event => { event.preventDefault(); if (chatPending || 
   const message = $('chat-text').value, submit = $('chat-form').querySelector('button')
   chatPending = true; submit.disabled = true; $('chat-status').textContent = '已提交，等待本轮结果…'
   try {
-    const result = await api('chat', { text: message })
+    const file = $('chat-image').files[0]
+    let image
+    if (file) {
+      if (file.size > 8 * 1024 * 1024) throw new Error('图片不能超过 8 MiB')
+      const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('无法读取图片')); reader.readAsDataURL(file) })
+      image = { data, mediaType: file.type }
+    }
+    const result = await api(image ? 'chat/image' : 'chat', { text: message, ...(image ? { image } : {}) })
+    $('chat-image').value = ''
     if ($('chat-text').value === message) $('chat-text').value = ''
     const kind = result.outcome?.kind
     $('chat-status').textContent = ({ reply: '本轮已返回', silence: '本轮选择了沉默', followup: '后续任务已登记', ask_pending: '操作未执行，未能建立审批', envelope_failed: '本轮信封失败', missing_tool: '所需能力不可用', tool_budget: '本轮工具步数已用完' })[kind] ?? '本轮已结束'

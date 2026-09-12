@@ -33,4 +33,4 @@ node profile/instance.ts create --registry var/instances --id traveller --defini
 
 Converse、Wake、Task 使用同一加载与渲染入口。角色中的称呼和关系描述不会建立所有者绑定、赋予执行权限或选择模型/器官；这些由实例初始化和 Cordis profile 负责。自由描述表达角色，实际能力由运行时注册决定。
 
-本批没有通用 JSON/PNG 角色卡导入器，没有自动解析第三方宏或世界书，也没有更改在役实例的人格。需要换出生定义时创建新实例，不能修改冻结副本绕过哈希检查。
+第三方 JSON/PNG 角色卡转换见 [旧 defer 收尾](deferred-completion.md)。未更改在役实例的人格。需要换出生定义时创建新实例，不能修改冻结副本绕过哈希检查。

@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { admitEncodedImages, type AttachmentStore, type ImageMediaType } from '@deepseek-ai/dsh-attachment'
 
 // --- M4 定案：vision 路由位显式 disabled ---------------------------------------
 
@@ -86,7 +88,21 @@ export function createVisionCompletion(deps: {
 
 export function visionMediaType(path: string): string {
   const lower = path.toLowerCase()
-  return (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg' : 'image/png'
+  return (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
+    : lower.endsWith('.webp') ? 'image/webp' : lower.endsWith('.gif') ? 'image/gif' : 'image/png'
+}
+
+/** Use the Harness image vocabulary: a base64 string in a text block is not vision. */
+export async function visionModelMessages(messages: VisionMessage[], attachments: AttachmentStore) {
+  return Promise.all(messages.map(async message => createUserMessage({
+    content: await Promise.all(message.content.map(async part => {
+      if (part.type === 'text') return { type: 'text' as const, text: part.text ?? '' }
+      const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/.exec(part.image_url?.url ?? '')
+      if (!match) throw new Error('vision requires a supported encoded image')
+      const refs = await admitEncodedImages(attachments, [{ mediaType: match[1] as ImageMediaType, data: match[2]! }])
+      return { type: 'image' as const, attachment: refs[0]! }
+    })), source: { kind: 'user' },
+  })))
 }
 
 export function buildVisionMessages(

@@ -32,7 +32,7 @@
     <section id="chat" class="page" hidden>
       <div class="page-heading"><div><p class="eyebrow">CONVERSATION</p><h1>对话</h1><p class="subtitle">共享当前实例的对话上下文。最近 50 个持久回合。</p></div></div>
       <div class="card chat-history" id="chat-history" aria-label="对话记录"></div>
-      <form id="chat-form" class="composer"><label class="sr-only" for="chat-text">消息</label><textarea id="chat-text" rows="3" maxlength="16000" placeholder="有什么想和她说的？" required></textarea><div><span id="chat-status" role="status">Enter 发送 · Shift + Enter 换行</span><button type="submit">发送 ↗</button></div></form>
+      <form id="chat-form" class="composer"><label class="sr-only" for="chat-text">消息</label><textarea id="chat-text" rows="3" maxlength="16000" placeholder="有什么想和她说的？" required></textarea><label>附图<input id="chat-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled></label><div><span id="chat-status" role="status">Enter 发送 · Shift + Enter 换行</span><button type="submit">发送 ↗</button></div></form>
     </section>
     <section id="tasks" class="page" hidden>
       <div class="page-heading"><div><p class="eyebrow">PERSISTENT WORK</p><h1>任务</h1><p class="subtitle">进度、等待条件、成果与送达状态，分别记录。</p></div></div>

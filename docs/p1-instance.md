@@ -30,7 +30,7 @@ node profile/instance.ts select --registry /path/instances --id a
 node profile/instance.ts run --registry /path/instances --config /path/runtime.json --console
 ```
 
-控制台输出带 `instanceId` 的 JSON 行；输入一行即调用现有 Converse 服务。关闭旧进程再启动所选实例；活跃进程锁阻止同一 registry 同时启动两个角色。旧进程退出前等待已接收工作完成；强制杀进程时沿用现有入站/continuation 恢复语义，不把中断伪装成成功。
+控制台输出带 `instanceId` 的 JSON 行；输入一行即调用现有 Converse 服务。关闭旧进程再启动所选实例；后续补齐阶段已将活跃锁移到各自 stateRoot：同一实例禁止重复启动，不同实例可在独立进程并行；具体边界见 [旧 defer 收尾](deferred-completion.md)。旧进程退出前等待已接收工作完成；强制杀进程时沿用现有入站/continuation 恢复语义，不把中断伪装成成功。
 
 ## 现有实例接管与生产切换
 

@@ -25,13 +25,13 @@ function offset(url: URL): number {
   if (!Number.isSafeInteger(value) || value < 0) throw new HttpError(400, 'offset 必须为非负整数')
   return value
 }
-async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage, limit = 65_536): Promise<Record<string, unknown>> {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') throw new HttpError(415, '需要 JSON 请求')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += chunk.length
-    if (size > 65_536) { req.resume(); throw new HttpError(413, '请求超过 64 KiB') }
+    if (size > limit) { req.resume(); throw new HttpError(413, `请求超过 ${limit} 字节`) }
     chunks.push(chunk)
   }
   let value: unknown
@@ -85,7 +85,7 @@ export async function apply(ctx: Context, config: Config) {
         tasks: ctx.get('tasks')?.list() ?? null,
         skills: ctx.get('skills')?.recent() ?? null,
         heart: heart ? { pending: heart.pending, nextAt: heart.nextAt } : null,
-        history: ctx.converse.history(50),
+        history: ctx.converse.history(50), visionAvailable: ctx.converse.visionAvailable(),
       }); return
     }
     if (req.method === 'GET' && url.pathname === '/api/mind') {
@@ -104,6 +104,14 @@ export async function apply(ctx: Context, config: Config) {
       if (!tasks) throw new HttpError(503, 'Task 插件未装配')
       const id = text(url.searchParams.get('id'), 'id')
       json(res, { task: tasks.get(id), ...tasks.history(id, offset(url), 20) }); return
+    }
+    if (req.method === 'POST' && url.pathname === '/api/chat/image') {
+      if (!ctx.converse.visionAvailable()) throw new HttpError(503, '当前实例未接入视觉模型与附件存储')
+      const input = await body(req, 12 * 1024 * 1024)
+      const image = input.image as { data?: unknown; mediaType?: unknown } | undefined
+      if (!image || typeof image.data !== 'string' || typeof image.mediaType !== 'string'
+        || !['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(image.mediaType)) throw new HttpError(400, '需要有效的图片数据')
+      json(res, await ctx.converse.sendOwner(text(input.text, '消息'), { data: image.data, mediaType: image.mediaType })); return
     }
     if (req.method === 'POST' && url.pathname === '/api/chat') {
       const input = await body(req), message = text(input.text, '消息')

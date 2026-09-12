@@ -22,13 +22,16 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { fileURLToPath } from 'node:url'
 import { instanceEntries, drainInstance } from './assembly.ts'
 import { readFileSync } from 'node:fs'
-import { restoreInstance } from './instance-state.ts'
+import { restoreInstance, acquireInstanceLock } from './instance-state.ts'
 
 const selection = JSON.parse(readFileSync(new URL('./instance.prod.json', import.meta.url), 'utf8'))
 const instance = restoreInstance(selection.registry, selection.id)
 if (instance.stateRoot !== '/home/lykoi/state') {
   throw new Error('production instance storage must match the protected production state path')
 }
+
+const lock = acquireInstanceLock(instance, selection.registry)
+process.once('exit', () => lock.release())
 
 const root = new Context()
 root.provide('lykoiInstance', instance)

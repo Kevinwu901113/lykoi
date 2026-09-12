@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { initState } from 'lykoi-memory/init-state'
 import { ReadOnlyMemory } from 'lykoi-memory'
@@ -94,6 +94,7 @@ export function instanceEnvironment(instance: CharacterInstance, auditPath?: str
 export function instancePluginConfig(instance: CharacterInstance, plugin: string, config: Record<string, unknown> = {}, auditPath?: string): Record<string, unknown> {
   const state = (name: string) => join(instance.stateRoot, name)
   switch (plugin) {
+    case '@deepseek-ai/dsh-attachment-local': return { ...config, dshHome: state('media') }
     case 'lykoi-audit': return { ...config, path: auditPath ?? join(instance.stateRoot, 'audit.jsonl') }
     case 'lykoi-budget':
       JSON.parse(readFileSync(state('budget.json'), 'utf8')) // An installed budget must not recreate a lost ledger.
@@ -109,4 +110,26 @@ export function instancePluginConfig(instance: CharacterInstance, plugin: string
     case 'lykoi-adapter-telegram': return { ...config, cursorPath: state('telegram-cursor.json'), archivePath: state('telegram-inbound.json') }
     default: return config
   }
+}
+
+function retireDeadLock(path: string) {
+  if (!existsSync(path)) return
+  const owner = JSON.parse(readFileSync(join(path, 'owner.json'), 'utf8')) as { pid: number; workerPid?: number }
+  if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw new Error('invalid instance lock; inspect before recovery')
+  for (const pid of [owner.pid, owner.workerPid].filter((value): value is number => value !== undefined)) {
+    try { process.kill(pid, 0); throw new Error('instance is already active') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+  }
+  rmSync(path, { recursive: true })
+}
+
+/** Separate OS processes can own different instances, never the same state directory. */
+export function acquireInstanceLock(instance: CharacterInstance, registry: string) {
+  retireDeadLock(join(registry, '.active')) // Upgrade from the old registry-wide supervisor.
+  const lock = join(instance.stateRoot, '.active')
+  retireDeadLock(lock)
+  mkdirSync(lock) // Atomic admission, including simultaneous launches.
+  const update = (workerPid?: number) => writeFileSync(join(lock, 'owner.json'), JSON.stringify({ pid: process.pid, workerPid, instanceId: instance.id }))
+  update()
+  return { update, release: () => rmSync(lock, { recursive: true, force: true }) }
 }
