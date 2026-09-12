@@ -1,3 +1,4 @@
+import { taskFacts } from 'lykoi-runtime/task-facts'
 import type { TaskMessage, TaskRequest } from 'lykoi-contracts'
 import { parseStateTimestamp } from 'lykoi-memory'
 import { DatabaseSync } from 'node:sqlite'
@@ -89,15 +90,16 @@ export class TaskStore {
   }
   edit(id: string, change: (task: Task) => void, now = new Date()): Task {
     return this.transaction(() => {
-      const task = this.get(id); const before = JSON.stringify([task.status, task.wait?.kind, task.failure]); const priorFinding = task.finding; change(task); task.updatedAt = now.toISOString()
+      const task = this.get(id); const before = JSON.stringify([task.status, task.wait?.kind, task.failure]); const priorFinding = task.finding; const priorDelivery = task.delivery?.state; change(task); task.updatedAt = now.toISOString()
       this.#readTask({ id, document: JSON.stringify(task) })
       this.db.prepare('UPDATE persistent_tasks SET document=? WHERE id=? AND instance_id=?').run(JSON.stringify(task), id, this.instanceId)
       const findingChanged = task.finding !== undefined && task.finding !== priorFinding
       const statusEvent = before !== JSON.stringify([task.status, task.wait?.kind, task.failure])
         && (terminal.has(task.status) || (task.status === 'waiting' && task.wait?.kind !== 'due'))
-      if (findingChanged || statusEvent) {
+      const deliveryEvent = task.delivery?.state !== priorDelivery && ['sent', 'failed', 'unknown'].includes(task.delivery?.state ?? '')
+      if (findingChanged || statusEvent || deliveryEvent) {
         const event = { id: randomUUID(), source: 'task', reference: task.id, createdAt: now.toISOString(),
-          content: JSON.stringify({ id: task.id, goal: task.goal, status: task.status, checkpoint: task.checkpoint, wait: task.wait, failure: task.failure, artifacts: task.artifacts, result: task.result, finding: task.finding, thoughtId: task.thoughtId }) }
+          content: JSON.stringify(taskFacts(task, 'event')) }
         this.db.prepare('INSERT INTO task_outbox VALUES(?,?)').run(event.id, JSON.stringify(event))
       }
       return task
