@@ -140,7 +140,12 @@ export interface MindRecord {
 export type MindUpdate = Omit<MindRecord, 'revision' | 'status' | 'updatedAt'>
 export interface MindPatch { records?: MindUpdate[]; acknowledge?: string[]; continue?: boolean }
 export interface MindView { records: MindRecord[]; events: MindEvent[] }
-declare module '@deepseek-ai/cordis' { interface Context { skills: { recent(): unknown[] } } }
+export interface CharacterSkills {
+  recent(): unknown[]
+  list(query?: string, offset?: number, limit?: number): unknown
+  read(id: string): unknown
+}
+declare module '@deepseek-ai/cordis' { interface Context { skills: CharacterSkills } }
 export interface CharacterMind {
   receive(event: MindEvent): void
   view(query?: string, limit?: number): MindView

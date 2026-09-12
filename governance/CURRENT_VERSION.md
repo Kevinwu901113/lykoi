@@ -1,11 +1,12 @@
-# 当前版本结论 · 2026-09-11
+# 当前版本结论 · 2026-09-12
 
 本轮清理与 P1–P5 核心机制进入收尾，不再扩建。**工程阶段已落地，生产完整验收尚未通过。** 本页是当前状态入口；历史报告的“未合并/未部署”保留其当时含义，不覆盖本页已核对的版本事实。
 
 ## 版本与阶段
 
-- main 与生产：`ec027de1f75fad68369828fe2c27e8830e9b80c3`（PR #9）。Kevin 于 12:56 CST 完成 root 部署；gate 通过、状态选择保留、两个服务 active/running、NRestarts=0。治理 SSH 独立核对 HEAD 与运行状态；root 备份/gate 依据 Kevin 提供的部署记录，不冒称读取过 root 备份。
-- 本页所在 `wo/release-closeout-01` 是新增收尾候选，**未合并、未部署**。线上测试仍属于 ec027de1。
+- main：2026-09-12 通过 GitHub `ls-remote` 核对为 `9bb57ebb3320d956da80b94d4c1e68961ff63c84`，PR #10（release-closeout）已合并。不能从合并推定生产已部署。
+- 最近一次在本页有证据的生产版本：`ec027de1f75fad68369828fe2c27e8830e9b80c3`（PR #9）。Kevin 于 9 月 11 日 12:56 CST 完成 root 部署；gate 通过、状态选择保留、两个服务 active/running、NRestarts=0。治理 SSH 独立核对 HEAD 与运行状态；root 备份/gate 依据 Kevin 提供的部署记录。本页下方线上样本仍属于 ec027de1；9 月 12 日本次只核对代码，未重验生产。
+- 9 月 12 日所有者授权开启补齐阶段；第一批 [WO-PANEL-01](wo/WO-PANEL-01/order.md) 在独立分支建设 Cordis Panel。历史收尾冻结限定 9 月 11 日收尾范围，不阻止这次已授权的新阶段；该授权不表示新能力已部署。
 - 已结束的工程阶段：减负与解耦、Character Instance、共享 Cognition/动态能力、持久 Task/Pi、Skill、持续 Mind。证据见 [减负](wo/WO-RUNTIME-SLIMDOWN-01/report.md)、[P1](../docs/p1-instance.md)、[P2](../docs/p2-cognition.md)、[P3](../docs/p3-tasks.md)、[P4](wo/WO-P4-SKILL-01/report.md)、[P5](wo/WO-P5-PERSISTENT-MIND/structural-review.md)。这些报告的模型/进程测试不等于当前生产装配具备全部执行工具。
 - 原定时原文、审批混合答复与自然取消修复已随 PR #9 部署；[原报告](wo/WO-OWNER-TASK-FLOW-01/REPORT.md) 的约 75 秒样本是受控 HTTP，不是生产 Telegram。
 
@@ -34,6 +35,6 @@
 ## 冻结范围与下一步
 
 - 旧 [PR #2](https://github.com/Kevinwu901113/lykoi/pull/2) 已关闭，保留分支和历史。它是 8 月 31 日特定 root 沙箱的四条失败判读，不应把“固定四条失败就是绿”推广为当前基线；不合并旧环境建议、不算功能积压。
-- 候选经审阅合并后，由 Kevin root 按既有流程备份、gate、部署。只补验上述失败项及 S6；取消用新任务，不恢复 S2b/R2。未通过之前不能宣告线上总体验验收完成。
+- PR #10 已合并；生产部署仍按既有流程备份、gate，并核对实际版本。收尾验收补上述失败项及 S6；取消用新任务，不恢复 S2b/R2。未通过之前不能宣告线上总体验验收完成。
 - S4 若要求生产侧真实文件成果，需要单独确认并启用既有受控写入/Runner 能力；本轮不为拿绿灯扩大生产执行权限。也不能用聊天里的 Markdown 冒充实际文件。
 - 长期人格体验、Skill 普遍泛化、Mind 同预算效果留给日常使用评估；不新增 Resolver、Forge、DAG、自动 Skill 晋升或新一轮整体重构。

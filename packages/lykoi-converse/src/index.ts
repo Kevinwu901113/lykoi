@@ -125,6 +125,12 @@ export const APPROVAL_INTERPRET_CALLS_MAX = 1
 export interface ConverseService {
   conversation: Conversation
 
+  /** Read the same persisted conversation history used by cognition. */
+  history(limit: number): { id: number; ts: string; content: string }[]
+
+  /** Owner console replies locally; interactive approval stays on the bound channel. */
+  sendOwner(message: string): Promise<CycleResult & { reply: string; approvalStatus: string | null }>
+
   approval: ApprovalConversation
 
   suggestion: SuggestionConversation
@@ -538,7 +544,27 @@ export function apply(ctx: Context, config: Config) {
     },
   })
 
-  ctx.provide('converse', { conversation, approval, suggestion })
+  ctx.provide('converse', { conversation, approval, suggestion,
+    history: limit => store.getRecentHistoryOfType('conversation', limit),
+    sendOwner: message => ctx.lykoiRuntime.run(async () => {
+      let cycle!: CycleResult
+      const reply = await conversation.send(message, { onCycleResult: result => { cycle = result } })
+      let approvalStatus: string | null = null
+      const ask = cycle.delegatedAsk
+      if (ask) {
+        const owner = store.ownerBinding()
+        if (!owner || !ctx.get('messenger')) approvalStatus = 'unavailable'
+        else {
+          const result = await approval.requestApproval(ask.action_type, ask.params, {
+            contextId: owner.channel_key, actionId: ask.action_id,
+            ...(ask.correlation_id ? { correlationId: ask.correlation_id } : {}), origin: 'interactive',
+          })
+          approvalStatus = result.status
+        }
+      }
+      return { reply, ...cycle, approvalStatus }
+    }),
+  })
   ctx.inject(['tasks', 'messenger'], scope => {
     scope.effect(() => scope.tasks.bindInteractions({
       requestApproval: async action => {
