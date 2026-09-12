@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { taskFacts } from 'lykoi-runtime/task-facts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -116,6 +117,14 @@ export async function apply(ctx: Context, config: Config) {
   // Task revisions/cancellation retire their approval intent in the existing kernel queue too.
   const retireApprovals = () => {
     for (const pending of pendingActions()) {
+      if (pending.action_type === 'task.control') {
+        const id = (pending.params as Record<string, unknown> | undefined)?.id
+        const task = store.list().find(task => task.id === id)
+        if (task && ['completed', 'cancelled', 'failed'].includes(task.status)) {
+          resolvePending(String(pending.id), 'task_intent_retired', { actor: 'task' })
+          continue
+        }
+      }
       const op = store.operation(String(pending.id))
       if (op?.status === 'completed' && op.approvalRevision !== undefined && !op.approved) resolvePending(String(pending.id), 'task_intent_retired', { actor: 'task' })
     }
@@ -167,6 +176,16 @@ export async function apply(ctx: Context, config: Config) {
       runtime.deps.requestApproval = requestApproval; runtime.deps.deliver = deliver
       return () => { if (runtime.deps.deliver === deliver) { delete runtime.deps.deliver; delete runtime.deps.requestApproval } }
     },
+    reviseApproval: async (operationId, amendment, action) => {
+      const op = store.operation(operationId)
+      if (!op || op.status !== 'approval' || op.approved || action.name !== op.name || !isDeepStrictEqual(action.args, op.args)) return false
+      const task = store.get(op.taskId)
+      if (task.instanceId !== instance.id || task.revision !== op.approvalRevision || task.scheduledMessage || !['waiting', 'paused'].includes(task.status)) return false
+      store.update(task.id, task.requirements + '\n所有者补充要求：' + amendment)
+      retireApprovals()
+      await ctx.audit.record({ type: 'task/approval_revised', operation_id: operationId, instance_id: instance.id })
+      return true
+    },
     approve: async (operationId, action) => {
       if (!store.operation(operationId)) return false
       await ctx.audit.record({ type: 'task/approval', operation_id: operationId, instance_id: instance.id })
@@ -178,11 +197,11 @@ export async function apply(ctx: Context, config: Config) {
     }, get: id => store.get(id), list: () => store.list(),
     update: (id, requirements, criteria) => { const task = store.update(id, requirements, criteria); retireApprovals(); return task },
     control: async (id, command) => { try { return await runtime.control(id, command) } finally { retireApprovals() } }, retryDelivery: id => runtime.retryDelivery(id),
-    scan: () => runtime.scan(), close: () => runtime.close(),
+    scan: async () => { try { return await runtime.scan() } finally { retireApprovals() } }, close: () => runtime.close(),
   }
   ctx.provide('tasks', service)
   ctx.effect(() => ctx.lykoiRuntime.register({ organId: 'task', capabilities: taskCapabilities(service), sideEffects: [] }), 'task capabilities')
-  const timer = setInterval(() => { runtime.scan().catch(error => ctx.logger.error('task scan failed: %s', String(error))) }, config.intervalMs)
+  const timer = setInterval(() => { service.scan().catch(error => ctx.logger.error('task scan failed: %s', String(error))) }, config.intervalMs)
   timer.unref()
   ctx.effect(() => async () => { clearInterval(timer); await runtime.close(); memory.close(); store.close() }, 'task runtime')
 }

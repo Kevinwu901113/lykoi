@@ -521,7 +521,12 @@ export function apply(ctx: Context, config: Config) {
   })
   // ③两条腿共享**同一个** kernel dispatch —— 问句/追问/回执都以她自己的
   //   messenger.send 出去（E1 章在 kernel 的 _send 漏斗里盖）。
-  const approval = createApprovalConversation({ dispatch: kernelDispatch })
+  const approval = createApprovalConversation({ dispatch: kernelDispatch,
+    revisePending: async (record, answer) => {
+      const id = String(record.id ?? '')
+      if (id.startsWith('op-') && !await ctx.get('tasks')?.reviseApproval(id, answer, { name: String(record.action_type), args: record.params as Record<string, unknown> })) throw new Error('task operation is no longer available for revision')
+    },
+  })
 
   const suggestion = createSuggestionConversation({
     dispatch: kernelDispatch,

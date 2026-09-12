@@ -263,8 +263,8 @@ test('SK-42 gate 真值表**逐格**：verdict × risk_level × scope × rounds'
   assert.equal(gate(interp('deny'), hard).outcome, 'deny')
   assert.equal(gate(interp('deny'), std).outcome, 'deny')
 
-  // 格 3-4：硬门 + approve/conditional → execute_once，且 may_grant=false
-  for (const v of ['approve', 'conditional']) {
+  // 格 3-4：硬门 + approve → execute_once，且 may_grant=false
+  for (const v of ['approve']) {
     const g = gate(interp(v), hard)
     assert.equal(g.outcome, 'execute_once')
     assert.equal(g.may_grant, false) // 硬门**永不**产生常设授权
@@ -279,7 +279,7 @@ test('SK-42 gate 真值表**逐格**：verdict × risk_level × scope × rounds'
   assert.equal(onlyOnce.outcome, 'execute_once')
   assert.equal(onlyOnce.may_grant, false)
 
-  // 格 6-7：标准 + approve/conditional + unspecified|this_scope → grant（may_grant 取决于有没有键）
+  // 格 6-7：标准 + approve + unspecified|this_scope → grant（may_grant 取决于有没有键）
   for (const s of ['unspecified', 'this_scope']) {
     const g = gate(interp('approve', s), std)
     assert.equal(g.outcome, 'grant')
@@ -288,7 +288,10 @@ test('SK-42 gate 真值表**逐格**：verdict × risk_level × scope × rounds'
   }
   // conditional 的条件以**原文**携带
   const cond = gate(interp('conditional', 'unspecified', ['别提我家地址']), std)
-  assert.equal(cond.outcome, 'grant')
+  assert.equal(cond.outcome, 'revision_requested')
+  assert.equal(cond.may_grant, false)
+  assert.equal(gate(interp('approve', 'this_only', ['change first']), hard).outcome, 'revision_requested')
+  assert.equal(gate(interp('deny', 'this_only', ['note']), std).outcome, 'deny')
   assert.deepEqual(cond.conditions, ['别提我家地址'])
 
   // 格 8：标准 + approve 但算不出 scope key → grant 但 may_grant=false（永不代之以更粗的键）

@@ -176,6 +176,7 @@ export interface CharacterTasks {
   history(id: string, offset?: number, limit?: number): { operations: unknown[]; nextOffset: number | null }
   command(text: string): Promise<string | null>
   bindInteractions(interactions: TaskInteractions): () => void
+  reviseApproval(operationId: string, amendment: string, action: { name: string; args: Record<string, unknown> }): Promise<boolean>
   approve(operationId: string, action?: { name: string; args: Record<string, unknown> }): Promise<boolean>
   create(input: { goal: string; message?: TaskMessage; request?: TaskRequest; requirements?: string; criteria?: string; originTurnId?: string; taskId?: string; origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string }): TaskSummary
   get(id: string): TaskSummary

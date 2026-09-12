@@ -64,7 +64,7 @@ export interface RequestApprovalResult {
 
 export interface HandleOwnerAnswerResult {
   observation?: Observation | null
-  outcome: 'ignored' | 'expired' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable'
+  outcome: 'ignored' | 'expired' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable' | 'revision_requested'
   pending_id: string | null
   executed: boolean
   replied: boolean
@@ -165,6 +165,10 @@ export function executionReport(
       .replace('{error}', _truncate(`${error}\n${body}`.trim()))
   }
   const body = _resultBody(observation.data ?? null)
+  const type = String(record?.action_type ?? '')
+  const path = String((record?.params as Record<string, unknown> | undefined)?.path ?? '')
+  if (type === 'workspace.write') return `已写好「${path}」。`
+  if (type === 'messenger.send_file') return `文件「${path}」已发送。`
   if (!body) return EXEC_OK_NO_OUTPUT.replace('{description}', description)
   return EXEC_OK_TEMPLATE.replace('{description}', description).replace('{output}', body)
 }
@@ -172,6 +176,7 @@ export function executionReport(
 export interface ApprovalConversationDeps {
   /** kernel dispatch 真身（createDispatch 的产物）—— 本模块唯一的出口。 */
   dispatch: DispatchFunction
+  revisePending?: (record: Record<string, unknown>, answerText: string) => Promise<void>
 }
 
 export function createApprovalConversation(deps: ApprovalConversationDeps): ApprovalConversation {
@@ -481,7 +486,18 @@ export function createApprovalConversation(deps: ApprovalConversationDeps): Appr
     let replied = false
     let observation: Observation | null | undefined
 
-    if (outcome === 'unavailable') {
+    if (outcome === 'revision_requested') {
+      // Retire the old authority before returning the amendment to cognition.
+      // Task callback must invalidate its durable operation too, or fail closed.
+      if (pendingId?.startsWith('op-') && !deps.revisePending) throw new Error('task revision handler unavailable')
+      await deps.revisePending?.(record!, answerText)
+      if (pendingId) resolvePending(pendingId, 'superseded', { now })
+      interpreter.resetClarifyRounds(record)
+      observation = { success: false, data: { revision_required: true, action_type: record?.action_type,
+        previous_params: record?.params, requested_changes: answerText }, error: 'revision_requested' }
+      const notice = await _send(contextId, '已收到修改要求，原操作没有执行；修订后的操作仍需确认。', _replyRef(opts.messageId))
+      replied = notice.sent
+    } else if (outcome === 'unavailable') {
       const notice = await _send(contextId, INTERPRET_UNAVAILABLE_REPLY, _replyRef(opts.messageId))
       replied = notice.sent
       if (pendingId && notice.sent) setQuestionMessageId(pendingId, notice.message_id)
