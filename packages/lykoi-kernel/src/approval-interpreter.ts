@@ -116,7 +116,7 @@ export const INTERPRET_SYSTEM_PROMPT = `你是一个审批语义判定器, 服�
    在反问、在闲聊、看不懂 —— 一律 unclear。
 2. 拿不准就 unclear。unclear 的代价是多问一句; 错判成 approve 的代价是
    替他做了他没同意的事。这两个代价不对等。
-3. 附条件的同意是 conditional, 不是 approve。条件按他的原话照抄进 conditions,
+3. 要求先修改内容、参数、目的地或满足新限制再执行，一律 conditional，绝不能 approve 原操作。附条件的同意是 conditional, 不是 approve。条件按他的原话照抄进 conditions,
    不要改写、不要翻译、不要补全。
 4. 「以后都可以」「这个人以后不用问了」这类话才是 this_scope; 只说「可以」
    默认是 unspecified。
@@ -202,6 +202,16 @@ function _pyRepr(text: string): string {
 
 export function describeAction(actionType: string, params: Record<string, unknown> | null = null): string {
   const p = params ?? {}
+  if (actionType === 'task.control') {
+    const commands: Record<string, string> = { pause: '暂停', resume: '恢复', cancel: '取消' }
+    return `${commands[String(p.command)] ?? '操作'}任务 ${_pyRepr(String(p.id ?? ''))}`
+  }
+  if (actionType === 'task.get' || actionType === 'task.history') {
+    return `查看任务 ${_pyRepr(String(p.id ?? ''))}${actionType === 'task.history' ? '的操作记录' : '的状态'}`
+  }
+  if (actionType === 'workspace.read') {
+    return `读取工作区文件 ${_pyRepr([...String(p.path ?? '')].slice(0, 200).join(''))}`
+  }
   if (actionType === 'messenger.send_file') {
     return `发送工作区文件 ${_pyRepr([...String(p.path ?? '')].slice(0, 200).join(''))} 到对话 ${_pyRepr([...String(p.context_id ?? '')].slice(0, 100).join(''))}`
   }
@@ -493,7 +503,7 @@ export function resetClarifyRounds(record: Record<string, unknown> | null = null
 }
 
 export interface GateResult {
-  outcome: 'grant' | 'deny' | 'clarify' | 'execute_once' | 'unavailable'
+  outcome: 'grant' | 'deny' | 'clarify' | 'execute_once' | 'unavailable' | 'revision_requested'
   risk_level: string
   scope_key: string | null
   may_grant: boolean
@@ -526,7 +536,11 @@ export function gate(
     result.outcome = 'deny'
     return result
   }
-  if (verdict === 'approve' || verdict === 'conditional') {
+  if (verdict === 'conditional' || (verdict === 'approve' && conditions.length > 0)) {
+    result.outcome = 'revision_requested'
+    return result
+  }
+  if (verdict === 'approve') {
     if (level === RISK_HARD_GATED) {
       // 明确批准也只是这一次：no standing grant, ever.
       result.outcome = 'execute_once'
@@ -665,7 +679,7 @@ export const _AMBIGUOUS_CLARIFY = '我这边有不止一件事在等你点头, �
   + '你说的是这里面哪一个? {listing}'
 
 export interface HandleAnswerResult {
-  outcome: 'ignored' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable'
+  outcome: 'ignored' | 'clarify' | 'granted' | 'execute_once' | 'denied' | 'unavailable' | 'revision_requested'
   reason: string
   question: Record<string, unknown> | null
   interpretation: Interpretation | null

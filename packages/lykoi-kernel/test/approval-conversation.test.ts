@@ -628,3 +628,36 @@ test('repeated technical failures preserve the request and never turn the owner 
   assert.equal(calls.filter(c => c.action.type === 'workspace.write').length, 1)
   assert.deepEqual(standingGrants(), [])
 })
+
+
+test('conditional approval retires old direct action without executing, granting or recording denial', async () => {
+  const { recentDenial, standingGrants } = await import('../src/approval.ts')
+  setup(); const {dispatch,calls}=fakeDispatch();const ac=createApprovalConversation({dispatch})
+  const request=await ac.requestApproval('workspace.write',{path:'report.md',content:'C waiting'},{contextId:CTX,now:T0})
+  setApprovalInterpretLlm(async()=>({content:JSON.stringify({verdict:'conditional',confidence:1,scope:'this_only',conditions:['C success before writing'],reason:'revise content'})}))
+  const out=await ac.handleOwnerAnswer('可以，但先改成C成功再寫入。',{contextId:CTX,now:T0})
+  assert.equal(out.outcome,'revision_requested');assert.equal(out.executed,false)
+  assert.equal(pendingActions({now:T0}).some(p=>p.id===request.pending_id),false)
+  assert.equal(calls.filter(c=>c.action.type==='workspace.write').length,0)
+  assert.equal(recentDenial('workspace.write','type:workspace.write',{now:T0}),null)
+  assert.deepEqual(standingGrants(),[])
+  assert.equal(out.observation?.data?.requested_changes,'可以，但先改成C成功再寫入。')
+})
+
+test('failed Task amendment keeps Kernel pending and never dispatches stale action', async () => {
+  setup();const {dispatch,calls}=fakeDispatch()
+  const ac=createApprovalConversation({dispatch,revisePending:async()=>{throw new Error('storage failure')}})
+  await ac.requestApproval('workspace.write',{path:'report.md',content:'old'},{contextId:CTX,actionId:'op-fixture',now:T0})
+  setApprovalInterpretLlm(async()=>({content:JSON.stringify({verdict:'conditional',confidence:1,scope:'this_only',conditions:['revise'],reason:'revision'})}))
+  await assert.rejects(ac.handleOwnerAnswer('先改內容',{contextId:CTX,now:T0}),/storage failure/)
+  assert.ok(pendingActions({now:T0}).some(p=>p.id==='op-fixture'))
+  assert.equal(calls.filter(c=>c.action.type==='workspace.write').length,0)
+})
+
+
+test('approval descriptions expose task command and file path; successful file receipts omit tool internals', () => {
+  assert.match(questionText('task.control',{id:'task-report',command:'resume'}),/恢复任务.*task-report/)
+  assert.match(questionText('workspace.read',{path:'report.md'}),/读取工作区文件.*report.md/)
+  const result=executionReport({action_type:'workspace.write',params:{path:'report.md'}},{executed:true,reason:null,observation:{success:true,data:{written:'report.md'},error:null}})
+  assert.equal(result,'已写好「report.md」。')
+})

@@ -107,6 +107,7 @@ test('Task cancellation retires the actual kernel approval and returns a small h
   try {
     const task = ctx.tasks.create({ goal: 'private goal', request: { text: 'PRIVATE_RAW_REQUEST', receivedAt: new Date().toISOString() } })
     await ctx.tasks.scan(); assert.equal(pendingActions().length, 1)
+    enqueuePending('task.control', { id: task.id, command: 'resume' }, { actionId: 'old-resume' })
     const control = taskPlugin.taskCapabilities(ctx.tasks).find(c => c.name === 'task.control')!
     const receipt = await control.handler({ id: task.id, command: 'cancel' }) as { id: string; status: string; text: string }
     assert.equal(receipt.status, 'cancelled'); assert.match(receipt.text, /已取消/)
@@ -145,4 +146,51 @@ test('legacy task without original request keeps creation time and reads relevan
   assert.equal(called, true)
   assert.ok(queries.includes('current scope'))
   assert.equal(queries.includes('old scope'), false)
+})
+
+test('Task approval revision invalidates only matching unapproved operation and retains pause', async t => {
+  const root=mkdtempSync(join(tmpdir(),'task-approval-revise-')),db=join(root,'memory.db');createStateFixture(db)
+  process.env.LYKOI_APPROVAL_RULES=join(root,'rules.json');process.env.LYKOI_STANDING_GRANTS=join(root,'grants.json');process.env.LYKOI_PENDING_ACTIONS=join(root,'pending.json')
+  const instance={version:1 as const,id:'A',origin:'created' as const,createdAt:new Date().toISOString(),definitionHash:'fixture',personaPath:definition,stateRoot:root}
+  const ctx=new Context();ctx.provide('lykoiRuntime',new CapabilityRuntime(()=>{},instance));ctx.provide('audit',{record:async()=>{}})
+  const action={name:'test.write',args:{text:'old'}}
+  ctx.provide('lykoiLlm',{call:async()=>({text:JSON.stringify({kind:'act',action}),reasoningLength:0})})
+  ctx.lykoiRuntime.register({organId:'test',sideEffects:[],capabilities:[{name:action.name,description:'fixture',inputSchema:{type:'object'},handler:async()=>assert.fail('old action must not execute')}]})
+  const fiber=await ctx.plugin(taskPlugin,{dbPath:join(root,'tasks.sqlite'),memoryPath:db,root:join(root,'tasks'),personaToml:definition,route:'fixture',model:'fixture',maxActions:1,intervalMs:60000})
+  t.after(async()=>{await ctx.tasks.close();await fiber.dispose();rmSync(root,{recursive:true,force:true})})
+  let operation=''
+  ctx.tasks.bindInteractions({deliver:async()=>({state:'sent'}),requestApproval:async op=>{operation=op.operationId}})
+  const task=ctx.tasks.create({goal:'write a report'});await ctx.tasks.scan();assert.ok(operation)
+  assert.equal(await ctx.tasks.reviseApproval(operation,'new text',{name:action.name,args:{text:'wrong'}}),false)
+  assert.equal(ctx.tasks.get(task.id).revision,task.revision)
+  await ctx.tasks.command(`/task pause ${task.id}`)
+  assert.equal(await ctx.tasks.reviseApproval(operation,'C is now successful',action),true)
+  const updated=ctx.tasks.get(task.id);assert.equal(updated.status,'paused');assert.match(updated.requirements,/C is now successful/)
+  assert.equal(await ctx.tasks.reviseApproval(operation,'duplicate',action),false)
+  await assert.rejects(ctx.tasks.approve(operation,action),/not awaiting approval/)
+  assert.equal(ctx.tasks.history(task.id).operations.some(op=>(op as {status:string}).status==='approval'),false)
+})
+
+
+test('background completion retires control approvals but preserves independent reads', async t => {
+  const { enqueuePending, pendingActions } = await import('lykoi-kernel')
+  const root = mkdtempSync(join(tmpdir(), 'task-terminal-approval-')), db = join(root, 'memory.db')
+  createStateFixture(db)
+  process.env.LYKOI_APPROVAL_RULES = join(root, 'rules.json')
+  process.env.LYKOI_STANDING_GRANTS = join(root, 'grants.json')
+  process.env.LYKOI_PENDING_ACTIONS = join(root, 'pending.json')
+  const instance = { version: 1 as const, id: 'A', origin: 'created' as const, createdAt: new Date().toISOString(), definitionHash: 'fixture', personaPath: definition, stateRoot: root }
+  const ctx = new Context()
+  ctx.provide('lykoiRuntime', new CapabilityRuntime(() => {}, instance))
+  ctx.provide('audit', { record: async () => {} })
+  ctx.provide('lykoiLlm', { call: async () => ({ text: JSON.stringify({ kind: 'finish', result: { status: 'completed', checkpoint: 'verified', content: 'done', artifacts: [] } }), reasoningLength: 0 }) })
+  const fiber = await ctx.plugin(taskPlugin, { dbPath: join(root, 'tasks.sqlite'), memoryPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 1, intervalMs: 60000 })
+  t.after(async () => { await ctx.tasks.close(); await fiber.dispose(); rmSync(root, { recursive: true, force: true }) })
+  const task = ctx.tasks.create({ goal: 'finish background work' })
+  enqueuePending('task.control', { id: task.id, command: 'resume' }, { actionId: 'obsolete-control' })
+  enqueuePending('task.get', { id: task.id }, { actionId: 'read-status' })
+  enqueuePending('task.history', { id: task.id }, { actionId: 'read-history' })
+  await ctx.tasks.scan()
+  assert.equal(ctx.tasks.get(task.id).status, 'completed')
+  assert.deepEqual(pendingActions().map(p => p.id).sort(), ['read-history', 'read-status'])
 })
