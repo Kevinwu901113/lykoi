@@ -30,6 +30,7 @@ export interface PersonaInterests {
 }
 
 export interface PersonaConfig {
+  character?: CharacterDefinition
   owner?: { name: string }
   identity: PersonaIdentity
   voice: PersonaVoice
@@ -89,6 +90,10 @@ export function parsePersonaData(data: unknown): PersonaConfig {
   if (!isPlainObject(data)) {
     throw new PersonaConfigError('persona TOML must parse to a table at top level')
   }
+  if (data.version === 2) return parsePersonaV2(data)
+  if (data.version !== undefined && data.version !== 1) {
+    throw new PersonaConfigError(`unsupported persona version: ${String(data.version)}`)
+  }
   const identity = section(data, 'identity')
   const voice = section(data, 'voice')
   const relationship = section(data, 'relationship')
@@ -124,6 +129,20 @@ export function parsePersonaData(data: unknown): PersonaConfig {
 }
 
 export function buildPersonaKernel(cfg: PersonaConfig): string {
+  if (cfg.character) {
+    const c = cfg.character
+    return [
+      `角色：${c.name}`, c.description,
+      c.embodiment && `身体设定：${c.embodiment}`,
+      c.traits.length && `性格：\n${c.traits.map(t => `- ${t}`).join('\n')}`,
+      c.voice && `说话方式：${c.voice}`,
+      c.language && `默认语言：${c.language}`,
+      c.relationship && `关系设定：${c.relationship}`,
+      c.address_owner && `对交谈者的称呼：${c.address_owner}`,
+      c.scenario && `出生时的情境设定（不是当前状态）：\n${c.scenario}`,
+      c.examples.length && `对话风格示例（不是实际发生的对话）：\n${c.examples.join('\n\n')}`,
+    ].filter(Boolean).join('\n\n')
+  }
   const ident = cfg.identity
   const rel = cfg.relationship
   const voice = cfg.voice
@@ -180,4 +199,64 @@ export function buildPersonaPrompt(store: InsightsReader, config?: PersonaConfig
   }
   if (sections.length === 0) return ''
   return '\n\n' + sections.join('\n\n')
+}
+
+/** Birth definition only. Runtime identity, permissions and acquired memory live elsewhere. */
+export interface CharacterDefinition {
+  name: string
+  description: string
+  embodiment: string
+  voice: string
+  language: string
+  relationship: string
+  address_owner: string
+  traits: string[]
+  interests: string[]
+  scenario: string
+  examples: string[]
+}
+
+function parsePersonaV2(data: Record<string, unknown>): PersonaConfig {
+  const raw = data.character
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new PersonaConfigError('persona v2 requires [character]')
+  }
+  for (const key of Object.keys(data)) {
+    if (!['version', 'character'].includes(key)) throw new PersonaConfigError(`persona v2 unknown section: ${key}`)
+  }
+  const block = raw as Record<string, unknown>
+  const text = (key: string, required = false): string => {
+    const value = block[key] === undefined && !required ? '' : block[key]
+    if (typeof value !== 'string' || (required && !value.trim())) {
+      throw new PersonaConfigError(`character.${key} must be ${required ? 'a non-empty' : 'a'} string`)
+    }
+    return value
+  }
+  const list = (key: string): string[] => {
+    const value = block[key] === undefined ? [] : block[key]
+    if (!Array.isArray(value) || !value.every(x => typeof x === 'string' && x.trim())) {
+      throw new PersonaConfigError(`character.${key} must be an array of non-empty strings`)
+    }
+    return [...value]
+  }
+  const character: CharacterDefinition = {
+    name: text('name', true), description: text('description', true),
+    embodiment: text('embodiment'), voice: text('voice'), language: text('language'),
+    relationship: text('relationship'), address_owner: text('address_owner'),
+    traits: list('traits'), interests: list('interests'), scenario: text('scenario'), examples: list('examples'),
+  }
+  for (const key of Object.keys(block)) {
+    if (!Object.hasOwn(character, key)) throw new PersonaConfigError(`persona v2 unknown character field: ${key}`)
+  }
+  // Adapt once at the existing persona boundary; consumers retain their shared contract.
+  return {
+    character,
+    identity: { name: character.name, self: character.description, nature_known: false, embodiment: character.embodiment },
+    voice: { language: character.language, register: character.voice, emoji: '',
+      address_owner: character.address_owner || '交谈者', profile_ref: '' },
+    relationship: { partner: character.address_owner || '交谈者', stance: character.relationship,
+      evolution_anchor: '', owner_authority: '' },
+    personality: { traits: character.traits, evolves: true },
+    interests: { seeds: character.interests },
+  }
 }
