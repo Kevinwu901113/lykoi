@@ -51,6 +51,7 @@ function fakeHttp(script: Step[]) {
   const calls: { url: string; payload: Record<string, unknown> }[] = []
   let i = 0
   const post: HttpPost = async (url, payload) => {
+    assert.ok(!(payload instanceof FormData))
     calls.push({ url, payload })
     const step = script[Math.min(i, script.length - 1)]!
     i += 1

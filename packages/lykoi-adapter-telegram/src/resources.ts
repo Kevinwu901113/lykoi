@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+import type { CharacterInstance } from 'lykoi-contracts'
 import {
   sendNotification, trySend as proactiveTrySend,
   type ResourceHandler, type ResourceRegistry,
@@ -69,8 +71,10 @@ export async function initiateChat(
 }
 
 /** Descriptions, schemas and handlers are declared together by this plugin. */
-export function outboundCapabilities(): Capability[] {
+export function outboundCapabilities(instance?: CharacterInstance): Capability[] {
   return [
+    { name: 'messenger.send_file', description: 'Send an existing file from this instance workspace as a Telegram attachment (up to 10 MiB). Use after workspace.write when the user asks for a file. Each export needs owner approval; success requires a delivery receipt. Never claim delivery from a successful write alone.',
+      inputSchema: { type: 'object', properties: { path: { type: 'string' }, context_id: { type: 'string' }, reply_to: { type: ['string', 'null'] } }, required: ['path', 'context_id'], additionalProperties: false }, handler: (params, execution) => messenger.sendFile(params, execution, instance ? join(instance.stateRoot, 'workspace') : undefined) },
     { name: 'messenger.send', description: 'Send text to a known conversation context. Quoting a message does not grant permission or a budget exemption; unexempted sends share the proactive chat quota.',
       inputSchema: { type: 'object', properties: { text: { type: 'string' }, context_id: { type: 'string' }, reply_to: { type: ['string', 'null'] } }, required: ['text', 'context_id'] }, handler: messenger.send },
     { name: 'messenger.read', description: 'Read recent messages, optionally restricted to a known context.',

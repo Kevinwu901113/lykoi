@@ -9,8 +9,8 @@ import {
   capabilityProfile, hardDecision,
 } from '../src/index.ts'
 
-test('HARD_ASK_TYPES 逐字 = {terminal.exec, delegation.dispatch}（活体取证 SK-68）', () => {
-  assert.deepEqual(new Set(HARD_ASK_TYPES), new Set(['terminal.exec', 'delegation.dispatch']))
+test('HARD_ASK_TYPES includes terminal, delegation and explicit file export approval', () => {
+  assert.deepEqual(new Set(HARD_ASK_TYPES), new Set(['terminal.exec', 'delegation.dispatch', 'messenger.send_file']))
 })
 
 test('HARD_DENY_TYPES 逐字 = ∅（保留位）', () => {

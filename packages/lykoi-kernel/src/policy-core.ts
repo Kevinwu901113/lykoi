@@ -1,6 +1,7 @@
 import { isWithin } from './path-guard.ts'
 
 export const HARD_ASK_TYPES: ReadonlySet<string> = new Set([
+  'messenger.send_file',
   'terminal.exec',
   'delegation.dispatch',
 ])

@@ -5,7 +5,7 @@ import type { HttpPost, HttpResponse } from './transport.ts'
 export type FetchLike = (url: string, init: {
   method: string
   headers: Record<string, string>
-  body: string
+  body: string | FormData
   signal: AbortSignal
   /** 代理路径的钉面：`proxy` 非空时每次请求必带（undici `ProxyAgent`）。 */
   dispatcher?: unknown
@@ -125,8 +125,8 @@ export function createFetchHttpPost(options: {
     try {
       const response = await doFetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: payload instanceof FormData ? {} : { 'content-type': 'application/json' },
+        body: payload instanceof FormData ? payload : JSON.stringify(payload),
         signal,
         // proxy 非空 = 每次请求必带 dispatcher（注入的测试 fetch 同样收到 ——
         // 红测拿这一位钉「配了代理就不存在静默直连」）。

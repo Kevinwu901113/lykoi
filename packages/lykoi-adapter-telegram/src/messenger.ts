@@ -1,3 +1,4 @@
+import { workspaceDocument, type DocumentSend } from './document.ts'
 import type { CapabilityExecutionContext, ResourceAdmission } from 'lykoi-contracts'
 import { trySend } from 'lykoi-kernel'
 export { PROACTIVE_CHAT_DAILY_CAP as PROACTIVE_DAILY_CAP, PROACTIVE_CHAT_COOLDOWN_H as PROACTIVE_COOLDOWN_H, proactiveChatLedgerPath as messengerLedgerPath, proactiveRemainingToday as messengerProactiveRemainingToday } from 'lykoi-kernel'
@@ -20,6 +21,7 @@ function logEvent(name: string, fields: Record<string, unknown> = {}): void {
  * （chat id、update offset、bot token……）漏进这个资源模块。
  */
 export interface MessengerTransport {
+  sendDocument?(opts: DocumentSend): Promise<{ message_id: string | null; sent: boolean; [key: string]: unknown }>
   sendMessage(opts: { contextId: string; text: string; replyTo?: string | null }):
     Promise<{ message_id: string | null; [key: string]: unknown }>
   fetchUpdates(opts: { contextId?: string | null; limit?: number }):
@@ -91,4 +93,17 @@ export async function read(params: Record<string, unknown>): Promise<Record<stri
     contextId: contextId === undefined || contextId === null ? null : String(contextId),
     limit: limit as number,
   }) as unknown as Record<string, unknown>
+}
+
+/** Every file export is hard-approved by Kernel; it cannot use text grants or proactive routes. */
+export async function sendFile(params: Record<string, unknown>, execution?: CapabilityExecutionContext, instanceWorkspace?: string): Promise<Record<string, unknown>> {
+  const workspace = execution?.workspace ?? instanceWorkspace
+  if (!workspace) throw new Error('file export requires instance execution context')
+  if (typeof params.context_id !== 'string' || !params.context_id) throw new TypeError('file export requires context_id')
+  const transport = currentTransport()
+  if (!transport.sendDocument) throw new Error('file transport unavailable')
+  const document = await workspaceDocument(workspace, params.path)
+  const result = await transport.sendDocument({ ...document, contextId: params.context_id,
+    replyTo: params.reply_to == null ? null : String(params.reply_to) })
+  return { ...result, ok: result.sent && result.message_id !== null }
 }

@@ -144,7 +144,8 @@ test('SK-81 常量：重试序列 (2,5,15,30)s、429 至多 3 次、摘要 200 �
 function fakeHttp(script: (Error | { status: number; body: unknown })[]) {
   const calls: { url: string; payload: Record<string, unknown> }[] = []
   let i = 0
-  const post = async (url: string, payload: Record<string, unknown>) => {
+  const post = async (url: string, payload: Record<string, unknown> | FormData) => {
+    assert.ok(!(payload instanceof FormData))
     calls.push({ url, payload })
     const step = script[Math.min(i, script.length - 1)]!
     i += 1

@@ -1,3 +1,4 @@
+import type { DocumentSend } from './document.ts'
 import { appendUndelivered, type UndeliveredRecord } from './outbox.ts'
 
 export const API_BASE = 'https://api.telegram.org'
@@ -184,7 +185,7 @@ export interface HttpResponse {
 
 /** 一次 POST。抛出的错误的 `name` 就是分类（DEFINITE_FAILURE_ERRORS 比对它）。 */
 export type HttpPost = (
-  url: string, payload: Record<string, unknown>, opts: { timeoutS?: number },
+  url: string, payload: Record<string, unknown> | FormData, opts: { timeoutS?: number },
 ) => Promise<HttpResponse>
 
 export type SleepFn = (seconds: number) => Promise<void>
@@ -296,7 +297,7 @@ export class BotApiTransport {
 
   async #postApi(
     method: string,
-    payload: Record<string, unknown>,
+    payload: Record<string, unknown> | FormData,
     opts: { timeoutS?: number; retryBackoff?: readonly number[] } = {},
   ): Promise<PostResult> {
     const retryBackoff = opts.retryBackoff ?? []
@@ -364,6 +365,26 @@ export class BotApiTransport {
       }
       return data as PostResult
     }
+  }
+
+  async sendDocument(opts: DocumentSend): Promise<{ message_id: string | null; sent: boolean; [key: string]: unknown }> {
+    const payload = new FormData()
+    payload.set('chat_id', opts.contextId)
+    payload.set('document', new Blob([new Uint8Array(opts.bytes)], { type: 'application/octet-stream' }), opts.filename)
+    if (opts.replyTo) payload.set('reply_parameters', JSON.stringify({ message_id: Number(opts.replyTo) }))
+    // A timed-out upload may already have arrived. No automatic network replay.
+    const result = await this.#postApi('sendDocument', payload)
+    const message = result.result as Record<string, unknown> | undefined
+    const messageId = message?.message_id
+    if (result.ok !== true || typeof messageId !== 'number' || !Number.isSafeInteger(messageId) || messageId <= 0) {
+      const error = result.error ?? 'missing_delivery_receipt'
+      const ambiguous = Boolean(result.ambiguous) || result.ok === true || error === 'bad_response' || (result.status ?? 0) >= 500
+      recordUndelivered({ contextId: opts.contextId, text: '[file attachment]', error, ambiguous,
+        attempts: Number(result.attempts ?? 1), source: 'telegram_transport.send_document' })
+      return { sent: false, message_id: null, error, ambiguous, undelivered_recorded: true }
+    }
+    logEvent('telegram_document_sent', { context_id: opts.contextId, message_id: String(messageId), bytes: opts.bytes.length })
+    return { sent: true, message_id: String(messageId), context_id: opts.contextId, bytes: opts.bytes.length }
   }
 
   async sendMessage(opts: {
