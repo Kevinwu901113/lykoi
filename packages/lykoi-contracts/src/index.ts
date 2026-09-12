@@ -159,12 +159,13 @@ export interface OwnerInteraction { kind: 'approval_answer' | 'suggestion_answer
 export interface TaskMessage { text: string; delaySeconds?: number }
 export interface TaskRequest { text: string; receivedAt: string }
 export interface TaskSummary {
+  revision?: number; createdAt?: string; updatedAt?: string; criteria?: string; failure?: string | null; artifacts?: unknown[]
   scheduledMessage?: { text: string; dueAt: string }
   request?: TaskRequest
   origin?: 'user' | 'autonomous'; thoughtId?: string; reason?: string; result?: string; finding?: string
   id: string; goal: string; requirements: string; status: string; checkpoint: string
   wait: { kind: string; detail: string; until?: string; operationId?: string } | null
-  delivery: { state: string; content: string; error: string | null } | null
+  delivery: { state: string; content: string; error: string | null; attempts?: number; receipt?: unknown } | null
 }
 export interface TaskDeliveryResult { state: 'sent' | 'failed' | 'unknown'; receipt?: unknown; error?: string }
 export interface TaskInteractions {

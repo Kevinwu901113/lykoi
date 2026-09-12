@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./instance": "./src/instance.ts",
     "./mind": "./src/mind.ts",
-    "./cognition": "./src/cognition.ts"
+    "./cognition": "./src/cognition.ts",
+    "./task-facts": "./src/task-facts.ts"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\""

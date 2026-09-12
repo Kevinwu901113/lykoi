@@ -42,6 +42,10 @@ test('Cordis task plugin owns state, uses real workspace observations, restores 
       assert.deepEqual(payload.output, { contentField: 'result.content', delivery: 'host_sends_separate_message_to_instance_owner', recipientAlreadyBound: true })
       assert.equal('delivery' in payload.task, false)
       assert.deepEqual(payload.task.request, { receivedAt: request.receivedAt })
+      assert.ok(Number.isFinite(Date.parse(payload.task.createdAt)))
+      assert.equal(payload.task.history.originalRequest, undefined)
+      assert.equal(payload.task.goal, undefined)
+      assert.equal(typeof payload.task.requirements, 'string')
       const operations = payload.operations
       let decision: unknown
       if (!operations.length) decision = { kind: 'act', action: { name: 'workspace.write', args: { path: 'report.md', content: 'actual task result' } } }
@@ -111,4 +115,34 @@ test('Task cancellation retires the actual kernel approval and returns a small h
     const report = await ctx.tasks.command(`/task get ${task.id}`)
     assert.match(report!, /已取消/); assert.doesNotMatch(report!, /PRIVATE_RAW_REQUEST|workspace|requirements|\{/)
   } finally { await ctx.tasks.close(); await fiber.dispose(); rmSync(root, { recursive: true, force: true }) }
+})
+
+test('legacy task without original request keeps creation time and reads relevant Mind using latest requirements', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'task-legacy-facts-')), db = join(root, 'memory.db')
+  createStateFixture(db)
+  const ctx = new Context(), queries: (string | undefined)[] = []
+  const instance = { version: 1 as const, id: 'A', origin: 'created' as const, createdAt: new Date().toISOString(), definitionHash: 'test', personaPath: definition, stateRoot: root }
+  ctx.provide('lykoiRuntime', new CapabilityRuntime(() => {}, instance))
+  ctx.provide('audit', { record: async () => {} })
+  ctx.provide('mind', { view: (query?: string) => { queries.push(query); return { records: [], events: [] } }, receive: () => {} })
+  let called = false
+  ctx.provide('lykoiLlm', { call: async options => {
+    called = true
+    const task = JSON.parse((options.messages.at(-1)!.content[0] as { text: string }).text).task
+    assert.equal(task.request, undefined)
+    assert.ok(Number.isFinite(Date.parse(task.createdAt)))
+    assert.equal(task.requirements, 'current scope')
+    assert.equal(task.history.originalGoal, 'old scope')
+    assert.equal(task.history.originalRequest, undefined)
+    assert.equal(task.goal, undefined)
+    return { text: JSON.stringify({ kind: 'finish', result: { status: 'completed', checkpoint: 'checked', content: 'done', artifacts: [] } }), reasoningLength: 0 }
+  } })
+  const fiber = await ctx.plugin(taskPlugin, { dbPath: join(root, 'tasks.sqlite'), memoryPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 1, intervalMs: 60000 })
+  t.after(async () => { await ctx.tasks.close(); await fiber.dispose(); rmSync(root, { recursive: true, force: true }) })
+  const task = ctx.tasks.create({ goal: 'old scope' })
+  ctx.tasks.update(task.id, 'current scope')
+  await ctx.tasks.scan()
+  assert.equal(called, true)
+  assert.ok(queries.includes('current scope'))
+  assert.equal(queries.includes('old scope'), false)
 })

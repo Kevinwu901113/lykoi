@@ -1,3 +1,4 @@
+import { taskFacts } from 'lykoi-runtime/task-facts'
 import type { CapabilityDefinition } from 'lykoi-contracts'
 import { MIND_PROTOCOL, MIND_REJECTION_NOTE, commitMind, mindWorkingView } from 'lykoi-runtime/mind'
 import { runCognition } from 'lykoi-runtime/cognition'
@@ -479,7 +480,7 @@ export function apply(ctx: Context, config: Config) {
     llm,
     mind: ctx.get('mind'),
     workingContext: () => {
-      const recentSkills = ctx.get('skills')?.recent(), tasks = ctx.get('tasks')?.list().map(({ id, goal, status, checkpoint }) => ({ id, goal, status, checkpoint }))
+      const recentSkills = ctx.get('skills')?.recent(), tasks = ctx.get('tasks')?.list().map(task => taskFacts(task))
       return recentSkills?.length || tasks?.length ? JSON.stringify({ recentSkills, tasks }) : ''
     },
     capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => checkCapabilityPermission(c.name, 'autonomous') === 'allow'),
