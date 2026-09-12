@@ -1,11 +1,11 @@
-import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import { ProxyAgent, FormData as UndiciFormData, fetch as undiciFetch } from 'undici'
 import type { HttpPost, HttpResponse } from './transport.ts'
 
 /** `fetch` 的最小面（生产按 proxy 有无选内建或 undici 的 fetch；测试注 fake）。 */
 export type FetchLike = (url: string, init: {
   method: string
   headers: Record<string, string>
-  body: string | FormData
+  body: string | FormData | UndiciFormData
   signal: AbortSignal
   /** 代理路径的钉面：`proxy` 非空时每次请求必带（undici `ProxyAgent`）。 */
   dispatcher?: unknown
@@ -120,13 +120,24 @@ export function createFetchHttpPost(options: {
     const timeoutS = opts.timeoutS ?? fallbackTimeoutS
     // 每次请求一条自己的边（`AbortSignal.timeout` 到点抛 TimeoutError）。
     const signal = AbortSignal.timeout(Math.max(1, Math.round(timeoutS * 1000)))
+    // External undici brands FormData by its own class. Native FormData would
+    // otherwise become the literal string "[object FormData]" on the proxy path.
+    let body: string | FormData | UndiciFormData = payload instanceof FormData ? payload : JSON.stringify(payload)
+    if (payload instanceof FormData && dispatcher !== undefined) {
+      const multipart = new UndiciFormData()
+      for (const [key, value] of payload.entries()) {
+        if (typeof value === 'string') multipart.append(key, value)
+        else multipart.append(key, value, value.name)
+      }
+      body = multipart
+    }
     let status: number
     let text: string
     try {
       const response = await doFetch(url, {
         method: 'POST',
         headers: payload instanceof FormData ? {} : { 'content-type': 'application/json' },
-        body: payload instanceof FormData ? payload : JSON.stringify(payload),
+        body,
         signal,
         // proxy 非空 = 每次请求必带 dispatcher（注入的测试 fetch 同样收到 ——
         // 红测拿这一位钉「配了代理就不存在静默直连」）。

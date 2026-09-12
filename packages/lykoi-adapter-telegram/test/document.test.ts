@@ -112,11 +112,40 @@ test('multipart proxy retains dispatcher and lets fetch set the boundary header'
   let dispatcher: InstanceType<typeof ProxyAgent> | undefined
   const form = new FormData(); form.set('document',new Blob(['bytes']),'note.md')
   const post = createFetchHttpPost({ proxy:'http://127.0.0.1:9999',fetch:async (_url,init)=>{
-    assert.equal(init.body,form)
+    assert.notEqual(init.body,form)
+    assert.equal((init.body as FormData).get('document') instanceof Blob,true)
     assert.equal(init.headers['content-type'],undefined)
     assert.ok(init.dispatcher instanceof ProxyAgent)
     dispatcher=init.dispatcher
     return {status:200,text:async()=>'{"ok":true}'}
   } })
   try { await post('https://example.invalid/upload',form,{}) } finally { await dispatcher?.close() }
+})
+
+
+test('proxy-selected external undici serializes multipart bytes instead of native FormData text', async t => {
+  const { fetch: undiciFetch, ProxyAgent, FormData: ClientFormData } = await import('undici')
+  let received = Buffer.alloc(0), contentType = '', dispatcher: InstanceType<typeof ProxyAgent> | undefined
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[]=[]; for await(const b of req) chunks.push(Buffer.from(b))
+    received=Buffer.concat(chunks); contentType=String(req.headers['content-type'])
+    res.end('{"ok":true,"result":{"message_id":77}}')
+  })
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r))
+  t.after(()=>{server.closeAllConnections();server.close()})
+  const post=createFetchHttpPost({proxy:'http://127.0.0.1:9999',fetch:async(url,init)=>{
+    assert.ok(init.dispatcher instanceof ProxyAgent);dispatcher=init.dispatcher
+    // Use the real external serializer against loopback, without an external proxy.
+    const {dispatcher: _proxy,body,...wire}=init
+    assert.ok(body instanceof ClientFormData)
+    return await undiciFetch(url,{...wire,body})
+  }})
+  const form=new FormData();form.set('chat_id','1001');form.set('document',new Blob(['# 交接\r\n']), '交接.md')
+  try { await post(`http://127.0.0.1:${(server.address() as {port:number}).port}`,form,{}) }
+  finally {await dispatcher?.close()}
+  assert.match(contentType,/^multipart\/form-data; boundary=/)
+  assert.ok(received.includes(Buffer.from('# 交接\r\n')))
+  assert.ok(received.includes(Buffer.from('filename="交接.md"')))
+  assert.ok(received.includes(Buffer.from('name="chat_id"\r\n\r\n1001')))
+  assert.notEqual(received.toString(),'[object FormData]')
 })
