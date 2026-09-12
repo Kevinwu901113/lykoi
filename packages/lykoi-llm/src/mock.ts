@@ -59,7 +59,7 @@ export const name = 'lykoi-llm-mock'
 export const inject = ['llm']
 
 export interface Config {
-  imageInput: boolean
+  imageInput?: boolean
   /** 注册到 LlmRuntime 的 provider 路由名。 */
   provider: string
   replyText: string

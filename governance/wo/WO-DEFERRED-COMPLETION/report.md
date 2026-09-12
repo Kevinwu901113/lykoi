@@ -8,7 +8,7 @@
 - 独立 Instance 可在独立 OS 进程并行；状态目录锁同时用于 CLI 和生产入口，保留 supervisor 与 worker 的存活归属。没有引入角色间任务调度。
 - 候选生产 profile 装配 Panel、Workspace、Pi Runner、附件存储；部署脚本准备固定 Pi 供给、停机备份、依赖更新、Gate 重签和启动。原有审批门保留。
 
-本地最终全量：1266 项，1255 通过、0 失败、11 项既有外部 devstate 跳过。随后针对 supervisor/worker 锁收尾单独复测真实进程 4/4；补充 narrative 去重断言后 Mind 8/8。typecheck、git diff --check、升级脚本 bash -n 通过。远程 CI 以 PR 的最终提交结果为准。
+本地最终全量：1266 项，1255 通过、0 失败、11 项既有外部 devstate 跳过。随后针对 supervisor/worker 锁收尾单独复测真实进程 4/4；补充 narrative 去重断言后 Mind 8/8。typecheck、git diff --check、升级脚本 bash -n 通过。首次远程 CI 发现新增 mock 配置 imageInput 被误设为必填，影响旧测试调用的类型兼容；已改为可选，保持原有纯文本默认。远程 CI 以 PR 的最终提交结果为准。
 
 实际验证包含：导入后创建/恢复实例；两个进程同时运行且 A/B 记忆和审计互不混淆、同一 A 重复启动拒绝；self 持久与修订、moment 截止时刻退出、历史检索；真实 Conversation 模型请求含新人格记录；HTTP 附图经过实际附件解码/存储，以 image 类型到测试适配器，正常进入 Converse，卸载附件服务后不可继续上传。测试适配器核对真实 1×1 图片引用和可读字节，不用一句固定回复冒充图像传输证据。
 
