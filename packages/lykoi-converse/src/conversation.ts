@@ -1042,6 +1042,10 @@ export class Conversation {
       this.#appendToolResult(call.id, errorPayload)
       return null
     }
+    if (this.#deps.capabilities && !this.#deps.capabilities().some(c => c.name === name)) {
+      this.#appendToolResult(call.id, { success: false, error: 'Capability is not available in this conversation. Use conversation.promise_followup for owner-requested background work; only the persistent Task can invoke task-only tools.' })
+      return null
+    }
     const dispatchFn = this.#deps.dispatchFn ?? unwiredConverseDispatch
     const observation = await dispatchFn(action!, { origin: 'interactive' })
     if (

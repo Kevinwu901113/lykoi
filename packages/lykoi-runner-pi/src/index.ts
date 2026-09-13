@@ -34,7 +34,7 @@ export function runnerCapabilities(runner: PiRunner, config: Config, budget: Bud
       : { status: receipt.state === 'unknown' ? 'unknown' : 'pending', detail: receipt.error ?? receipt.progress ?? receipt.state }
   }
   return [
-    { name: 'delegation.dispatch', description: 'Start one real Pi coding execution for this task. Returns immediately with an execution ID; inspect progress and artifacts before treating the goal as completed. OS commands run under the deployed user, within the explicitly approved execution limits.',
+    { name: 'delegation.dispatch', availableIn: ['task'], description: 'Start one real Pi coding execution for this task. Returns immediately with an execution ID; inspect progress and artifacts before treating the goal as completed. OS commands run under the deployed user, within the explicitly approved execution limits.',
       inputSchema: { type: 'object', properties: { prompt: { type: 'string' } }, required: ['prompt'], additionalProperties: false },
       handler: async (params, execution) => {
         const context = requireContext(execution)

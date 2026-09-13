@@ -202,6 +202,7 @@ function _pyRepr(text: string): string {
 
 export function describeAction(actionType: string, params: Record<string, unknown> | null = null): string {
   const p = params ?? {}
+  if (actionType === 'delegation.dispatch') return `委托程序助手执行：${_pyRepr([...String(p.prompt ?? '')].slice(0, 500).join(''))}`
   if (actionType === 'task.control') {
     const commands: Record<string, string> = { pause: '暂停', resume: '恢复', cancel: '取消' }
     return `${commands[String(p.command)] ?? '操作'}任务 ${_pyRepr(String(p.id ?? ''))}`

@@ -8,7 +8,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import { BodySchemaRegistry, isHardGated } from 'lykoi-kernel'
 import type {
-  CapabilityActivity, CapabilityDefinition, CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
+  CapabilityActivity, CapabilityContext, CapabilityDefinition, CapabilityRegistration, CharacterInstance, ResourceHandler, ResourceRegistry, RuntimeLog, RuntimeService,
 } from 'lykoi-contracts'
 
 /** A read-only, live set. Consumers cannot mutate registration through the view. */
@@ -108,7 +108,9 @@ export class CapabilityRuntime implements RuntimeService {
     return handler(params, context)
   }
 
-  capabilities(): readonly CapabilityDefinition[] { return Object.freeze([...this.#definitions.values()]) }
+  capabilities(context?: CapabilityContext): readonly CapabilityDefinition[] {
+    return Object.freeze([...this.#definitions.values()].filter(c => !context || !c.availableIn || c.availableIn.includes(context)))
+  }
 
   register({ organId, capabilities, sideEffects }: CapabilityRegistration): () => void {
     if (this.#closed) throw new Error('runtime is disposed')
@@ -117,6 +119,7 @@ export class CapabilityRuntime implements RuntimeService {
       if (!/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/.test(capability.name)) throw new TypeError(`invalid capability name: ${capability.name}`)
       if (names.has(capability.name)) throw new Error(`duplicate capability: ${capability.name}`)
       names.add(capability.name)
+      if (capability.availableIn && (!capability.availableIn.length || capability.availableIn.some(c => !['conversation', 'wake', 'task'].includes(c)))) throw new TypeError('invalid capability contexts')
       if (!capability.description || capability.inputSchema.type !== 'object') throw new TypeError('capability requires description and object input schema')
     }
     const entries = capabilities.map(c => [c.name, c.handler] as const)
@@ -124,13 +127,13 @@ export class CapabilityRuntime implements RuntimeService {
       if (typeof handler !== 'function') throw new TypeError(`invalid handler: ${action}`)
       if (this.#handlers.has(action)) throw new Error(`action already registered: ${action}`)
     }
-    const definitions = capabilities.map(({ name, description, inputSchema }) => {
+    const definitions = capabilities.map(({ name, description, inputSchema, availableIn }) => {
       const schema = structuredClone(inputSchema)
       const freeze = (value: unknown): void => {
         if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value) }
       }
       freeze(schema)
-      return Object.freeze({ name, description, inputSchema: schema })
+      return Object.freeze({ name, description, inputSchema: schema, ...(availableIn ? { availableIn: Object.freeze([...availableIn]) } : {}) })
     })
     // Validate and snapshot the complete declaration before publishing any part of it.
     const removeSchema = this.#schema.register({ organId, actions: entries.map(([a]) => a), sideEffects })

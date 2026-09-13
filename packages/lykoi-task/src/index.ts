@@ -37,7 +37,7 @@ export function taskReceipt(task: TaskSummary): { id: string; status: string; te
 export function taskCapabilities(tasks: CharacterTasks): Capability[] {
   const id = { type: 'string' } as const
   return [
-    { name: 'task.create', description: 'Start self-chosen persistent work linked to a Thought. This records autonomous origin, never user authorization. For user promises use the conversation follow-up entry.',
+    { name: 'task.create', availableIn: ['wake'], description: 'Start self-chosen persistent work linked to a Thought. This records autonomous origin, never user authorization. For user promises use the conversation follow-up entry.',
       inputSchema: { type: 'object', properties: { goal: id, requirements: id, criteria: id, thoughtId: id, reason: id }, required: ['goal', 'thoughtId', 'reason'], additionalProperties: false },
       handler: async p => taskFacts(tasks.create({ goal: String(p.goal), requirements: p.requirements as string | undefined, criteria: p.criteria as string | undefined, thoughtId: String(p.thoughtId), reason: String(p.reason), origin: 'autonomous' })) },
     { name: 'task.list', description: 'Read this character instance’s persistent tasks and delivery status.', inputSchema: { type: 'object', additionalProperties: false }, handler: async () => tasks.list().map(task => taskFacts(task)) },
@@ -96,7 +96,7 @@ export async function apply(ctx: Context, config: Config) {
       const { request } = task
       const { delivery: _receipt, ...taskState } = taskFacts(task)
       const taskInput = { ...taskState, history: { originalGoal: task.goal }, workspace: task.workspace, request: request ? { receivedAt: request.receivedAt } : undefined }
-      const capabilities = ctx.lykoiRuntime.capabilities().filter(c => !c.name.startsWith('conversation.') && (!c.name.startsWith('task.') || c.name === 'task.history') && check(c.name, task.origin === 'autonomous' ? 'autonomous' : 'interactive') !== 'deny')
+      const capabilities = ctx.lykoiRuntime.capabilities('task').filter(c => !c.name.startsWith('conversation.') && (!c.name.startsWith('task.') || c.name === 'task.history') && check(c.name, task.origin === 'autonomous' ? 'autonomous' : 'interactive') !== 'deny')
       const result = await ctx.lykoiLlm.call({ provider: config.route, model: config.model, responseFormat: { type: 'json_object' }, signal,
         messages: [createMessage({ role: 'system', content: [{ type: 'text', text: [buildPersonaKernel(persona), buildPersonaPrompt(memory, persona), PROTOCOL].filter(Boolean).join('\n\n') }], source: { kind: 'plugin', plugin: name } }),
           createUserMessage({ content: [{ type: 'text', text: JSON.stringify({ now: now.toISOString(), output: { contentField: 'result.content', delivery: task.origin === 'autonomous' ? 'store_only' : 'host_sends_separate_message_to_instance_owner', recipientAlreadyBound: task.origin !== 'autonomous' }, task: taskInput, mind: ctx.get('mind')?.view(), relevantMind: ctx.get('mind')?.view(task.thoughtId ?? task.requirements), recentSkills: ctx.get('skills')?.recent(), operations: operations.slice(-8), operationCount: operations.length, capabilities, closing }) }], source: { kind: 'plugin', plugin: name } })],

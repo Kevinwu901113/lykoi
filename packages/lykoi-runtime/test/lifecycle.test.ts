@@ -183,3 +183,20 @@ test('uncloneable schemas cannot publish a partial body or capability', () => {
   assert.deepEqual(runtime.bodySchema.snapshot().actions, [])
   runtime.dispose()
 })
+
+
+test('context declarations remain immutable and discovery follows registration lifetime', () => {
+  const runtime = new CapabilityRuntime()
+  const availableIn: ('task' | 'conversation')[] = ['task']
+  const stop = runtime.register({ organId: 'context-test', sideEffects: [], capabilities: [
+    { name: 'lab.task_only', description: 'task', availableIn, inputSchema: { type: 'object' }, handler: async () => null },
+    { name: 'lab.shared', description: 'shared', inputSchema: { type: 'object' }, handler: async () => null },
+  ] })
+  availableIn.push('conversation')
+  assert.deepEqual(runtime.capabilities('conversation').map(c => c.name), ['lab.shared'])
+  assert.deepEqual(runtime.capabilities('wake').map(c => c.name), ['lab.shared'])
+  assert.deepEqual(runtime.capabilities('task').map(c => c.name), ['lab.task_only', 'lab.shared'])
+  assert.throws(() => (runtime.capabilities('task')[0]!.availableIn as string[]).push('conversation'), TypeError)
+  stop(); assert.deepEqual(runtime.capabilities('task'), [])
+  runtime.dispose()
+})

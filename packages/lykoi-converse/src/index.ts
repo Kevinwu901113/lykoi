@@ -463,7 +463,7 @@ export function apply(ctx: Context, config: Config) {
       const tasks = ctx.get('tasks')?.list()
       return JSON.stringify({ tasks: tasks?.map(task => taskFacts(task)), recentSkills: ctx.get('skills')?.recent() })
     },
-    capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
+    capabilities: () => ctx.lykoiRuntime.capabilities('conversation').filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
     invokeCapability: (name, params) => ctx.lykoiRuntime.invoke(name, params),
     capabilityRevision: () => ctx.lykoiRuntime.revision,
 
