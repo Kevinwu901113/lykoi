@@ -1,7 +1,7 @@
 /** Detached owner of one Pi RPC session. The host Runtime may exit without ending this execution. */
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { readFileSync, appendFileSync, chmodSync, unlinkSync } from 'node:fs'
+import { readFileSync, appendFileSync, chmodSync, unlinkSync, mkdirSync, existsSync, copyFileSync, constants } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { socketPath, writeReceipt, terminal, type RunnerConfig, type RunnerReceipt } from './protocol.ts'
@@ -10,9 +10,22 @@ const root = process.argv[2]!
 const config: RunnerConfig = JSON.parse(readFileSync(join(root, 'request.json'), 'utf8'))
 let receipt: RunnerReceipt = { operationId: config.operationId, taskId: config.taskId, instanceId: config.instanceId, state: 'starting', turns: 0, updatedAt: new Date().toISOString() }
 const save = (patch: Partial<RunnerReceipt>) => { receipt = { ...receipt, ...patch, updatedAt: new Date().toISOString() }; writeReceipt(root, receipt) }
+// Deployment supplies immutable model configuration; Pi owns mutable files per execution.
+const agentDir = join(root, 'agent')
+try {
+  mkdirSync(agentDir, { mode: 0o700 })
+  const models = join(config.agentDir, 'models.json')
+  if (existsSync(models)) {
+    copyFileSync(models, join(agentDir, 'models.json'), constants.COPYFILE_EXCL)
+    chmodSync(join(agentDir, 'models.json'), 0o600)
+  }
+} catch (error) {
+  save({ state: 'failed', error: `Pi configuration preparation failed before launch: ${String(error)}` })
+  throw error
+}
 const child = spawn(config.command[0]!, [...config.command.slice(1), '--mode', 'rpc', '--offline', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-approve',
   '--provider', config.provider, '--model', config.model, '--session-dir', join(root, 'sessions')], {
-  cwd: config.workspace, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PI_CODING_AGENT_DIR: config.agentDir, PI_TELEMETRY: '0' },
+  cwd: config.workspace, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_TELEMETRY: '0' },
 })
 save({ pid: child.pid })
 const pending = new Map<string, { resolve(value: any): void; reject(error: Error): void; timer: NodeJS.Timeout }>()
@@ -67,7 +80,7 @@ child.stderr.on('data', chunk => appendFileSync(join(root, 'stderr.log'), chunk,
 child.on('error', error => { save({ state: 'failed', error: String(error) }); server.close(); clearTimeout(deadline) })
 child.on('exit', (code, signal) => {
   for (const call of pending.values()) { clearTimeout(call.timer); call.reject(new Error('Pi process exited')) }; pending.clear()
-  if (!terminal(receipt)) save({ state: 'unknown', error: `Pi exited (${code ?? signal}); inspect session and external operations` })
+  if (!terminal(receipt)) save({ state: 'unknown', error: [receipt.error, `Pi exited (${code ?? signal}); inspect session and external operations`].filter(Boolean).join('; ') })
   server.close(); clearTimeout(deadline)
 })
 const server = createServer(socket => {

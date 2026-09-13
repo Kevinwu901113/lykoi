@@ -55,7 +55,7 @@ Example additional profile entry (instance assembly supplies `root`):
     maxTurns: 8
 ```
 
-`agentDir` holds deployment model configuration and credential references; sessions and execution receipts stay under the instance. Credentials are passed only through the explicitly named environment variables. Pi executes with the deployed OS user's permissions; cwd is not an OS sandbox. Configure the OS boundary before enabling it, as for the existing command capability.
+`agentDir` supplies read-only deployment `models.json` and credential references. Each execution snapshots that file into its own private `agent` directory; Pi creates mutable auth/settings files there. Deployment `auth.json` is never copied or modified. Sessions and execution receipts stay under the instance. Credentials are passed only through the explicitly named environment variables. Pi executes with the deployed OS user's permissions; cwd is not an OS sandbox. Configure the OS boundary before enabling it, as for the existing command capability.
 
 A detached worker owns the Pi RPC session. Reconstructing Lykoi reconnects to that worker or reads its final receipt. Missing connectivity is unknown, never evidence that Pi stopped. Cancellation clears queued prompts, aborts, and checks idle state. RPC automatic retry is disabled. Each execution has a deadline and turn limit. Launch uses the existing budget gate; actual session usage is charged once by receipt ID to the configured budget route. Accounting is per bounded Runner execution, not per internal Pi model request.
 

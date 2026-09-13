@@ -47,7 +47,7 @@ export class PiRunner {
     } catch (error) {
       // Read again: the worker may have committed its terminal result before closing the socket.
       const current = readReceipt(root)
-      return terminal(current) ? current : { ...current, state: 'unknown', error: String(error) }
+      return terminal(current) ? current : { ...current, state: 'unknown', error: [current.error, String(error)].filter(Boolean).join('; ') }
     }
   }
 }
