@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync, writeFileSync, chmodSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -65,4 +65,40 @@ test('actual Runner registration inherits approval gate and uses the operation r
   assert.equal(status.operationId, config.operationId); assert.equal(charges, 1)
   assert.equal(status.state, 'succeeded')
   assert.equal(events.filter(e => e.type === 'runner/launched').length, 1)
+})
+
+
+test('rejected startup RPC remains visible after worker exit and missing socket without replay', async t => {
+  const { root, workspace, config } = fixture(t, 'reject-startup'), runner = new PiRunner(root)
+  runner.start(config, {})
+  const receipt = await until(runner, config.operationId, r => r.state === 'unknown' && Boolean(r.error?.includes('Pi exited')))
+  assert.match(receipt.error!, /fixture rejected prompt/)
+  assert.equal(existsSync(join(workspace, 'starts.txt')), false)
+  const restored = new PiRunner(root)
+  assert.equal(restored.start(config, {}).state, 'unknown')
+  const observed = await restored.request(config.operationId, 'status')
+  assert.match(observed.error!, /fixture rejected prompt/)
+  assert.equal(existsSync(join(workspace, 'starts.txt')), false)
+})
+
+
+test('Pi mutable auth stays per execution while deployment models remain read-only and auth is not copied', async t => {
+  const { root, workspace, config } = fixture(t, 'isolated config')
+  const deployment = join(root, 'deployment'); mkdirSync(deployment)
+  const models = JSON.stringify({ providers: { fixture: { apiKey: '$FIXTURE_KEY' } } })
+  writeFileSync(join(deployment, 'models.json'), models)
+  writeFileSync(join(deployment, 'auth.json'), 'DO_NOT_COPY')
+  chmodSync(deployment, 0o555)
+  const runner = new PiRunner(root)
+  try {
+  runner.start({ ...config, agentDir: deployment }, {})
+  await until(runner, config.operationId, r => r.state === 'succeeded')
+  const privateDir = join(root, config.operationId, 'agent')
+  assert.equal(statSync(privateDir).mode & 0o777, 0o700)
+  assert.equal(readFileSync(join(privateDir, 'models.json'), 'utf8'), models)
+  assert.equal(readFileSync(join(privateDir, 'auth.json'), 'utf8'), '{}')
+  assert.equal(readFileSync(join(deployment, 'auth.json'), 'utf8'), 'DO_NOT_COPY')
+  assert.equal(readFileSync(join(deployment, 'models.json'), 'utf8'), models)
+  assert.equal(readFileSync(join(workspace, 'runner-result.txt'), 'utf8'), 'isolated config')
+  } finally { chmodSync(deployment, 0o755) }
 })
