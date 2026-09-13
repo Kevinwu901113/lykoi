@@ -1,0 +1,3 @@
+# Task coordination repair
+
+Owner authorized continuing repair, direct merge and owner-operated root rollout. Scope: propagate Task execution ownership through queued approval observations; distinguish operation evidence from Task completion; resolve explicitly quoted file subjects across pending approvals without changing verdict or permission policy. Kernel approval-interpreter change explicitly included and requires independent governance review. No credential, policy, profile, quota, schema or old task state edits. Full tests and typecheck required; fresh production UX acceptance after owner rollout.
