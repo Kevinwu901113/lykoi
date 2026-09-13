@@ -483,7 +483,7 @@ export function apply(ctx: Context, config: Config) {
       const recentSkills = ctx.get('skills')?.recent(), tasks = ctx.get('tasks')?.list().map(task => taskFacts(task))
       return recentSkills?.length || tasks?.length ? JSON.stringify({ recentSkills, tasks }) : ''
     },
-    capabilities: () => ctx.lykoiRuntime.capabilities().filter(c => checkCapabilityPermission(c.name, 'autonomous') === 'allow'),
+    capabilities: () => ctx.lykoiRuntime.capabilities('wake').filter(c => checkCapabilityPermission(c.name, 'autonomous') === 'allow'),
     dispatchFn, // M3-W1 已接真 kernel（origin=autonomous 由上面的适配器盖章）
     snapshotDeps: {
 

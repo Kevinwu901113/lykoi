@@ -1,0 +1,3 @@
+# WO-CAPABILITY-CONTEXT-01
+
+Owner authorized completing real UX acceptance, repairs, merge and owner-root deployment handoff. Live user coding request exposed direct Pi invocation without Task context, then selected autonomous task.create for an owner request. Preserve existing user/autonomous permission rules. Add declared capability context availability, use it in Conversation/Wake/Task discovery and reject unavailable Conversation calls before approval. Keep conversation.promise_followup as the existing owner Task entry; never promote autonomous Task origin. Improve Pi approval description to show the actual prompt. Independent governance review required. No replay of failed/cancelled probes.

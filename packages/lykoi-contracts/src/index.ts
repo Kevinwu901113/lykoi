@@ -70,7 +70,9 @@ export interface InputSchema {
   minimum?: number
   maximum?: number
 }
+export type CapabilityContext = 'conversation' | 'wake' | 'task'
 export interface CapabilityDefinition {
+  availableIn?: readonly CapabilityContext[]
   name: string
   description: string
   inputSchema: InputSchema
@@ -103,7 +105,7 @@ export interface RuntimeService {
   invoke(name: string, params: Record<string, unknown>, context?: CapabilityExecutionContext): Promise<unknown>
   recover(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext): Promise<CapabilityRecovery>
   cancel(name: string, params: Record<string, unknown>, context: CapabilityExecutionContext): Promise<CapabilityRecovery>
-  capabilities(): readonly CapabilityDefinition[]
+  capabilities(context?: CapabilityContext): readonly CapabilityDefinition[]
   readonly resources: ResourceRegistry
   readonly actions: ReadonlySet<string>
   readonly catalog: ReadOnlyActionCatalog

@@ -45,3 +45,24 @@ test('Conversation consumes observations, recovers from invalid arguments, and s
     await assert.rejects(runtime.invoke('lab.lookup', { index: 743 }), /not registered/)
   } finally { runtime.dispose(); h.store.close() }
 })
+
+
+test('conversation rejects task-only and autonomous entries before asking, then records owner work through follow-up', async () => {
+  let created = 0, dispatched = 0
+  const h = makeConversation({
+    wiredActions: new Set(['delegation.dispatch', 'task.create']),
+    capabilities: () => [{ name: 'conversation.promise_followup', description: 'owner work', inputSchema: { type: 'object' } }],
+    createTask: input => { created++; assert.equal(input.goal, 'write and verify synthetic CSV'); return { id: 'owner-task' } },
+    dispatchFn: async () => { dispatched++; throw new Error('unavailable action reached approval') },
+  })
+  for (const name of ['delegation.dispatch', 'task.create']) h.llm.push({ content: envelope({ decision: { kind: 'tool_call', tool: { name, arguments: {} }, reason: '他问我在不在' } }) })
+  h.llm.push(call => {
+    assert.match(JSON.stringify(call.messages), /not available in this conversation/)
+    return { content: envelope({ decision: { kind: 'promise_followup', content: 'write and verify synthetic CSV', utterances: ['已登记。'], reason: '他问我在不在' } }) }
+  })
+  try {
+    await h.conversation.send('请在后台写程序', { runId: 'context-entry' })
+    assert.equal(dispatched, 0); assert.equal(created, 1)
+    assert.equal(h.conversation.takeDelegatedAsk(), null)
+  } finally { h.store.close() }
+})
