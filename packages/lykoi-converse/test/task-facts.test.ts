@@ -3,25 +3,28 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { taskFacts } from 'lykoi-runtime/task-facts'
+import { taskFacts, taskIndex } from 'lykoi-runtime/task-facts'
 import { TaskStore } from '../../lykoi-task/src/store.ts'
 import { makeConversation, envelope, T0 } from './fixture.ts'
 
-test('each real Conversation model request sees revised requirements and current delivery separately from original goal', async t => {
+test('each real Conversation model request sees revised requirements and current delivery without auto-injecting original history', async t => {
   const root = mkdtempSync(join(tmpdir(), 'converse-facts-'))
   const tasks = new TaskStore(join(root, 'tasks.sqlite'), 'fixture', root)
   t.after(() => { tasks.close(); rmSync(root, { recursive: true, force: true }) })
   const old = tasks.create({ goal: 'OLD', message: { text: 'OLD', delaySeconds: 120 } }, T0)
   tasks.create({ taskId: old.id, goal: 'NEW', message: { text: 'NEW' } }, new Date(T0.getTime() + 1000))
-  const h = makeConversation({ taskContext: () => JSON.stringify({ tasks: tasks.list().map(task => taskFacts(task)) }) })
+  const h = makeConversation({ taskContext: () => JSON.stringify({ tasks: tasks.list().map(task => taskIndex(task)) }) })
   const inspect = (state: string | null) => {
     h.llm.push(call => {
-      const view = JSON.parse(call.messages.find(message => message.content?.startsWith('{"tasks":'))!.content!).tasks[0]
-      assert.equal(view.requirements, 'NEW')
-      assert.equal(view.scheduledMessage.text, 'NEW')
-      assert.equal(view.history.originalGoal, 'OLD')
+      const view = JSON.parse(call.messages.find(message => message.content?.includes('{"tasks":'))!.content!.split('\n').at(-1)!).tasks[0]
+      assert.equal(view.summary, 'NEW')
+      assert.equal(view.history, undefined)
+      assert.equal(view.result, undefined)
+      assert.equal(taskFacts(tasks.get(old.id)).history.originalGoal, 'OLD')
+      assert.equal(taskFacts(tasks.get(old.id)).scheduledMessage?.text, 'NEW')
       assert.equal(view.delivery?.state ?? null, state)
-      assert.equal(view.snapshot.kind, 'current')
+      assert.equal(view.revision, tasks.get(old.id).revision)
+      assert.equal(view.updatedAt, tasks.get(old.id).updatedAt)
       return { content: envelope() }
     })
   }

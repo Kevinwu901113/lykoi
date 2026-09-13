@@ -1,4 +1,4 @@
-import { taskFacts } from 'lykoi-runtime/task-facts'
+import { taskIndex } from 'lykoi-runtime/task-facts'
 /** Cordis conversation assembly, ingress routing and delivery outcomes. */
 import { JSON_MAX_ATTEMPTS } from 'lykoi-llm'
 
@@ -461,7 +461,7 @@ export function apply(ctx: Context, config: Config) {
     },
     taskContext: () => {
       const tasks = ctx.get('tasks')?.list()
-      return JSON.stringify({ tasks: tasks?.map(task => taskFacts(task)), recentSkills: ctx.get('skills')?.recent() })
+      return JSON.stringify({ tasks: tasks?.map(task => taskIndex(task)), recentSkills: ctx.get('skills')?.recent() })
     },
     capabilities: () => ctx.lykoiRuntime.capabilities('conversation').filter(c => c.name.startsWith('conversation.') || checkCapabilityPermission(c.name, 'interactive') !== 'deny'),
     invokeCapability: (name, params) => ctx.lykoiRuntime.invoke(name, params),

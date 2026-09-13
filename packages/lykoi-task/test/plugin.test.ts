@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context } from '@deepseek-ai/cordis'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ReadWriteMemory } from 'lykoi-memory/rw'
@@ -193,4 +193,55 @@ test('background completion retires control approvals but preserves independent 
   await ctx.tasks.scan()
   assert.equal(ctx.tasks.get(task.id).status, 'completed')
   assert.deepEqual(pendingActions().map(p => p.id).sort(), ['read-history', 'read-status'])
+})
+
+test('user Task own-workspace inspection preserves deny, path isolation and unrelated approvals', async t => {
+  const { _setPolicyCoreForTest } = await import('lykoi-kernel')
+  for (const scenario of ['read', 'list', 'deny', 'escape', 'symlink', 'auditfail', 'autonomous', 'write', 'terminal'] as const) await t.test(scenario, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'task-inspect-')), db = join(root, 'memory.db')
+    createStateFixture(db)
+    process.env.LYKOI_APPROVAL_RULES = join(root, 'rules.json')
+    process.env.LYKOI_STANDING_GRANTS = join(root, 'grants.json')
+    process.env.LYKOI_PENDING_ACTIONS = join(root, 'pending.json')
+    writeFileSync(process.env.LYKOI_APPROVAL_RULES, JSON.stringify({ always_allow: [], always_deny: scenario === 'deny' ? ['workspace.read'] : [], ask: ['workspace.read', 'workspace.list', 'workspace.write', 'terminal.exec'] }))
+    _setPolicyCoreForTest(undefined)
+    const instance = { version: 1 as const, id: 'A', origin: 'created' as const, createdAt: new Date().toISOString(), definitionHash: 'fixture', personaPath: definition, stateRoot: root }
+    const ctx = new Context(); ctx.provide('lykoiRuntime', new CapabilityRuntime(() => {}, instance))
+    const events: any[] = []; let approvals = 0
+    ctx.provide('audit', { record: async event => { events.push(event); if (scenario === 'auditfail' && event.type === 'task/workspace_read_authorized') throw new Error('audit unavailable') } })
+    if (scenario === 'autonomous') ctx.provide('mind', { view: () => ({ records: [{ id: 'thought-fixture', kind: 'thought' }], events: [] }), receive: () => {} })
+    const action = scenario === 'list' ? { name: 'workspace.list', args: {} }
+      : scenario === 'write' ? { name: 'workspace.write', args: { path: 'new.txt', content: 'no' } }
+      : scenario === 'terminal' ? { name: 'terminal.exec', args: { command: 'touch unexpected' } }
+      : { name: 'workspace.read', args: { path: scenario === 'escape' ? '../outside.txt' : scenario === 'symlink' ? 'link.txt' : 'result.txt' } }
+    ctx.provide('lykoiLlm', { call: async options => {
+      const payload = JSON.parse((options.messages.at(-1)!.content[0] as { text: string }).text)
+      if (!payload.operations.length) return { text: JSON.stringify({ kind: 'act', action }), reasoningLength: 0 }
+      const observation = payload.operations.at(-1).observation
+      if (scenario === 'read') assert.equal(observation.data.text, 'verified content')
+      if (scenario === 'list') assert.ok(observation.data.files.includes('result.txt'))
+      if (['deny', 'escape', 'symlink', 'auditfail'].includes(scenario)) assert.equal(observation.success, false)
+      return { text: JSON.stringify({ kind: 'finish', result: observation.success
+        ? { status: 'completed', checkpoint: 'verified', content: 'done', artifacts: ['result.txt'] }
+        : { status: 'failed', checkpoint: 'blocked', reason: observation.error } }), reasoningLength: 0 }
+    } })
+    const organ = await ctx.plugin(workspace, { directory: join(root, 'workspace') })
+    const fiber = await ctx.plugin(taskPlugin, { dbPath: join(root, 'tasks.sqlite'), memoryPath: db, root: join(root, 'tasks'), personaToml: definition, route: 'fixture', model: 'fixture', maxActions: 2, intervalMs: 60000 })
+    ctx.tasks.bindInteractions({ requestApproval: async () => { approvals++ }, deliver: async () => ({ state: 'sent' }) })
+    try {
+      const task = ctx.tasks.create({ goal: 'inspect own files', origin: scenario === 'autonomous' ? 'autonomous' : 'user', ...(scenario === 'autonomous' ? { thoughtId: 'thought-fixture', reason: 'fixture' } : {}) })
+      writeFileSync(join(root, 'tasks', task.id, 'workspace', 'result.txt'), 'verified content')
+      writeFileSync(join(root, 'outside.txt'), 'private outside')
+      symlinkSync(join(root, 'outside.txt'), join(root, 'tasks', task.id, 'workspace', 'link.txt'))
+      await ctx.tasks.scan()
+      if (['autonomous', 'write', 'terminal'].includes(scenario)) {
+        assert.ok(approvals > 0 || ctx.tasks.get(task.id).status === 'failed')
+        assert.ok(!events.some(e => e.type === 'task/workspace_read_authorized'))
+      } else {
+        assert.equal(approvals, 0)
+        assert.equal(ctx.tasks.get(task.id).status, scenario === 'auditfail' ? 'waiting' : ['deny', 'escape', 'symlink'].includes(scenario) ? 'failed' : 'completed')
+        if (scenario === 'auditfail') assert.ok(!events.some(e => e.type === 'action_dispatch'))
+      }
+    } finally { await ctx.tasks.close(); await fiber.dispose(); await organ.dispose(); rmSync(root, { recursive: true, force: true }) }
+  })
 })

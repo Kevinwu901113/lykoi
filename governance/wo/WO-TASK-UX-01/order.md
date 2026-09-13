@@ -1,0 +1,3 @@
+# Task UX
+
+Owner authorized fixing repeated workspace-read approvals and verbose historical replies, with direct merge and owner-operated deployment. Explicit scope: user-origin Task may inspect its own isolated workspace without a fresh approval for each read/list. Existing deny rules and realpath containment remain mandatory; autonomous tasks, conversation reads, writes, terminals, exports and other capabilities unchanged. Requires independent governance review. Default foreground context becomes a compact live Task index; full facts/history remain available on demand. No state cleanup, quota or credential changes, no replay of old tasks. Full tests and typecheck required, followed by fresh production UX acceptance.
