@@ -325,7 +325,7 @@ export function apply(ctx: Context, config: Config) {
   const kernelDispatch: ReturnType<typeof createDispatch> = async (action, options) => {
     if (options.preApproved && options.actionId?.startsWith('op-')) {
       if (!await ctx.get('tasks')?.approve(options.actionId, { name: action.type, args: action.params })) throw new Error('task operation is no longer available')
-      return { success: true, data: { task_queued: true }, error: null }
+      return { success: true, data: { task_queued: true, task_id: options.correlationId, operation_id: options.actionId, execution_owner: 'task' }, error: null }
     }
     return baseDispatch(action, options)
   }

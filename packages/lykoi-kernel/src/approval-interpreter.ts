@@ -428,6 +428,23 @@ export function resolveTargetDetail(
     // 都是追问而不是放行。
     logEvent('approval_answer_quote_unmatched', { reply_to: target, pending: records.length })
   }
+  // A quoted complete path identifies a subject, never an approval verdict.
+  // Do not extract identities from arbitrary command/message text.
+  const references = new Set([...answer.matchAll(/「([^」]+)」|『([^』]+)』|"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`/gu)]
+    .map(match => match.slice(1).find(value => value !== undefined)))
+  const fileTargets = records.filter(item => {
+    const path = (item.params as Record<string, unknown> | undefined)?.path
+    return ['workspace.read', 'workspace.write', 'messenger.send_file'].includes(String(item.action_type))
+      && typeof path === 'string' && references.has(path)
+  })
+  if (fileTargets.length === 1) return [fileTargets[0]!, MATCHED]
+  if (fileTargets.length > 1) return [null, AMBIGUOUS_MULTIPLE]
+  // An explicit file reference that is not a complete unique identity must not
+  // be weakened into a token score (e.g. two directories with the same basename).
+  if (records.length > 1 && [...references].some(reference => reference?.includes('.') || reference?.includes('/'))
+    && records.some(item => ['workspace.read', 'workspace.write', 'messenger.send_file'].includes(String(item.action_type)))) {
+    return [null, AMBIGUOUS_MULTIPLE]
+  }
   const matches = records.filter((item) => _semanticScore(answer, item) >= SEMANTIC_MATCH_MIN)
   if (matches.length === 1) return [matches[0]!, MATCHED]
   if (matches.length > 1) return [null, AMBIGUOUS_MULTIPLE]

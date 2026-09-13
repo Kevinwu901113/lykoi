@@ -202,3 +202,17 @@ test('approved structured result reaches cognition as observation, not system au
     assert.equal(reply, '实际共有5项。')
   } finally { h.store.close() }
 })
+
+test('queued Task ownership reaches foreground while an unrelated question remains answerable', async () => {
+  const h = makeConversation()
+  const observation = { success: true, data: { task_queued: true, task_id: 'task-fixture', operation_id: 'op-fixture', execution_owner: 'task' }, error: null }
+  try {
+    h.llm.push(call => {
+      assert.ok(call.messages.some(m => m.role === 'user' && m.content?.includes('"task_id":"task-fixture"')))
+      assert.ok(call.messages.some(m => m.role === 'system' && m.content?.includes('执行、核验成果、后续批准与最终交付均由该 Task 负责')))
+      assert.ok(call.messages.some(m => m.role === 'user' && m.content === '可以，另外18乘7是多少？'))
+      return { content: envelope({ decision: { kind: 'reply', content: '18 × 7 = 126。', reason: '回答独立问题' } }) }
+    })
+    assert.equal(await h.conversation.send('可以，另外18乘7是多少？', { handledInteractions: [{ kind: 'approval_answer', outcome: 'execute_once', executed: false, replied: true, observation }] }), '18 × 7 = 126。')
+  } finally { h.store.close() }
+})

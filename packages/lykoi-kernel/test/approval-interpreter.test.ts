@@ -477,3 +477,27 @@ test('SK-37：buildInterpretMessages 是可测的纯结构（不用模型）', (
   assert.ok(messages[1]!.content.includes('user:kevin'))
   assert.ok(messages[2]!.content.includes('"""A"""'))
 })
+
+test('quoted file subjects locate one pending operation without granting it', async () => {
+  setup()
+  const file = record({ id: 'file', action_type: 'workspace.read', params: { path: '結果.csv' }, question_text: '读取工作区文件，核对这次任务产生的完整结果。' })
+  const terminal = record({ id: 'terminal', action_type: 'terminal.exec', params: { command: 'cat 結果.csv' }, question_text: '运行额外终端检查。' })
+  const pending = [file, terminal]
+  assert.deepEqual(resolveTargetDetail('只批准讀取「結果.csv」，不要執行終端命令。', pending, { now: T0 }), [file, MATCHED])
+  assert.deepEqual(resolveTargetDetail('不要讀取「結果.csv」', pending, { replyTo: 'terminal', now: T0 }), [terminal, MATCHED])
+  for (const answer of ['讀取「結果」', '讀取「結果.csv.bak」', '讀取「前綴結果.csv」']) {
+    assert.deepEqual(resolveTargetDetail(answer, pending, { now: T0 }), [null, AMBIGUOUS_MULTIPLE])
+  }
+  const write = record({ id: 'write', action_type: 'workspace.write', params: { path: '結果.csv', content: 'other' } })
+  assert.deepEqual(resolveTargetDetail('批准「結果.csv」', [file, write], { now: T0 }), [null, AMBIGUOUS_MULTIPLE])
+  const dirs = ['a/結果.csv', 'another/結果.csv'].map((path, index) => record({ id: String(index), action_type: 'workspace.read', params: { path }, question_text: undefined }))
+  assert.deepEqual(resolveTargetDetail('批准讀取「結果.csv」', dirs, { now: T0 }), [null, AMBIGUOUS_MULTIPLE])
+  const otherFile = record({ id: 'other', action_type: 'workspace.read', params: { path: 'other/結果.csv' }, question_text: '另一个目录的文件' })
+  assert.deepEqual(resolveTargetDetail('批准「結果.csv」和「other/結果.csv」', [file, otherFile], { now: T0 }), [null, AMBIGUOUS_MULTIPLE])
+  fakeLlm('{"verdict":"deny","confidence":1,"conditions":[],"reason":"拒绝读取"}')
+  const denied = await handleAnswer('不批准讀取「結果.csv」', { pendingQuestions: pending, now: T0 })
+  assert.equal(denied.outcome, 'denied'); assert.equal(denied.question?.id, 'file')
+  fakeLlm('{"verdict":"approve","confidence":1,"conditions":["改讀其他檔案"],"reason":"修改要求"}')
+  const revised = await handleAnswer('「結果.csv」先改讀其他檔案', { pendingQuestions: pending, now: T0 })
+  assert.equal(revised.outcome, 'revision_requested')
+})
