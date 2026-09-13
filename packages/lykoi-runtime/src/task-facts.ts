@@ -14,3 +14,13 @@ export function taskFacts(task: TaskSummary, kind: 'current' | 'event' = 'curren
     origin: task.origin, thoughtId: task.thoughtId, reason: task.reason,
   }
 }
+
+/** Default conversation index. Full evidence remains available through task.get/history. */
+export function taskIndex(task: TaskSummary) {
+  return {
+    id: task.id, status: task.status, revision: task.revision, updatedAt: task.updatedAt,
+    summary: task.requirements.slice(0, 160),
+    wait: task.wait ? { kind: task.wait.kind, until: task.wait.until } : null,
+    delivery: task.delivery ? { state: task.delivery.state } : null,
+  }
+}
