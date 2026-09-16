@@ -2,7 +2,7 @@
   "name": "lykoi-cordis",
   "version": "0.0.0",
   "private": true,
-  "description": "Lykoi 的 Cordis(TS/Node) 完全移植体 — M1 骨架",
+  "description": "Lykoi 长期个人 AI Agent 的 Cordis / TypeScript 运行时",
   "type": "module",
   "engines": {
     "node": ">=24"

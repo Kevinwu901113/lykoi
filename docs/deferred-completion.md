@@ -41,7 +41,7 @@ Panel 支持 PNG/JPEG/WebP/GIF 单图上传（8 MiB），由视觉模型描述�
 
 签名生产 profile 已加入 Panel、Workspace、Pi Runner 和附件存储。文件操作继续经过已有 Capability/Kernel 门；Pi 继续由 Persistent Task 发起并记录真实回执。没有自动批准 `terminal.exec` 或 `delegation.dispatch`。Pi 执行使用部署用户的 OS 权限，workspace 是 cwd，不能当作 OS 沙箱。
 
-2026-09-13 最新所有者部署回执：生产提交 `5321b3f`（PR #17），服务 active/running、NRestarts=0，Gate 与状态连续性通过。Panel/Workspace/Pi 装配已随此前部署落地，Pi 固定版本 0.85.1 已供给。Telegram 文件申请、明确导出批准、附件接收和实际下载字节比对已通过本样本；复杂 Task/Pi 作业和完整 Panel 生产体验尚未验收。当前事实与失败项见 [当前版本结论](../governance/CURRENT_VERSION.md)。治理 SSH 仍无 root 写入/重启权限。
+最新部署与用户路径结果统一见 [当前版本结论](../governance/CURRENT_VERSION.md)。Panel/Workspace/Pi 与附件存储已装配；Telegram 文件下载和 Task/Pi 成果分别有真实样本验收，完整 Panel 生产体验仍待验收。不要用本节旧升级脚本或历史工单的“待部署”状态推断当前生产版本。治理 SSH 仍无 root 写入/重启权限。
 
 首次装配使用的 [root 升级脚本](../governance/wo/WO-DEFERRED-COMPLETION/upgrade.sh) 接收本次 bundle 与完整提交 SHA；安装固定 Pi、校验基线、停止服务、备份状态、升级依赖、重签 Gate 后启动。任何失败停在该步，不自动回滚正在演化的状态。备份和凭据不得进 Git。回退需停稳新服务，恢复备份的 state/instances/governance 和记录的 previous-commit，重新安装该版依赖并重签 Gate。
 

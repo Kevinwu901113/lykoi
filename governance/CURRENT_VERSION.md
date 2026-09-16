@@ -1,14 +1,26 @@
-# 当前版本结论 · 2026-09-13
+# 当前版本结论 · 2026-09-16
 
 核心工程已落地，真实用户体验仍在收尾。合并、部署和体验验收分别记账；旧报告只代表当时结果。
 
 ## 已部署版本
 
-所有者最新部署回执为 `f579b185565eaba31b37d160f09cddd517482448`（PR #19），已包含 PR #18 核心体验修复与每日400万 token 额度。Gate 校验通过，实例状态保留，Cordis/Browser active/running、NRestarts=0。连续部署已包含 PR #13 Panel/Workspace/Pi、#14 Task facts、#15 审批技术失败处理、#16 文件发送与 #17 代理 multipart 修复。固定 Pi 0.85.1 已供给；不能再沿用旧账中的“生产没有文件工具/Pi”。这些是部署时证据，不是持续健康承诺。
+2026-09-16 经 GitHub API 与治理 SSH 只读核验：GitHub main 与生产 HEAD 均为 `30f28cd156b25c591a279ecf3c544b3361cebe17`（PR #23）。PR #20～#23 已部署，不能再将 PR #19 当作最新生产版本。
+
+所有者于 2026-09-14 部署 #23；当次记录显示 Gate、实例连续性与预算保留通过。9 月 16 日复核时，Cordis/Browser 均 active/running、NRestarts=0，ActiveEnterTimestamp 均为 9 月 14 日 13:49:23 CST，看门狗与备份 timer 均 active。此处是带日期的运行快照，不代表所有用户路径持续健康；本次没有重跑 Gate 或部署。
+
+PR #20 修复 Conversation/Wake/Task capability context；#21 修复 Pi 可写状态目录；#22 修复任务归属与审批指向；#23 减少 Task 自有工作区检查审批与默认前台历史注入。工程报告见各工单；最新真实样本见 [Task UX 生产验收摘要](wo/WO-TASK-UX-01/acceptance-live.md)。
 
 减负与解耦、Character Instance、共享 Cognition、Task/Pi、Skill 和持续 Mind 的工程报告分别见 [减负](wo/WO-RUNTIME-SLIMDOWN-01/report.md)、[P1](../docs/p1-instance.md)、[P2](../docs/p2-cognition.md)、[P3](../docs/p3-tasks.md)、[P4](wo/WO-P4-SKILL-01/report.md)、[P5](wo/WO-P5-PERSISTENT-MIND/structural-review.md)。工程通过不代表长期使用质量已经证明。
 
-## 本轮真实 Telegram 验收
+## 当前使用阶段与未完成项
+
+9 月 14 日的新合成 Telegram 任务已走通：自然语言委托、一次 Pi 批准、真实执行、两个成果文件内容核验、Task completed、最终回复实际收到一次。批准时夹带的独立算术问题也正确回答。这个样本未触发后续 workspace read/list，不能据此声称生产已覆盖自有工作区免审批分支；也未做附件导出或复杂任务普遍可靠性验证。
+
+仍有明确体验问题：开场回复提及旧测试失败、审批展示过长的技术提示、前台重复排队回执。减少默认历史注入已经实现，不等于模型措辞问题全部解决。
+
+下一阶段以真实需求和日常相处验证任务理解、必要澄清、执行与自然交付，以及记忆、人格连续性和自主活动质量。完整 Panel 生产体验、视觉供给与 Telegram 多模态仍待完成；Resolver/Forge/DAG 等继续冻结。当前不需要为 #20～#23 重复安排部署。
+
+## 9 月 13 日历史 Telegram 验收（截至 PR #19）
 
 仅使用新建的合成测试任务；不恢复历史取消任务。聊天、审计及生产状态的具体 ID 和原件留在治理本机，不入 Git。
 
@@ -37,8 +49,8 @@
 - 长期人格一致性、Skill 泛化与 Mind 同预算效果需要日常使用证据，不能用短时冒烟测试判定成熟。
 - Resolver、Forge、DAG、自动 Skill 晋升和角色间编排仍冻结；本轮不另造执行框架。
 
-## 9 月 13 日后续实测与当前部署
+## 9 月 13 日历史失败记录（截至 PR #19，后续见上方验收）
 
-最新已部署 f579b185565eaba31b37d160f09cddd517482448（PR #19），每日总量与 DeepSeek 路由上限均为400万 tokens，历史已用量保留。PR #18 条件批准已在真实 Telegram 通过：旧文件在修订批准前不存在，新批准后实际内容正确。新提醒的暂停、自然批准恢复、原 dueAt 保持、到期原文送达一次也通过。
+当时已部署 f579b185565eaba31b37d160f09cddd517482448（PR #19），每日总量与 DeepSeek 路由上限均为400万 tokens，历史已用量保留。PR #18 条件批准已在真实 Telegram 通过：旧文件在修订批准前不存在，新批准后实际内容正确。新提醒的暂停、自然批准恢复、原 dueAt 保持、到期原文送达一次也通过。
 
-新的真实程式请求仍失败：前台直接 Pi 缺少 Task context，又用自主 task.create 承接用户委托，导致后续自主委派被拒绝。任务已 failed，工作区无成果。候选修复见 [WO-CAPABILITY-CONTEXT-01](wo/WO-CAPABILITY-CONTEXT-01/REPORT.md)。Pi 完整成果验收仍待部署后进行，不能用这次正确的权限拒绝算交付成功。
+新的真实程式请求仍失败：前台直接 Pi 缺少 Task context，又用自主 task.create 承接用户委托，导致后续自主委派被拒绝。任务已 failed，工作区无成果。候选修复见 [WO-CAPABILITY-CONTEXT-01](wo/WO-CAPABILITY-CONTEXT-01/REPORT.md)。当时 Pi 完整成果验收仍待部署后进行，该次正确的权限拒绝不算交付成功；后续 #23 已完成上方所述新样本验收。

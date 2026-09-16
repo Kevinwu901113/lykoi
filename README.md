@@ -25,6 +25,9 @@ Lykoi 是一个面向长期持续运行的个人 AI Agent，核心关注 **持�
 - **预算控制**：独立记录和限制 LLM 调用消耗。
 - **审计记录**：重要决策和动作写入独立审计链路。
 - **Telegram 接入**：当前主要交互入口。
+- **持久任务与 Pi**：承接任务、等待审批、记录执行结果并交付；真实样本及限制见当前版本结论。
+- **角色实例与 Mind**：实例保存独立状态，Converse/Wake 共用持续 Mind；长期效果仍待日常使用验证。
+- **Panel 与工作区**：提供 Web 入口、任务状态及文件能力，完整生产界面体验仍待验收。
 
 ## 架构
 
@@ -71,6 +74,15 @@ LLM 可以负责理解、推理和提出动作，但最终是否允许执行，�
 
 ```text
 packages/
+├── lykoi-contracts         插件间共享契约
+├── lykoi-runtime           Runtime 服务与能力注册
+├── lykoi-ingress           持久接收与用户回合聚合
+├── lykoi-task              持久任务、等待、恢复与交付
+├── lykoi-runner-pi         Task 的 Pi 执行器
+├── lykoi-skill             Skill 存储与使用
+├── lykoi-panel             Web 控制台
+├── lykoi-organ-browser     浏览器能力
+├── lykoi-organ-workspace   工作区与文件能力
 ├── lykoi-converse          对话循环
 ├── lykoi-wake              自主唤醒
 ├── lykoi-memory            持久状态与记忆
@@ -129,4 +141,6 @@ Lykoi 当前主要遵循以下约束：
 
 当前运行时（Cordis 移植体）2026-08-31 上线，接管此前 Python 运行时的全部记忆状态；2026-09-01 完成第一次成功的自主唤醒。具备 Telegram 对话、持久记忆、自主唤醒、学习、受控动作执行、审计和 LLM 预算管理。
 
-项目仍在持续开发中。目前浏览器、环境感知和更丰富的外部能力仍未进入稳定运行时。
+Character Instance、共享 Cognition、持久 Task/Pi、Skill、Mind 与 Panel 已有工程实现；Task/Pi 已通过真实 Telegram 成果样本。日常任务可靠性、长期人格与记忆效果、完整 Panel 体验仍需验证。浏览器已有能力包与生产服务，不能仅据服务运行判定浏览体验成熟；生产视觉与 Telegram 多模态仍有缺口。
+
+最新部署与具体验收边界统一见 [当前版本结论](governance/CURRENT_VERSION.md)。下一阶段优先验证真实使用闭环；Resolver、Forge、DAG 等仍冻结。
