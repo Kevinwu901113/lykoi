@@ -82,6 +82,36 @@ export function validateDefinition(value: unknown, registry: ComponentRegistry):
   }
   const nodes = new Map(d.nodes.map((n) => [n.id, n]))
   if (nodes.size !== d.nodes.length) throw new Error('duplicate node')
+  if (d.editor !== undefined) {
+    const editor = d.editor
+    const coordinate = (v: unknown): v is number =>
+      typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 100000
+    if (
+      !object(editor) ||
+      !object(editor.positions) ||
+      !object(editor.viewport) ||
+      Object.keys(editor).some(
+        (key) => !['positions', 'viewport'].includes(key)
+      ) ||
+      Object.keys(editor.viewport).some(
+        (key) => !['x', 'y', 'zoom'].includes(key)
+      ) ||
+      !coordinate(editor.viewport.x) ||
+      !coordinate(editor.viewport.y) ||
+      typeof editor.viewport.zoom !== 'number' ||
+      editor.viewport.zoom < 0.25 ||
+      editor.viewport.zoom > 1.8 ||
+      Object.entries(editor.positions).some(
+        ([id, point]) =>
+          !nodes.has(id) ||
+          !object(point) ||
+          Object.keys(point).some((key) => !['x', 'y'].includes(key)) ||
+          !coordinate(point.x) ||
+          !coordinate(point.y)
+      )
+    )
+      throw new Error('invalid editor geometry')
+  }
   for (const n of d.nodes) {
     if (
       !validId(n.id) ||

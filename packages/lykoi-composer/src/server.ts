@@ -96,6 +96,7 @@ export function createComposerServer(
       const files: Record<string, [string, string]> = {
         '/': ['index.html', 'text/html'],
         '/app.js': ['app.js', 'text/javascript'],
+        '/graph-editor.js': ['graph-editor.js', 'text/javascript'],
         '/style.css': ['style.css', 'text/css']
       }
       if (req.method !== 'GET' || !files[path]) {

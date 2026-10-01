@@ -17,6 +17,11 @@ export interface AgentDefinition {
   output: string
   resources: { id: string; type: 'model' | 'workspace'; config: Config }[]
   execution: { mode: 'single' | 'tools'; maxActions: number; timeoutMs: number }
+  // Presentation only. The executor never uses editor geometry to determine order.
+  editor?: {
+    positions: Record<string, { x: number; y: number }>
+    viewport: { x: number; y: number; zoom: number }
+  }
 }
 export interface DefinitionVersion {
   agentId: string

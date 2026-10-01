@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -7,127 +7,288 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <header>
-      <a class="brand" href="/">◈ <span>Lykoi</span><small>COMPOSER</small></a
-      ><span class="edition">装配工作台 · 首版</span>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Lykoi 首页">◈ <span>lykoi</span></a>
+      <span class="separator"></span>
+      <div class="document-title">
+        <input
+          id="agent-name"
+          aria-label="Agent 名称"
+          value="我的 Agent"
+        /><span id="revision">未保存</span>
+      </div>
       <div class="header-actions">
-        <button id="load-demo">加载示例</button><button id="export">导出定义</button
-        ><label class="button"
-          >导入定义<input type="file" id="import" accept="application/json,.json" hidden /></label
-        ><button class="primary" id="save">保存新版本</button>
+        <button id="load-demo">加载示例</button>
+        <button id="theme" aria-label="切换深浅主题">浅色</button>
+        <button id="save">保存版本</button>
+        <button class="primary" id="open-run">
+          试运行 <span aria-hidden="true">▶</span>
+        </button>
       </div>
     </header>
-    <div id="notice" role="status" aria-live="polite">添加组件、连接输入，再选择执行方式。</div>
-    <main>
-      <aside class="library">
-        <div class="section-label">01 / 组件库</div>
-        <h2>构建你的 Agent</h2>
-        <p class="muted">Core 是计算组件。整个装配结果才是 Agent。</p>
-        <div id="catalog"></div>
-        <div class="section-label space">已保存的 Agent</div>
-        <select id="saved-agents" aria-label="已保存的 Agent">
-          <option value="">选择已保存定义</option></select
-        ><button id="open-agent">打开定义</button>
-        <p class="muted small">仅装载预先注册的可信组件。首版不支持上传可执行插件。</p>
-      </aside>
-      <section class="workspace">
-        <div class="workspace-head">
-          <div>
-            <div class="section-label">02 / 装配画布</div>
-            <div class="identity">
-              <input id="agent-name" aria-label="Agent 名称" value="我的 Agent" /><span id="revision"
-                >未保存</span
-              >
-            </div>
-          </div>
-          <button id="new">新建</button>
+    <div class="editor-shell">
+      <nav class="rail" aria-label="工作台面板">
+        <button
+          id="show-library"
+          class="rail-button active"
+          aria-expanded="true"
+          aria-controls="library"
+          aria-label="组件库"
+        >
+          <span aria-hidden="true">＋</span><small>组件</small>
+        </button>
+        <button
+          id="show-agents"
+          class="rail-button"
+          aria-expanded="false"
+          aria-controls="agents-panel"
+        >
+          <span aria-hidden="true">▤</span><small>定义</small>
+        </button>
+        <button
+          id="show-settings"
+          class="rail-button"
+          aria-expanded="false"
+          aria-controls="settings-panel"
+        >
+          <span aria-hidden="true">⚙</span><small>设置</small>
+        </button>
+        <div class="rail-bottom">
+          <button id="new" class="rail-button">
+            <span aria-hidden="true">◇</span><small>新建</small>
+          </button>
         </div>
-        <div class="canvas-scroll">
-          <div id="canvas">
-            <svg id="edges" aria-hidden="true"></svg>
-            <div id="nodes"></div>
+      </nav>
+      <main class="stage">
+        <section class="workspace" aria-label="Agent 节点画布">
+          <div class="canvas-heading">
+            <span class="section-label">AGENT COMPOSER</span
+            ><span id="graph-info">0 个组件</span>
+          </div>
+          <div
+            id="canvas"
+            tabindex="0"
+            aria-label="节点画布。拖动标题移动组件，拖动空白平移，滚轮缩放。"
+          >
+            <div id="world">
+              <svg id="edges" aria-label="组件连接"></svg>
+              <div id="nodes"></div>
+            </div>
             <div id="empty">
-              从左侧添加第一个组件<br /><small>连接提示词、Core 和输出，构建最小链路</small>
+              <div class="empty-mark">◇</div>
+              <h2>从一个组件开始</h2>
+              <p>打开组件库，或加载最小装配示例。</p>
+              <button id="empty-demo">加载示例 →</button>
             </div>
           </div>
-        </div>
-        <div class="graph-footer">
-          <span id="graph-info">0 个组件</span><span>分支支持 · 单输入端口 · 无环连接</span>
-        </div>
-        <section class="execution">
-          <div>
-            <div class="section-label">03 / 执行方式</div>
-            <h3>由你决定如何运行</h3>
+          <div class="canvas-tools" aria-label="画布操作">
+            <button id="undo" aria-label="撤销" disabled>↶</button
+            ><button id="redo" aria-label="重做" disabled>↷</button
+            ><span class="separator"></span>
+            <button id="zoom-out" aria-label="缩小">−</button
+            ><span id="zoom-level">100%</span
+            ><button id="zoom-in" aria-label="放大">＋</button
+            ><button id="fit">适应画布</button
+            ><button id="arrange">自动排列</button>
           </div>
-          <div class="execution-fields">
-            <label
-              >执行策略<select id="mode">
-                <option value="single">单次计算</option>
-                <option value="tools">有界工具循环</option>
-              </select></label
-            ><label>总工具步数<input id="max-actions" type="number" min="0" max="32" value="4" /></label
-            ><label>活动时长上限 / 秒<input id="timeout" type="number" min="1" max="300" value="60" /></label
-            ><label>最终输出<select id="output"></select></label>
+          <div class="canvas-hint">
+            拖动标题移动 · 空白拖动平移 · 滚轮缩放 · 双击添加
+          </div>
+          <div id="notice" role="status" aria-live="polite">
+            准备就绪。通过输入输出端口连接组件。
           </div>
         </section>
-      </section>
-      <aside class="inspector">
-        <div class="section-label">组件配置</div>
-        <div id="inspector"><p class="muted">选择画布中的组件进行配置。</p></div>
-        <details class="resources" open>
-          <summary>共享资源</summary>
+        <aside id="library" class="drawer">
+          <div class="panel-heading">
+            <h2>组件库</h2>
+            <button
+              class="close-panel"
+              data-close="library"
+              aria-label="关闭组件库"
+            >
+              ×
+            </button>
+          </div>
+          <label class="search-label"
+            ><span class="sr-only">搜索组件</span
+            ><input id="component-search" placeholder="搜索名称或能力…"
+          /></label>
+          <p class="muted small">添加到画布，通过端口连接。</p>
+          <div id="catalog"></div>
+          <p class="drawer-foot muted small">当前提供 6 个可信组件</p>
+        </aside>
+        <aside id="agents-panel" class="drawer" hidden>
+          <div class="panel-heading">
+            <h2>Agent 定义</h2>
+            <button
+              class="close-panel"
+              data-close="agents-panel"
+              aria-label="关闭定义面板"
+            >
+              ×
+            </button>
+          </div>
+          <label
+            >已保存的 Agent<select
+              id="saved-agents"
+              aria-label="已保存的 Agent"
+            >
+              <option value="">选择已保存定义</option>
+            </select></label
+          ><button id="open-agent">打开定义</button>
+          <div class="section-divider"></div>
+          <h3>导入与导出</h3>
+          <button id="export">导出定义</button
+          ><label class="button"
+            >导入定义<input
+              type="file"
+              id="import"
+              accept="application/json,.json"
+              hidden
+          /></label>
+          <p class="muted small">
+            定义包含组件、绑定和画布布局。导入时创建新的 Agent。
+          </p>
+        </aside>
+        <aside id="settings-panel" class="drawer settings-drawer" hidden>
+          <div class="panel-heading">
+            <h2>Agent 设置</h2>
+            <button
+              class="close-panel"
+              data-close="settings-panel"
+              aria-label="关闭设置面板"
+            >
+              ×
+            </button>
+          </div>
+          <h3>执行方式</h3>
+          <label
+            >执行策略<select id="mode">
+              <option value="single">单次计算</option>
+              <option value="tools">有界工具循环</option>
+            </select></label
+          >
+          <div class="field-pair">
+            <label
+              >工具步数上限<input
+                id="max-actions"
+                type="number"
+                min="0"
+                max="32"
+                value="4" /></label
+            ><label
+              >活动时长 / 秒<input
+                id="timeout"
+                type="number"
+                min="1"
+                max="300"
+                value="60"
+            /></label>
+          </div>
+          <label>最终输出<select id="output"></select></label>
+          <div class="section-divider"></div>
+          <h3>共享资源</h3>
           <div id="resources"></div>
-          <button id="add-model">添加模型资源</button><button id="add-workspace">添加工作区</button>
-        </details>
-      </aside>
-    </main>
-    <section class="run-panel">
-      <div class="run-compose">
-        <div class="section-label">04 / 运行与观察</div>
-        <h2>让装配开始工作</h2>
-        <div class="instance-line">
-          <select id="instances" aria-label="运行实例"></select
-          ><button id="create-instance">新建实例</button>
-        </div>
-        <label
-          >本次输入<textarea id="run-input" placeholder="输入要交给 Agent 的内容…" rows="3"></textarea></label
-        ><button class="primary" id="run">运行已保存版本 →</button>
-        <p class="muted small" id="run-hint">先保存定义，再创建实例。每个实例有独立的工作区。</p>
-        <label
-          >运行记录<select id="run-history">
-            <option value="">选择运行记录</option>
-          </select></label
+          <div class="button-row">
+            <button id="add-model">＋ 模型</button
+            ><button id="add-workspace">＋ 工作区</button>
+          </div>
+        </aside>
+        <aside id="inspector-panel" class="inspector" hidden>
+          <div class="panel-heading">
+            <span class="section-label">节点配置</span
+            ><button id="close-inspector" aria-label="关闭节点配置">×</button>
+          </div>
+          <div id="inspector"></div>
+        </aside>
+      </main>
+    </div>
+    <section id="run-dock" class="run-dock" aria-label="运行调试">
+      <div class="dock-heading">
+        <button
+          id="toggle-run"
+          aria-expanded="false"
+          aria-controls="run-content"
         >
+          运行与调试 <span id="dock-chevron" aria-hidden="true">⌃</span></button
+        ><span id="run-status" class="badge">尚未运行</span
+        ><span class="dock-version" id="run-context">保存定义后可试运行</span>
+        <div id="run-controls">
+          <button id="pause" disabled>暂停</button
+          ><button id="resume" disabled>继续</button
+          ><button id="cancel" disabled>取消</button>
+        </div>
       </div>
-      <div class="run-observer">
-        <div class="observer-head">
-          <h3>运行详情</h3>
-          <span id="run-status" class="badge">尚未运行</span>
-          <div id="run-controls">
-            <button id="pause">暂停</button><button id="resume">继续</button><button id="cancel">取消</button>
+      <div id="run-content" class="run-content" hidden>
+        <div class="run-compose">
+          <div class="section-label">本次运行</div>
+          <div class="instance-line">
+            <select id="instances" aria-label="运行实例"></select
+            ><button id="create-instance">新建实例</button>
           </div>
+          <label
+            >输入<textarea
+              id="run-input"
+              placeholder="交给 Agent 的内容…"
+              rows="3"
+            ></textarea></label
+          ><button class="primary" id="run">运行已保存版本 ▶</button>
+          <p id="run-hint" class="muted small">先保存定义，再创建实例。</p>
+          <label
+            >运行记录<select id="run-history">
+              <option value="">选择运行记录</option>
+            </select></label
+          >
         </div>
-        <div id="wait-box" hidden>
-          <strong id="wait-prompt"></strong>
-          <p id="wait-help" class="muted small"></p>
-          <textarea id="wait-value" rows="3" placeholder="输入继续运行的内容"></textarea
-          ><label><input type="checkbox" id="wait-json" />作为 JSON 结果提交</label
-          ><button id="resolve" class="primary">提交结果并继续</button>
-        </div>
-        <div class="observer-columns">
-          <div>
-            <div class="section-label">输出 / 已完成节点</div>
-            <pre id="result">运行结果将在这里显示。</pre>
+        <div class="run-observer">
+          <div class="observer-tabs" role="tablist" aria-label="运行观察">
+            <button
+              id="tab-result"
+              role="tab"
+              aria-selected="true"
+              aria-controls="result-panel"
+            >
+              输入 / 输出</button
+            ><button
+              id="tab-trace"
+              role="tab"
+              aria-selected="false"
+              aria-controls="trace-panel"
+            >
+              时间线
+            </button>
           </div>
-          <div>
-            <div class="section-label">运行时间线</div>
+          <div id="wait-box" hidden>
+            <strong id="wait-prompt"></strong>
+            <p id="wait-help" class="muted small"></p>
+            <textarea
+              id="wait-value"
+              rows="2"
+              placeholder="输入确认后的结果"
+            ></textarea>
+            <div class="button-row">
+              <label class="tool-check"
+                ><input type="checkbox" id="wait-json" />作为 JSON 提交</label
+              ><button id="resolve" class="primary">提交结果并继续</button>
+            </div>
+          </div>
+          <div id="result-panel" role="tabpanel" aria-labelledby="tab-result">
+            <pre id="result">运行后可检查各节点的输出。</pre>
+          </div>
+          <div
+            id="trace-panel"
+            role="tabpanel"
+            aria-labelledby="tab-trace"
+            hidden
+          >
             <ol id="trace"></ol>
           </div>
         </div>
       </div>
     </section>
     <footer>
-      <span>LYKOI / 组件装配 · 独立实例 · 持久运行</span><span>离线演示模型不提供真实联网调研结果</span>
+      <span>LYKOI <span class="muted">/</span> 组件装配 · 持久运行</span
+      ><span>离线演示模型不提供联网调研结果</span>
     </footer>
     <script type="module" src="/app.js"></script>
   </body>
