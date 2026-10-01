@@ -12,6 +12,8 @@
     "profile"
   ],
   "scripts": {
+    "composer": "node profile/composer.ts",
+    "test:composer": "npm test --workspace=lykoi-composer",
     "panel": "node profile/panel.ts",
     "start": "node profile/index.ts",
     "test": "npm test --workspaces --if-present",

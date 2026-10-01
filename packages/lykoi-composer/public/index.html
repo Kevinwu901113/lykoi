@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lykoi · Agent Composer</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">◈ <span>Lykoi</span><small>COMPOSER</small></a
+      ><span class="edition">装配工作台 · 首版</span>
+      <div class="header-actions">
+        <button id="load-demo">加载示例</button><button id="export">导出定义</button
+        ><label class="button"
+          >导入定义<input type="file" id="import" accept="application/json,.json" hidden /></label
+        ><button class="primary" id="save">保存新版本</button>
+      </div>
+    </header>
+    <div id="notice" role="status" aria-live="polite">添加组件、连接输入，再选择执行方式。</div>
+    <main>
+      <aside class="library">
+        <div class="section-label">01 / 组件库</div>
+        <h2>构建你的 Agent</h2>
+        <p class="muted">Core 是计算组件。整个装配结果才是 Agent。</p>
+        <div id="catalog"></div>
+        <div class="section-label space">已保存的 Agent</div>
+        <select id="saved-agents" aria-label="已保存的 Agent">
+          <option value="">选择已保存定义</option></select
+        ><button id="open-agent">打开定义</button>
+        <p class="muted small">仅装载预先注册的可信组件。首版不支持上传可执行插件。</p>
+      </aside>
+      <section class="workspace">
+        <div class="workspace-head">
+          <div>
+            <div class="section-label">02 / 装配画布</div>
+            <div class="identity">
+              <input id="agent-name" aria-label="Agent 名称" value="我的 Agent" /><span id="revision"
+                >未保存</span
+              >
+            </div>
+          </div>
+          <button id="new">新建</button>
+        </div>
+        <div class="canvas-scroll">
+          <div id="canvas">
+            <svg id="edges" aria-hidden="true"></svg>
+            <div id="nodes"></div>
+            <div id="empty">
+              从左侧添加第一个组件<br /><small>连接提示词、Core 和输出，构建最小链路</small>
+            </div>
+          </div>
+        </div>
+        <div class="graph-footer">
+          <span id="graph-info">0 个组件</span><span>分支支持 · 单输入端口 · 无环连接</span>
+        </div>
+        <section class="execution">
+          <div>
+            <div class="section-label">03 / 执行方式</div>
+            <h3>由你决定如何运行</h3>
+          </div>
+          <div class="execution-fields">
+            <label
+              >执行策略<select id="mode">
+                <option value="single">单次计算</option>
+                <option value="tools">有界工具循环</option>
+              </select></label
+            ><label>总工具步数<input id="max-actions" type="number" min="0" max="32" value="4" /></label
+            ><label>活动时长上限 / 秒<input id="timeout" type="number" min="1" max="300" value="60" /></label
+            ><label>最终输出<select id="output"></select></label>
+          </div>
+        </section>
+      </section>
+      <aside class="inspector">
+        <div class="section-label">组件配置</div>
+        <div id="inspector"><p class="muted">选择画布中的组件进行配置。</p></div>
+        <details class="resources" open>
+          <summary>共享资源</summary>
+          <div id="resources"></div>
+          <button id="add-model">添加模型资源</button><button id="add-workspace">添加工作区</button>
+        </details>
+      </aside>
+    </main>
+    <section class="run-panel">
+      <div class="run-compose">
+        <div class="section-label">04 / 运行与观察</div>
+        <h2>让装配开始工作</h2>
+        <div class="instance-line">
+          <select id="instances" aria-label="运行实例"></select
+          ><button id="create-instance">新建实例</button>
+        </div>
+        <label
+          >本次输入<textarea id="run-input" placeholder="输入要交给 Agent 的内容…" rows="3"></textarea></label
+        ><button class="primary" id="run">运行已保存版本 →</button>
+        <p class="muted small" id="run-hint">先保存定义，再创建实例。每个实例有独立的工作区。</p>
+        <label
+          >运行记录<select id="run-history">
+            <option value="">选择运行记录</option>
+          </select></label
+        >
+      </div>
+      <div class="run-observer">
+        <div class="observer-head">
+          <h3>运行详情</h3>
+          <span id="run-status" class="badge">尚未运行</span>
+          <div id="run-controls">
+            <button id="pause">暂停</button><button id="resume">继续</button><button id="cancel">取消</button>
+          </div>
+        </div>
+        <div id="wait-box" hidden>
+          <strong id="wait-prompt"></strong>
+          <p id="wait-help" class="muted small"></p>
+          <textarea id="wait-value" rows="3" placeholder="输入继续运行的内容"></textarea
+          ><label><input type="checkbox" id="wait-json" />作为 JSON 结果提交</label
+          ><button id="resolve" class="primary">提交结果并继续</button>
+        </div>
+        <div class="observer-columns">
+          <div>
+            <div class="section-label">输出 / 已完成节点</div>
+            <pre id="result">运行结果将在这里显示。</pre>
+          </div>
+          <div>
+            <div class="section-label">运行时间线</div>
+            <ol id="trace"></ol>
+          </div>
+        </div>
+      </div>
+    </section>
+    <footer>
+      <span>LYKOI / 组件装配 · 独立实例 · 持久运行</span><span>离线演示模型不提供真实联网调研结果</span>
+    </footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
