@@ -1,0 +1,20 @@
+{
+  "status": "已完成 · v1",
+  "components": 4,
+  "browserErrors": [],
+  "checks": [
+    "pointer drag",
+    "undo/redo",
+    "port drag",
+    "cycle rejection",
+    "zoom",
+    "layout version save",
+    "export/import new identity",
+    "invalid config blocks save",
+    "dark/light",
+    "instance run",
+    "persistent wait resolve",
+    "node state",
+    "390px responsive"
+  ]
+}

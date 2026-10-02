@@ -1,22 +1,20 @@
 {
-  "name": "lykoi-cordis",
+  "name": "lykoi",
   "version": "0.0.0",
   "private": true,
-  "description": "Lykoi 的 Cordis(TS/Node) 完全移植体 — M1 骨架",
+  "description": "面向技术开发者的可视化 Agent 装配框架",
   "type": "module",
   "engines": {
     "node": ">=24"
   },
   "workspaces": [
-    "packages/*",
-    "profile"
+    "packages/lykoi-composer"
   ],
   "scripts": {
+    "start": "node profile/composer.ts",
     "composer": "node profile/composer.ts",
+    "test": "npm test --workspaces",
     "test:composer": "npm test --workspace=lykoi-composer",
-    "panel": "node profile/panel.ts",
-    "start": "node profile/index.ts",
-    "test": "npm test --workspaces --if-present",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

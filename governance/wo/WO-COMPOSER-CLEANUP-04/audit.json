@@ -1,0 +1,22 @@
+{
+  "baseline": "01afb64f3859ef46cd0e9a903ef3c085f3e56c2a",
+  "removed_legacy_packages": 25,
+  "deleted_files": 371,
+  "deleted_lines": 66309,
+  "removed_test_files": 187,
+  "composer_test_names_unchanged": true,
+  "composer_tests_before": 31,
+  "composer_tests_after": 31,
+  "legacy_tests_retired": 1298,
+  "lock_entries_before": 113,
+  "lock_entries_after": 6,
+  "runtime_external_dependencies": 0,
+  "remaining_source_files": 13,
+  "remaining_source_lines": 2734,
+  "browser_tool_versions": {
+    "@sparticuz/chromium": "^153.0.0",
+    "happy-dom": "^20.14.5",
+    "playwright-core": "^1.60.0"
+  },
+  "governance_history_preserved": true
+}

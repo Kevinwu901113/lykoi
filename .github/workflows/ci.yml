@@ -1,5 +1,4 @@
-# CI：与 CLAUDE.md「构建与测试」交付线同一口径 —— 全量测试 0 失败 + typecheck 净。
-# 只跑仓库自带的东西：无服务器通道、无真值、无 devstate 夹具（那 11 项测试按设计跳过）。
+# Composer: clean install, strict type checking, complete current test suite.
 name: ci
 
 on:

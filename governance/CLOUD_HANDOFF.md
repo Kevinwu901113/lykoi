@@ -1,3 +1,5 @@
+> **当前适用范围更新（2026-10-02）**：所有者已确认整体退役旧个人 Agent 运行时，main 只维护 Composer。本文下方旧生产入口、白皮书至上规则、服务器操作模板与测试快照均为历史，不作为当前实现要求或运行指引。请先读仓库根 `CLAUDE.md`、`README.md`、`docs/composer.md` 与 `docs/legacy-retirement.md`。历史路径可在清理前基线 `01afb64f3859ef46cd0e9a903ef3c085f3e56c2a` 查阅；不连接或操作旧服务器。
+
 # 云端会话交接文档（claude.ai/code）
 
 - **写于**：2026-08-31（Mac 主治理 Agent 起草，Kevin 审定）

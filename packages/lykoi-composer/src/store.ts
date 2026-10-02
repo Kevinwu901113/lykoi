@@ -1,7 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
 import type {
-  AgentDefinition,
   DefinitionVersion,
   Instance,
   Json,

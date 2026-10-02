@@ -1,0 +1,7 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+lykoi@0.0.0 /workspace/scratch/cc7ca87b6c2d/lykoi-audit
+├─┬ @types/node@24.13.3
+│ └── undici-types@7.18.2
+├── lykoi-composer@0.1.0 -> ./packages/lykoi-composer
+└── typescript@5.9.2
+

@@ -8,7 +8,7 @@ import {
 } from '../packages/lykoi-composer/src/index.ts'
 import { createComposerServer } from '../packages/lykoi-composer/src/server.ts'
 
-// Explicit deployment file, never an environment-variable switch of the legacy profile.
+// Deployment settings are supplied only through an explicit local JSON file.
 const configPath = process.argv[2]
 const config = configPath ? JSON.parse(readFileSync(resolve(configPath), 'utf8')) : {}
 const stateRoot = resolve(config.stateRoot ?? 'var/composer')

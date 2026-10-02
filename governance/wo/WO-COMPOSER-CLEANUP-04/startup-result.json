@@ -1,0 +1,8 @@
+{
+  "command": "npm start -- <temporary deployment.json>",
+  "http_status": 200,
+  "routing_button": true,
+  "sqlite_created": true,
+  "lock_acquired": true,
+  "lock_released_after_shutdown": true
+}

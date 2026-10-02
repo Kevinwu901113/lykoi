@@ -1,0 +1,1860 @@
+{
+  "baseline": "01afb64f3859ef46cd0e9a903ef3c085f3e56c2a",
+  "files": [
+    {
+      "path": "deploy/llm.env.example",
+      "blob": "c8e4492d451fc8fc85a45938f9703e28723abe8c",
+      "lines": 18
+    },
+    {
+      "path": "deploy/lykoi-browser.host.json.example",
+      "blob": "a0e2873e0ad2238dffaea7926a616ff48b42f541",
+      "lines": 25
+    },
+    {
+      "path": "deploy/lykoi-browser.service.template",
+      "blob": "35fa645ea71cc3532479e7184ac300d30c1fbe65",
+      "lines": 119
+    },
+    {
+      "path": "deploy/lykoi-cordis-watchdog.service.template",
+      "blob": "6573b3767af023d1847381c4715357b1eabdd2bf",
+      "lines": 20
+    },
+    {
+      "path": "deploy/lykoi-cordis-watchdog.sh.template",
+      "blob": "c4fc11b34c2965fc0e7d3a6666527bc399b77c7c",
+      "lines": 40
+    },
+    {
+      "path": "deploy/lykoi-cordis-watchdog.timer.template",
+      "blob": "205d305554851ea0c87cac97f4bd2a61489bb3af",
+      "lines": 20
+    },
+    {
+      "path": "deploy/lykoi-cordis.service.template",
+      "blob": "207f2955a8306c0931ea8de86760e19a810116bd",
+      "lines": 46
+    },
+    {
+      "path": "deploy/telegram-cordis.env.example",
+      "blob": "1fd15da8e19c3b450cce1059ac1b8e7c6d17a9d3",
+      "lines": 22
+    },
+    {
+      "path": "docs/browser_organ.md",
+      "blob": "7ae864d44a56ebe3330a0790ffd847ced563642d",
+      "lines": 334
+    },
+    {
+      "path": "docs/deferred-completion.md",
+      "blob": "16e8c43d221b4d35f5b9ef6520f160ade4f36465",
+      "lines": 50
+    },
+    {
+      "path": "docs/deploy.md",
+      "blob": "6f0ec7a1d5993f4d6fbcbc055d7b6b7df97f4e9a",
+      "lines": 631
+    },
+    {
+      "path": "docs/m1_blueprint.md",
+      "blob": "98348d531afad2387ff1140d2e1a6a1b15475ab4",
+      "lines": 64
+    },
+    {
+      "path": "docs/m2_blueprint.md",
+      "blob": "7fda04e08db95010bc44e41212a0746a6f5d479c",
+      "lines": 71
+    },
+    {
+      "path": "docs/m3_blueprint.md",
+      "blob": "ae83a0f17a85d78666cf4a59e728ea4c1d6d0c25",
+      "lines": 84
+    },
+    {
+      "path": "docs/m3_schema_registry.md",
+      "blob": "799d7409e71a345851b5708c8ca6d6fd6064ff74",
+      "lines": 113
+    },
+    {
+      "path": "docs/m4_blueprint.md",
+      "blob": "92897fc965fb935c150bfddbacd6e343a088f324",
+      "lines": 82
+    },
+    {
+      "path": "docs/m4_handoff.md",
+      "blob": "8e8caadd5e1f6700699518da4790e519b438b704",
+      "lines": 218
+    },
+    {
+      "path": "docs/p1-instance.md",
+      "blob": "7392d10758f2079abf7eccac4c07d6a60c8fe684",
+      "lines": 70
+    },
+    {
+      "path": "docs/p2-cognition.md",
+      "blob": "c18b362038e822649c080e354136fa5f1de6f325",
+      "lines": 51
+    },
+    {
+      "path": "docs/p3-tasks.md",
+      "blob": "827941c92e06811a77c3c5585854948fc44dc37f",
+      "lines": 79
+    },
+    {
+      "path": "docs/p4-skills.md",
+      "blob": "875852e049462af92eb13b4c7e3aa684c6c083d6",
+      "lines": 24
+    },
+    {
+      "path": "docs/p5-persistent-mind.md",
+      "blob": "c4e441385a1161ebf94f4fc63d306ebef714139f",
+      "lines": 61
+    },
+    {
+      "path": "docs/panel.md",
+      "blob": "29ddddb1e6cd7c8ddcf8c757ec5bdc1ffdff6a2f",
+      "lines": 48
+    },
+    {
+      "path": "docs/persona-v2.md",
+      "blob": "2548f2a6c7e49a5299ff1ce340e0acd91b6980f0",
+      "lines": 36
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/package.json",
+      "blob": "06cc1a5306e5098b4d247ad674b8da5f1b127fa4",
+      "lines": 34
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/deployment.ts",
+      "blob": "bb18b958b66e5575cb5df8a886bb754dfc6af8b1",
+      "lines": 22
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/device.ts",
+      "blob": "9bda182872a8c079435b06300b82bdf396cf6de1",
+      "lines": 411
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/document.ts",
+      "blob": "294417914ad8e0525d84f06130171781bbefc481",
+      "lines": 44
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/http.ts",
+      "blob": "cf3d98ed327642ff08096137809d5665e7706e29",
+      "lines": 159
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/index.ts",
+      "blob": "95f6ef15a1bf96e75749474e521d4356cc878a87",
+      "lines": 703
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/jsonio.ts",
+      "blob": "c1a658c59db00a2b862fb1cbb1c2935ee4c1796c",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/messenger.ts",
+      "blob": "2eafb244f0ac92c729e527b9a64a6cd545e9f867",
+      "lines": 109
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/outbox.ts",
+      "blob": "656ba35076b6cd11d7b313a0d5c75813f82b48c4",
+      "lines": 229
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/production.ts",
+      "blob": "546b07c881c7a5b1e99ea2978aa032307c89ee4f",
+      "lines": 138
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/resources.ts",
+      "blob": "2985c69e0d25629afe768c5da79ddbe105c3c52c",
+      "lines": 99
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/testing.ts",
+      "blob": "6ab4d60779ad49fe3b312289b197604e18f4288e",
+      "lines": 125
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/src/transport.ts",
+      "blob": "d49d430da1ebe79599d8c594ba7d709f0ff1d8a9",
+      "lines": 525
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/adapter.test.ts",
+      "blob": "fe8794877c3d4b2d050c1eb65c3996de1189305c",
+      "lines": 756
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/bridge.test.ts",
+      "blob": "8ad7130601d4f167a04d59358c315fcd8c9c59f1",
+      "lines": 173
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/dispatch-budget.test.ts",
+      "blob": "af2db31c881fb841e4ddc5f71d72648b8fd6f6c4",
+      "lines": 121
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/document.test.ts",
+      "blob": "3ce2242d0d18b62df1d0e40c3579852d260cdbd0",
+      "lines": 151
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/http.test.ts",
+      "blob": "c12793004539764f65453cd68484dfc2a0db9eea",
+      "lines": 345
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/instance-proxy.test.ts",
+      "blob": "39d08cecf068debaca054f605e7dd2e904309bc7",
+      "lines": 30
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/outbound.test.ts",
+      "blob": "b0d390632f6ebe704307c886f0855a9242a0a83e",
+      "lines": 760
+    },
+    {
+      "path": "packages/lykoi-adapter-telegram/test/split.test.ts",
+      "blob": "cfbd15da0e5293f3d08cc464dd221db95a3f552e",
+      "lines": 340
+    },
+    {
+      "path": "packages/lykoi-audit/package.json",
+      "blob": "aba44cf16810863dfcb6b5438fa1eaad8ca9f0c1",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-audit/src/index.ts",
+      "blob": "551968c7e1320249a8f410df3a7ad62e813b709c",
+      "lines": 171
+    },
+    {
+      "path": "packages/lykoi-audit/test/audit.test.ts",
+      "blob": "20b4e0dcc046631b63857da41522fc1208f42d8c",
+      "lines": 106
+    },
+    {
+      "path": "packages/lykoi-budget/package.json",
+      "blob": "64bb36a626b88321fd73ac16452f23416f11f40d",
+      "lines": 18
+    },
+    {
+      "path": "packages/lykoi-budget/src/index.ts",
+      "blob": "b0e99f800222a6d2f278a60bbc62d28992539f4c",
+      "lines": 300
+    },
+    {
+      "path": "packages/lykoi-budget/test/budget.test.ts",
+      "blob": "ca309031d50c660f5dd8a5658f3d2fe79d1c5731",
+      "lines": 198
+    },
+    {
+      "path": "packages/lykoi-contracts/package.json",
+      "blob": "646cfb5732a189b4e97a48d846f202279d1e20ad",
+      "lines": 13
+    },
+    {
+      "path": "packages/lykoi-contracts/src/index.ts",
+      "blob": "6036f1782d5bf4d472c9bf4ba1043707a72fe9df",
+      "lines": 192
+    },
+    {
+      "path": "packages/lykoi-converse/package.json",
+      "blob": "fa03bff16b94b5beb639be8cd724f9e4676ee7ed",
+      "lines": 36
+    },
+    {
+      "path": "packages/lykoi-converse/src/contract.ts",
+      "blob": "87cbcc05caa343338868ca69a2c0947c92f021d3",
+      "lines": 551
+    },
+    {
+      "path": "packages/lykoi-converse/src/conversation.ts",
+      "blob": "a47510562f1016cde5cda53ff67fd792dc048322",
+      "lines": 1422
+    },
+    {
+      "path": "packages/lykoi-converse/src/deadline.ts",
+      "blob": "db52d9f33fbade3bbbfe43532e5fc081bc9145bd",
+      "lines": 163
+    },
+    {
+      "path": "packages/lykoi-converse/src/exemption.ts",
+      "blob": "7dbc616136c4f0c4706678eea890d8b0db61ef1e",
+      "lines": 10
+    },
+    {
+      "path": "packages/lykoi-converse/src/failure.ts",
+      "blob": "638e749318e0b2195f658c0f29836d08585c358e",
+      "lines": 25
+    },
+    {
+      "path": "packages/lykoi-converse/src/hygiene.ts",
+      "blob": "91319c5444dbf33e3d8e2abfec624b9d6e6d7316",
+      "lines": 106
+    },
+    {
+      "path": "packages/lykoi-converse/src/index.ts",
+      "blob": "dbc0dc68cee058a5f86d0140f6d1611473a2b0e9",
+      "lines": 922
+    },
+    {
+      "path": "packages/lykoi-converse/src/outcome.ts",
+      "blob": "cd00d3854516bd8936978f417c991842c290eefc",
+      "lines": 60
+    },
+    {
+      "path": "packages/lykoi-converse/src/prompts.ts",
+      "blob": "c0104c6e570240a78516ebf4cc994d194f00e66b",
+      "lines": 71
+    },
+    {
+      "path": "packages/lykoi-converse/src/sequencer.ts",
+      "blob": "0ebacd332e68464cb754ba23b2dc8ef92ba0c353",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-converse/src/vision.ts",
+      "blob": "2c8df96b6cef3cc5edf6c79fcb075f68be0cd8d1",
+      "lines": 137
+    },
+    {
+      "path": "packages/lykoi-converse/test/approval-e2e.test.ts",
+      "blob": "5fe19f56d15fc18cb4783ed76723a184ed47623d",
+      "lines": 468
+    },
+    {
+      "path": "packages/lykoi-converse/test/assemble.test.ts",
+      "blob": "1d99abc5abb4e6034ec0091951ba1fb6c2038f59",
+      "lines": 379
+    },
+    {
+      "path": "packages/lykoi-converse/test/capability-gap.test.ts",
+      "blob": "74125745be3ff85529c1b168cc2adb3dcba34fd7",
+      "lines": 103
+    },
+    {
+      "path": "packages/lykoi-converse/test/channel-binding.test.ts",
+      "blob": "7cbf7f438c225ca9937670a27d1ed00932d9ad76",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-converse/test/contract.test.ts",
+      "blob": "85ce204cce6345f10e29cf008c9fb01f75362f0b",
+      "lines": 257
+    },
+    {
+      "path": "packages/lykoi-converse/test/cycle.test.ts",
+      "blob": "4d567bb84246fe4ecc537601dd89b0d4ad671302",
+      "lines": 367
+    },
+    {
+      "path": "packages/lykoi-converse/test/deadline.test.ts",
+      "blob": "68bdb49e72594285e0f870bff87a3fdb5f09c1ec",
+      "lines": 287
+    },
+    {
+      "path": "packages/lykoi-converse/test/delegated-ask.test.ts",
+      "blob": "831f9f5863c8a7ce0d3ea5a4f94b014e28d223c0",
+      "lines": 118
+    },
+    {
+      "path": "packages/lykoi-converse/test/devstate.test.ts",
+      "blob": "5f60b777e152f5e413b524dc91c3c2e0c6bd05e1",
+      "lines": 45
+    },
+    {
+      "path": "packages/lykoi-converse/test/e2e.test.ts",
+      "blob": "a544299623049662e08ebaa47ffa5089215c9d65",
+      "lines": 354
+    },
+    {
+      "path": "packages/lykoi-converse/test/exemption.test.ts",
+      "blob": "7a8c274e2f9542fc6406c3ce2871c41f64e332c2",
+      "lines": 42
+    },
+    {
+      "path": "packages/lykoi-converse/test/fixture.ts",
+      "blob": "1542905067ce235d5957086755699014e0341ff7",
+      "lines": 263
+    },
+    {
+      "path": "packages/lykoi-converse/test/interrupt.test.ts",
+      "blob": "884eed6a662c8861cbc43fc918daa6d76905a770",
+      "lines": 142
+    },
+    {
+      "path": "packages/lykoi-converse/test/kernel-e2e.test.ts",
+      "blob": "40dd744850fc54add5e961a2b507aa9a86564117",
+      "lines": 256
+    },
+    {
+      "path": "packages/lykoi-converse/test/llm-finish.test.ts",
+      "blob": "e5e0eac0a6bed0044e918a745843b25063156a60",
+      "lines": 210
+    },
+    {
+      "path": "packages/lykoi-converse/test/mind.test.ts",
+      "blob": "724666107b398e7658cc40cdb031ca9992748001",
+      "lines": 111
+    },
+    {
+      "path": "packages/lykoi-converse/test/open-capability.test.ts",
+      "blob": "1416ce6f2009fafc24a81471420e58da4bc3b7a3",
+      "lines": 68
+    },
+    {
+      "path": "packages/lykoi-converse/test/outcome.test.ts",
+      "blob": "8b17b6c0fde3c5c9201747a829ead0d96e4a525a",
+      "lines": 443
+    },
+    {
+      "path": "packages/lykoi-converse/test/prompts.test.ts",
+      "blob": "f180a2eace4e309a535670d22ca877a84e6e45f9",
+      "lines": 31
+    },
+    {
+      "path": "packages/lykoi-converse/test/provider-boundary.test.ts",
+      "blob": "9f6881f285b3ec1087affe94cd483ebe22c4a1c8",
+      "lines": 50
+    },
+    {
+      "path": "packages/lykoi-converse/test/pulse.test.ts",
+      "blob": "78c2c8694acae6ebdfb3db7de21ed26d42d45fcd",
+      "lines": 179
+    },
+    {
+      "path": "packages/lykoi-converse/test/runtime-capabilities.test.ts",
+      "blob": "763d553632bb94f17aebf7a5617156bacb94b2b2",
+      "lines": 33
+    },
+    {
+      "path": "packages/lykoi-converse/test/task-facts.test.ts",
+      "blob": "7547eb8e88bf75273255154377582c95314915c5",
+      "lines": 35
+    },
+    {
+      "path": "packages/lykoi-converse/test/toolstep.test.ts",
+      "blob": "067b6726e5d01e6e5dc47d89833b4ef3cec2fdd7",
+      "lines": 108
+    },
+    {
+      "path": "packages/lykoi-converse/test/turn-fixture.ts",
+      "blob": "8ec1dfd6295f5931a412a9c78f0c39f2f984a9b6",
+      "lines": 72
+    },
+    {
+      "path": "packages/lykoi-converse/test/utterances.test.ts",
+      "blob": "1a684aa8d254868eccaaf1767ea82cb8b1312f44",
+      "lines": 218
+    },
+    {
+      "path": "packages/lykoi-converse/test/vision.test.ts",
+      "blob": "0043a14c367e4717e36c3e04f0633149b28a3bd5",
+      "lines": 131
+    },
+    {
+      "path": "packages/lykoi-converse/test/w3-organs.test.ts",
+      "blob": "7972a1838b9f221c4c8394b13e59ecb2c06e091f",
+      "lines": 368
+    },
+    {
+      "path": "packages/lykoi-converse/test/wire.test.ts",
+      "blob": "18762109bdb172e443ed89a1016ce96486ce1531",
+      "lines": 339
+    },
+    {
+      "path": "packages/lykoi-decide/package.json",
+      "blob": "ec8d7dde0723e32d4505ffc01e76a5275d4c0d16",
+      "lines": 20
+    },
+    {
+      "path": "packages/lykoi-decide/src/action-registry.ts",
+      "blob": "3a14335ee5e2421347b73e8e6794e0c2f0cd2e81",
+      "lines": 11
+    },
+    {
+      "path": "packages/lykoi-decide/src/capability-gap.ts",
+      "blob": "5b61743e93cfcaa372ad6ff95dfc96295209211b",
+      "lines": 87
+    },
+    {
+      "path": "packages/lykoi-decide/src/character-package.ts",
+      "blob": "320ad14f1972cbdbd1613b88167fc14b838457f6",
+      "lines": 73
+    },
+    {
+      "path": "packages/lykoi-decide/src/index.ts",
+      "blob": "61eeba2960c9a95420621a1f914d362b9563b664",
+      "lines": 739
+    },
+    {
+      "path": "packages/lykoi-decide/src/organs.ts",
+      "blob": "aac7f7351fe455321c77858666cb8a992501feca",
+      "lines": 162
+    },
+    {
+      "path": "packages/lykoi-decide/src/overlay.ts",
+      "blob": "ce775eb1667932aa07c148c6ef8ac49bb1412e39",
+      "lines": 41
+    },
+    {
+      "path": "packages/lykoi-decide/src/persona-toml.ts",
+      "blob": "69713ad0db01b4714c819e5df60753c7c27b0739",
+      "lines": 169
+    },
+    {
+      "path": "packages/lykoi-decide/src/persona.ts",
+      "blob": "985791b40b5425828b26ecbebf563020fd45964a",
+      "lines": 262
+    },
+    {
+      "path": "packages/lykoi-decide/src/seed.ts",
+      "blob": "04920c126c66e89163f54d4e3853a94b0cbf6dba",
+      "lines": 55
+    },
+    {
+      "path": "packages/lykoi-decide/test/candidates.test.ts",
+      "blob": "33c0038d00a69a56d0d95b8ff98a1f2049aefa64",
+      "lines": 173
+    },
+    {
+      "path": "packages/lykoi-decide/test/capability-gap.test.ts",
+      "blob": "105cc101b3e77117380d7ddaa27f409060dbfff2",
+      "lines": 178
+    },
+    {
+      "path": "packages/lykoi-decide/test/decision-dict.test.ts",
+      "blob": "43b6ebcd7bc4d63e5f72c294114244be851c6047",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-decide/test/evaluate.test.ts",
+      "blob": "70f733ce6101f73bfc552020083062856ed8fa0c",
+      "lines": 287
+    },
+    {
+      "path": "packages/lykoi-decide/test/fixtures/instance/persona.toml",
+      "blob": "01cb23a740fa251e4c06ac4423e0999a9d7018ee",
+      "lines": 46
+    },
+    {
+      "path": "packages/lykoi-decide/test/fixtures/instance/seeds.toml",
+      "blob": "5381d1fa688e9d0a6b3600b54dda5afc2f3ee7a7",
+      "lines": 6
+    },
+    {
+      "path": "packages/lykoi-decide/test/inner.test.ts",
+      "blob": "9724078078d74952d829909c83d7c573dce13275",
+      "lines": 176
+    },
+    {
+      "path": "packages/lykoi-decide/test/instance.test.ts",
+      "blob": "0e15674e0333e96581aa0ad7a95ce1a4ca011093",
+      "lines": 86
+    },
+    {
+      "path": "packages/lykoi-decide/test/organs-cache.test.ts",
+      "blob": "cd094673487ae65b468249ed0d83f26439404e0a",
+      "lines": 67
+    },
+    {
+      "path": "packages/lykoi-decide/test/organs.test.ts",
+      "blob": "45fa947b83208bf1f683be7d7078ccfe4092b40a",
+      "lines": 99
+    },
+    {
+      "path": "packages/lykoi-decide/test/overlay.test.ts",
+      "blob": "ef4aaf1f2750ab285bdecfde98d864e1b7b44e1f",
+      "lines": 117
+    },
+    {
+      "path": "packages/lykoi-decide/test/persona-fixture.ts",
+      "blob": "dab4c1c735daa8f7ea70fca422f4314e9531cc4f",
+      "lines": 27
+    },
+    {
+      "path": "packages/lykoi-decide/test/persona-toml.test.ts",
+      "blob": "01cbfd387c196e93484761ee534a44303e005e9d",
+      "lines": 116
+    },
+    {
+      "path": "packages/lykoi-decide/test/persona-v2.test.ts",
+      "blob": "72ba931ffcd786722798fadb82f84c47f058b008",
+      "lines": 38
+    },
+    {
+      "path": "packages/lykoi-decide/test/prompt.test.ts",
+      "blob": "f0cce5ce64b22261d5a4aa9b920295e5132ca02b",
+      "lines": 121
+    },
+    {
+      "path": "packages/lykoi-decide/test/seed.test.ts",
+      "blob": "7a9dfc44511ed31005cc750b606c6ef33652aed0",
+      "lines": 95
+    },
+    {
+      "path": "packages/lykoi-gate/package.json",
+      "blob": "7dae6585f2f47f0e2c5fca91c2e2ddee4ba9203d",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-gate/src/cli.ts",
+      "blob": "91b71f0c98fb28f0910dc203192bca393843ac68",
+      "lines": 61
+    },
+    {
+      "path": "packages/lykoi-gate/src/index.ts",
+      "blob": "65e8c2d3e8c6487dac5e2361dbd794143d70b627",
+      "lines": 34
+    },
+    {
+      "path": "packages/lykoi-gate/src/instance-facts.ts",
+      "blob": "fa15639addfed0e6d5b1c496066df527b69a4cb2",
+      "lines": 129
+    },
+    {
+      "path": "packages/lykoi-gate/src/manifest.ts",
+      "blob": "ec38b451068a006ceb6c471d0eb5093aae491ba2",
+      "lines": 173
+    },
+    {
+      "path": "packages/lykoi-gate/src/rules-schema.ts",
+      "blob": "6edcc3101330677582c00b7a7943c4c1feb09285",
+      "lines": 65
+    },
+    {
+      "path": "packages/lykoi-gate/src/surface.ts",
+      "blob": "408684ca41f6f96bac781d7441d6e7d7c1e85eaa",
+      "lines": 263
+    },
+    {
+      "path": "packages/lykoi-gate/src/verify.ts",
+      "blob": "0a970393a75ddfa3b3525b36d110cfbdc43de54f",
+      "lines": 691
+    },
+    {
+      "path": "packages/lykoi-gate/src/vocabulary.ts",
+      "blob": "6230a5d973ab2187b5298ad97447a4bdcc0185a8",
+      "lines": 123
+    },
+    {
+      "path": "packages/lykoi-gate/test/env-pins.test.ts",
+      "blob": "b39e5c0795e2d34285c6097d53a4450081d5b34d",
+      "lines": 74
+    },
+    {
+      "path": "packages/lykoi-gate/test/fixture.ts",
+      "blob": "af0570a0b361671b5721c57b3bf1052581ee248e",
+      "lines": 195
+    },
+    {
+      "path": "packages/lykoi-gate/test/gate-checks.test.ts",
+      "blob": "4d7c7228b993295830cffcfb019d98bfce0ef9f1",
+      "lines": 534
+    },
+    {
+      "path": "packages/lykoi-gate/test/instance-facts.test.ts",
+      "blob": "8ee5933b35ac62d58912150ef080088380d1afcc",
+      "lines": 42
+    },
+    {
+      "path": "packages/lykoi-gate/test/manifest.test.ts",
+      "blob": "c8c10ca1767ab6bd41f71ab1b7bb4e0146aba021",
+      "lines": 221
+    },
+    {
+      "path": "packages/lykoi-gate/test/red-green.test.ts",
+      "blob": "e1c0f5503dbdd0c6895182eb19152607f0677a0d",
+      "lines": 121
+    },
+    {
+      "path": "packages/lykoi-gate/test/rules-schema-twin.test.ts",
+      "blob": "bf6e77015b08f14644237cd54fbc736bf7289dc5",
+      "lines": 81
+    },
+    {
+      "path": "packages/lykoi-gate/test/state-canon.test.ts",
+      "blob": "955c221f7842116cf4ec9747d872a720a2cdf085",
+      "lines": 141
+    },
+    {
+      "path": "packages/lykoi-gate/test/vocabulary.test.ts",
+      "blob": "402c9507df5ae7d42e57ed1744b8777f89ecef92",
+      "lines": 43
+    },
+    {
+      "path": "packages/lykoi-heart/package.json",
+      "blob": "5070690326bab7a3726a9595f09ea526675da453",
+      "lines": 18
+    },
+    {
+      "path": "packages/lykoi-heart/src/index.ts",
+      "blob": "b0e8cca7f8aabaa133f930a2bbbff957efff4ce8",
+      "lines": 450
+    },
+    {
+      "path": "packages/lykoi-heart/test/fixture.ts",
+      "blob": "bd2c2035cafcc89939b405eb73f6dbb9eea293f9",
+      "lines": 103
+    },
+    {
+      "path": "packages/lykoi-heart/test/heart.test.ts",
+      "blob": "a01b9f9e7e136bf9ea61242fabab5760faacde03",
+      "lines": 284
+    },
+    {
+      "path": "packages/lykoi-ingress/package.json",
+      "blob": "78c559ddb8ca38df88faa257cc52c63b92b02e9a",
+      "lines": 19
+    },
+    {
+      "path": "packages/lykoi-ingress/src/index.ts",
+      "blob": "a4026d28c8134bd63676272df2e1f7e518792e1f",
+      "lines": 404
+    },
+    {
+      "path": "packages/lykoi-ingress/src/schema.ts",
+      "blob": "0e84f68f1f0f1cb5b9744277596b588d880a7571",
+      "lines": 59
+    },
+    {
+      "path": "packages/lykoi-ingress/src/store.ts",
+      "blob": "d297b9d33df6c3f348536fcd45fbe2c993349b1a",
+      "lines": 439
+    },
+    {
+      "path": "packages/lykoi-ingress/src/types.ts",
+      "blob": "a1bf24a8e2d8914901da5e217a0068010ef8c0cb",
+      "lines": 63
+    },
+    {
+      "path": "packages/lykoi-ingress/test/fixtures/spool-v1.sql",
+      "blob": "14ed6eb333b23c02a947aee3c25cb2af66227d4a",
+      "lines": 54
+    },
+    {
+      "path": "packages/lykoi-ingress/test/infrastructure.test.ts",
+      "blob": "91e6c50ae658f8d79579f6569973f8260f2d008c",
+      "lines": 76
+    },
+    {
+      "path": "packages/lykoi-ingress/test/ingress.test.ts",
+      "blob": "560009f87f4b65d06aad50b5ffedbfee5b99658e",
+      "lines": 453
+    },
+    {
+      "path": "packages/lykoi-ingress/test/revision.test.ts",
+      "blob": "7825a91cdb9515d1ed8f1e1c1771f227120f26cc",
+      "lines": 65
+    },
+    {
+      "path": "packages/lykoi-kernel/package.json",
+      "blob": "f1cdcdd81f54de42e82c559528279a732e354442",
+      "lines": 21
+    },
+    {
+      "path": "packages/lykoi-kernel/src/approval-conversation.ts",
+      "blob": "4762dabeff1d3c3149f850e58a5282e40a339fec",
+      "lines": 542
+    },
+    {
+      "path": "packages/lykoi-kernel/src/approval-interpreter.ts",
+      "blob": "956158d4ad4b3cadb9288a0bb1881d1b257e5a35",
+      "lines": 848
+    },
+    {
+      "path": "packages/lykoi-kernel/src/approval.ts",
+      "blob": "c03c84329ac94c61deee6052e3f0ce7f2a6cfca8",
+      "lines": 695
+    },
+    {
+      "path": "packages/lykoi-kernel/src/bootstrap-preauth.ts",
+      "blob": "b764d3e2226dd0b5bfb282d8ea4143739cb5c22a",
+      "lines": 243
+    },
+    {
+      "path": "packages/lykoi-kernel/src/delegation.ts",
+      "blob": "e5080ec9652b37acfaf844e369f131a924b97e97",
+      "lines": 353
+    },
+    {
+      "path": "packages/lykoi-kernel/src/dispatch.ts",
+      "blob": "aa904e54601c0cf01be305472262eb812a8a24c9",
+      "lines": 369
+    },
+    {
+      "path": "packages/lykoi-kernel/src/exemption.ts",
+      "blob": "0cee74937f6e39a1f68be11c0993c4d9f6d2ebae",
+      "lines": 58
+    },
+    {
+      "path": "packages/lykoi-kernel/src/index.ts",
+      "blob": "8195e343b8aed8a7f3f0a3c4a6623999f35dfba5",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-kernel/src/interactive-lock.ts",
+      "blob": "0494f2cdad947fd37ac38ae3c5fdadd54dc3d805",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-kernel/src/jsonio.ts",
+      "blob": "d2f25f663cfee015479dbabeeb0508854777dc10",
+      "lines": 29
+    },
+    {
+      "path": "packages/lykoi-kernel/src/notifications.ts",
+      "blob": "8fff69301908c31f5c5e3bd02566e7812aa4f94e",
+      "lines": 251
+    },
+    {
+      "path": "packages/lykoi-kernel/src/path-guard.ts",
+      "blob": "f71c2a272b3cc6e2419ebc7d68636d65764ed161",
+      "lines": 18
+    },
+    {
+      "path": "packages/lykoi-kernel/src/policy-core.ts",
+      "blob": "2c2519dc6d720f3e39e134bd2f26220a6f19e2a4",
+      "lines": 61
+    },
+    {
+      "path": "packages/lykoi-kernel/src/proactive-chat.ts",
+      "blob": "27ba81d8c61f057a6cd8867afbb774ea72ac229c",
+      "lines": 77
+    },
+    {
+      "path": "packages/lykoi-kernel/src/redaction.ts",
+      "blob": "0a296823e7e8bdea774e5b132272e4a41a3d91ea",
+      "lines": 61
+    },
+    {
+      "path": "packages/lykoi-kernel/src/schema-registry.ts",
+      "blob": "dc3eeb59671a285b0d6c86ba0b425c0244e8d8d9",
+      "lines": 181
+    },
+    {
+      "path": "packages/lykoi-kernel/src/scope.ts",
+      "blob": "082d27fc944b409df22785169ed7e355f7f72220",
+      "lines": 141
+    },
+    {
+      "path": "packages/lykoi-kernel/src/suggestion-conversation.ts",
+      "blob": "4a705969a40d4983a23f56c8b9f3f3f2c5dd8367",
+      "lines": 560
+    },
+    {
+      "path": "packages/lykoi-kernel/src/telemetry.ts",
+      "blob": "8ca28c2a7829f0f6a7c5f8577237397747295716",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-kernel/test/approval-conversation.test.ts",
+      "blob": "f4b1cecd597531d61a507feec8eaee0947abfd78",
+      "lines": 663
+    },
+    {
+      "path": "packages/lykoi-kernel/test/approval-interpreter.test.ts",
+      "blob": "15c61cde6236888556c024e23f4372c85bbd39d3",
+      "lines": 503
+    },
+    {
+      "path": "packages/lykoi-kernel/test/bootstrap-preauth.test.ts",
+      "blob": "44706bbe6a23a33ec203a8d7ac222a1c49ad8ff2",
+      "lines": 234
+    },
+    {
+      "path": "packages/lykoi-kernel/test/check.test.ts",
+      "blob": "36d2715750692cb2d265049a809f58d8f307508a",
+      "lines": 186
+    },
+    {
+      "path": "packages/lykoi-kernel/test/delegation.test.ts",
+      "blob": "311ad5c42882be710a57632d2db2ef2a18faead6",
+      "lines": 165
+    },
+    {
+      "path": "packages/lykoi-kernel/test/dispatch.test.ts",
+      "blob": "974ed500209ae663111bd9b16b271308b3f4496b",
+      "lines": 564
+    },
+    {
+      "path": "packages/lykoi-kernel/test/fixture.ts",
+      "blob": "4541d6620c534c728edc71f83822dbd7681d1844",
+      "lines": 62
+    },
+    {
+      "path": "packages/lykoi-kernel/test/grants-pending.test.ts",
+      "blob": "9ed7ed3ee2a72ded7288d070ca1b0a090cab2edb",
+      "lines": 245
+    },
+    {
+      "path": "packages/lykoi-kernel/test/notifications-queue.test.ts",
+      "blob": "b8c292a00f3eaac17940594be882cbaadccdd507",
+      "lines": 248
+    },
+    {
+      "path": "packages/lykoi-kernel/test/notifications.test.ts",
+      "blob": "0eaa8308d262093247a14a8270c7f32d124176f9",
+      "lines": 76
+    },
+    {
+      "path": "packages/lykoi-kernel/test/path-guard.test.ts",
+      "blob": "b4d0ad2e1297a5a4b48a6e8baaf96f3cbe12a685",
+      "lines": 172
+    },
+    {
+      "path": "packages/lykoi-kernel/test/policy-core.test.ts",
+      "blob": "e4ede4fd5d79fc0a0a94766c385ddb8936c362dd",
+      "lines": 63
+    },
+    {
+      "path": "packages/lykoi-kernel/test/redaction.test.ts",
+      "blob": "579a6a1fac43acf16bd16d1222d10d0f3c233003",
+      "lines": 63
+    },
+    {
+      "path": "packages/lykoi-kernel/test/schema-registry.test.ts",
+      "blob": "e2d2ab467c3977d1c9719a4286ea9d640883652d",
+      "lines": 293
+    },
+    {
+      "path": "packages/lykoi-kernel/test/scope.test.ts",
+      "blob": "0a11d13f066a19be34c634fdfe1e51545682914f",
+      "lines": 85
+    },
+    {
+      "path": "packages/lykoi-kernel/test/suggestion-conversation.test.ts",
+      "blob": "2f38063b19fb42da829f57dbb44c320b755574b9",
+      "lines": 495
+    },
+    {
+      "path": "packages/lykoi-learn/package.json",
+      "blob": "f8e5bc32ddfe90e2ec47af8d8b96da84fcbdd2d9",
+      "lines": 20
+    },
+    {
+      "path": "packages/lykoi-learn/src/index.ts",
+      "blob": "0aa02a5679b830f4378926496fed3aef268c85d4",
+      "lines": 6
+    },
+    {
+      "path": "packages/lykoi-learn/src/l1.ts",
+      "blob": "94d58132ba674d453c90ab821455b246952e82f9",
+      "lines": 21
+    },
+    {
+      "path": "packages/lykoi-learn/src/l2.ts",
+      "blob": "43aaa7b7d9cf45b3352caa927ad84825cf38d081",
+      "lines": 726
+    },
+    {
+      "path": "packages/lykoi-learn/src/l3.ts",
+      "blob": "18e522be05659cc31fd52b20a21effeaeb582df9",
+      "lines": 212
+    },
+    {
+      "path": "packages/lykoi-learn/src/l4.ts",
+      "blob": "cafcd0d243763d8b7738f9decba4d6fd4be10ec2",
+      "lines": 766
+    },
+    {
+      "path": "packages/lykoi-learn/src/l5.ts",
+      "blob": "9feb6f5ba75431241a8270a2c2561df14ebd1bb2",
+      "lines": 194
+    },
+    {
+      "path": "packages/lykoi-learn/src/shared.ts",
+      "blob": "4784c0a5bb21f1a8b7bb6a27b4bb3ed744c3e98e",
+      "lines": 66
+    },
+    {
+      "path": "packages/lykoi-learn/test/boundary.test.ts",
+      "blob": "273002bee678873778f1c01334cbf7548c8df196",
+      "lines": 129
+    },
+    {
+      "path": "packages/lykoi-learn/test/fixture.ts",
+      "blob": "00b2a72f91d21406664d61c6efbaa2b34e4c9067",
+      "lines": 164
+    },
+    {
+      "path": "packages/lykoi-learn/test/l1.test.ts",
+      "blob": "57f8a22c4a13a1566e261df0473d95d380124936",
+      "lines": 107
+    },
+    {
+      "path": "packages/lykoi-learn/test/l2.test.ts",
+      "blob": "0db06e5894479516ba538d1039adef331cbfe840",
+      "lines": 546
+    },
+    {
+      "path": "packages/lykoi-learn/test/l3.test.ts",
+      "blob": "10f55735049253034a0d22ed499ee304d2757474",
+      "lines": 161
+    },
+    {
+      "path": "packages/lykoi-learn/test/l4-decay.test.ts",
+      "blob": "2ccef816c26f3dd1da0aa70bdd21346e152918be",
+      "lines": 320
+    },
+    {
+      "path": "packages/lykoi-learn/test/l4-overlay.test.ts",
+      "blob": "4830a9be6cfe16659ac08fff9b5822c07a5fb92d",
+      "lines": 338
+    },
+    {
+      "path": "packages/lykoi-learn/test/l4.test.ts",
+      "blob": "8c59ca4e5691fbf75a9ee3b14be729f75a1410d2",
+      "lines": 586
+    },
+    {
+      "path": "packages/lykoi-learn/test/l5.test.ts",
+      "blob": "793b0dc9969c5416e01725f7c871ded0ef02bc46",
+      "lines": 246
+    },
+    {
+      "path": "packages/lykoi-learn/test/prompt.test.ts",
+      "blob": "3cdb9bd0ed40da1518927c1862629ba4915b9efc",
+      "lines": 15
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/package.json",
+      "blob": "1f2ddb7564780a122755c21cb27084fabc34f603",
+      "lines": 26
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/src/index.ts",
+      "blob": "81df5204c921f63cc6c37e27de419c567755d467",
+      "lines": 10
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/test/cancel.test.ts",
+      "blob": "026b8b961f22055fec5e9fc5c0a9fabdd8e2d332",
+      "lines": 43
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/test/deepseek.test.ts",
+      "blob": "dcf479752833f552b008f8756f44bba22e3e028a",
+      "lines": 284
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/vendor/LICENSE",
+      "blob": "c1f7a78e89e4e4dc7b86664c3b3c76eb5eee1785",
+      "lines": 21
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/vendor/index.d.ts",
+      "blob": "0e0a04bf47f47fbcf33af5f49e774aa62ff9da1f",
+      "lines": 57
+    },
+    {
+      "path": "packages/lykoi-llm-deepseek/vendor/index.js",
+      "blob": "48d9ac4a300b4dd9f3f9d4a816122ae46e5a846c",
+      "lines": 1853
+    },
+    {
+      "path": "packages/lykoi-llm/package.json",
+      "blob": "a5f2b8ac8cad3def08c2a9bc574f9d0c63a0ab8c",
+      "lines": 20
+    },
+    {
+      "path": "packages/lykoi-llm/src/index.ts",
+      "blob": "128add4a2d340f2b54c77e3c5991ab01b4dc325e",
+      "lines": 255
+    },
+    {
+      "path": "packages/lykoi-llm/src/json.ts",
+      "blob": "edcd7824ed4914454c9038f186b25a834e240ccb",
+      "lines": 74
+    },
+    {
+      "path": "packages/lykoi-llm/src/mock.ts",
+      "blob": "804d901da84d51d4e0b07c356278ec9576825298",
+      "lines": 87
+    },
+    {
+      "path": "packages/lykoi-llm/src/scheduler.ts",
+      "blob": "5f0ea2d6661e441aabc7f3edae887fd31760116c",
+      "lines": 32
+    },
+    {
+      "path": "packages/lykoi-llm/test/json-boundary.test.ts",
+      "blob": "887fdebd124c6e9f480a0ae0c7f5c81c13a26369",
+      "lines": 87
+    },
+    {
+      "path": "packages/lykoi-llm/test/llm.test.ts",
+      "blob": "ad6488d0db3805da3586be5ef2b623d18d0eb7e3",
+      "lines": 294
+    },
+    {
+      "path": "packages/lykoi-llm/test/repair.test.ts",
+      "blob": "025f051cb85e5d0eb3d35125c7d64da6d528b5a2",
+      "lines": 92
+    },
+    {
+      "path": "packages/lykoi-llm/test/scheduler.test.ts",
+      "blob": "5052a5fdc397cbb357224965a747867035557a74",
+      "lines": 24
+    },
+    {
+      "path": "packages/lykoi-memory/package.json",
+      "blob": "ca36bae3d7b086e19680e23e72e204ac0bb96d75",
+      "lines": 27
+    },
+    {
+      "path": "packages/lykoi-memory/src/index.ts",
+      "blob": "ec9a788eec8e2bd0c4e2b3e11fe53502a9139c65",
+      "lines": 317
+    },
+    {
+      "path": "packages/lykoi-memory/src/init-state.ts",
+      "blob": "5f7be66e9a56abae5d46f1be288a1d25195cbd25",
+      "lines": 249
+    },
+    {
+      "path": "packages/lykoi-memory/src/queries.ts",
+      "blob": "ee1c2bf053ebb03c0bd465b688a6b3b8db834a49",
+      "lines": 63
+    },
+    {
+      "path": "packages/lykoi-memory/src/rw.ts",
+      "blob": "6d0f339a968ed264001d0df1f51c96bb4f920481",
+      "lines": 2098
+    },
+    {
+      "path": "packages/lykoi-memory/src/schema.ts",
+      "blob": "3ab75fefab49aaeff6977adbac2caaaa5cc41445",
+      "lines": 490
+    },
+    {
+      "path": "packages/lykoi-memory/src/testing.ts",
+      "blob": "6b55f27448764eafe357db943e931e596c267050",
+      "lines": 84
+    },
+    {
+      "path": "packages/lykoi-memory/test/e2e-regulation.test.ts",
+      "blob": "cf1f4f46a8161048ae691bfae20b6324418bd519",
+      "lines": 94
+    },
+    {
+      "path": "packages/lykoi-memory/test/fixture.ts",
+      "blob": "b99ab4bce892da7ef1b2c3c3b8ba6ca75788d165",
+      "lines": 56
+    },
+    {
+      "path": "packages/lykoi-memory/test/init-state.test.ts",
+      "blob": "8d36bb65c2d6ab9a19425d5c8e50b38c40b04955",
+      "lines": 224
+    },
+    {
+      "path": "packages/lykoi-memory/test/memory.test.ts",
+      "blob": "698255e2534c81c1e74e877b1c9f7ba9aad81463",
+      "lines": 227
+    },
+    {
+      "path": "packages/lykoi-memory/test/migration-018.test.ts",
+      "blob": "6e65fb7b506af0b8eecb05fe0387b29cbdd9bceb",
+      "lines": 116
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-epistemic.test.ts",
+      "blob": "9a3f4fefcfd0be842a898503c0949ffceade42f0",
+      "lines": 409
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-format.test.ts",
+      "blob": "002e38d71c1dc210dc3a379530d932ba2530774e",
+      "lines": 68
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-insight-dormant.test.ts",
+      "blob": "8fc68cc4d84070290935567ad0d2f988b6e37b2b",
+      "lines": 414
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-owner-binding.test.ts",
+      "blob": "a03a04a4b96478a682d5c285954e30a4c98729fc",
+      "lines": 22
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-relationship-overlay.test.ts",
+      "blob": "956525e7a3760d9e97ad5fb58d1e7419eaa69eac",
+      "lines": 185
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-store.test.ts",
+      "blob": "303b968e8a5ffb4d7e74b80be96f2644ec2326ab",
+      "lines": 365
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-triggers.test.ts",
+      "blob": "8399d34adf25ec2544f06a1254d389976238ad45",
+      "lines": 251
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-w2.test.ts",
+      "blob": "9babf8a9ef45e5a851aac17b225e18551712486d",
+      "lines": 285
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-w3.test.ts",
+      "blob": "1368285b4af706326780e0eff226e516725cc0c1",
+      "lines": 161
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-w4.test.ts",
+      "blob": "8b848b974a38297334c220236c7b5c48bd24b9aa",
+      "lines": 144
+    },
+    {
+      "path": "packages/lykoi-memory/test/rw-w5.test.ts",
+      "blob": "d48bbd415e07c990be5100f18721b31b8a607d5f",
+      "lines": 71
+    },
+    {
+      "path": "packages/lykoi-memory/test/timestamp.test.ts",
+      "blob": "c83711ad7160e0818d07339a30a0e14f2fc56c89",
+      "lines": 56
+    },
+    {
+      "path": "packages/lykoi-organ-browser/package.json",
+      "blob": "68f0f0842af6c566981e609c994e1d661e171b5f",
+      "lines": 30
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/driver.ts",
+      "blob": "cc860453225a7039c412ab2146a632cde486fa78",
+      "lines": 710
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/host.ts",
+      "blob": "5d8dec4050ed9ee02bb21efcea5b1ca316c006eb",
+      "lines": 418
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/index.ts",
+      "blob": "aa6210a28418951a40edc8eae8645c413d382f36",
+      "lines": 242
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/protocol.ts",
+      "blob": "a4a9388cb42f253e678f4a72e08a3f29fba665a6",
+      "lines": 149
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/ssrf.ts",
+      "blob": "59335d440906728efc832897d28b7f1386e7b69c",
+      "lines": 320
+    },
+    {
+      "path": "packages/lykoi-organ-browser/src/untrusted.ts",
+      "blob": "5e38f3007a3a6df66db2862e8c2eb3ac0db93d1c",
+      "lines": 74
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/assembly.test.ts",
+      "blob": "53f4715d927934b04dd26e078efc4b8d9e4937b5",
+      "lines": 208
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/download.test.ts",
+      "blob": "628b9fdedb4ebcd4f38076fd790014855cfe090a",
+      "lines": 113
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/fake-backend.ts",
+      "blob": "10214e2cbbd2103926bdff09a4dfb9a279fe215d",
+      "lines": 185
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/isolation.test.ts",
+      "blob": "820a2503bfa6f20215b8dc011252fa29173e938b",
+      "lines": 106
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/plugin.test.ts",
+      "blob": "15e7e7899a210b783e794e96c99d84ecd1416de5",
+      "lines": 309
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/redirect.test.ts",
+      "blob": "fd298437fa5bb698fa808129ea5201c2e1af3f9a",
+      "lines": 197
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/smoke.test.ts",
+      "blob": "d48d1cb84dba5fc2fc27c297d760462515e978de",
+      "lines": 258
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/ssrf.test.ts",
+      "blob": "b356aaac9404ae094edd2c65e8dbe02bc4de0df4",
+      "lines": 246
+    },
+    {
+      "path": "packages/lykoi-organ-browser/test/untrusted.test.ts",
+      "blob": "c6b20fa40b48281baf0d35500ef2c9aace76debb",
+      "lines": 118
+    },
+    {
+      "path": "packages/lykoi-organ-workspace/package.json",
+      "blob": "f49c5d72cfec3815a3eeafa303745abdbce677ca",
+      "lines": 7
+    },
+    {
+      "path": "packages/lykoi-organ-workspace/src/index.ts",
+      "blob": "4be92dc388e00774356d203fd3af41ab293738c3",
+      "lines": 117
+    },
+    {
+      "path": "packages/lykoi-organ-workspace/test/workspace.test.ts",
+      "blob": "37888ac43b5a5a478e89152e4053e6efcffc666a",
+      "lines": 56
+    },
+    {
+      "path": "packages/lykoi-panel/package.json",
+      "blob": "9d16966b1134e9ba53ef9dd78e6f162600d347c1",
+      "lines": 15
+    },
+    {
+      "path": "packages/lykoi-panel/public/app.js",
+      "blob": "09c0865305eaddd2b6f55690fe25d27deeab1bde",
+      "lines": 220
+    },
+    {
+      "path": "packages/lykoi-panel/public/index.html",
+      "blob": "cb6d982321f3759c805a4db9b8e9d14b1b878a93",
+      "lines": 59
+    },
+    {
+      "path": "packages/lykoi-panel/public/style.css",
+      "blob": "c5546cc5746573e04729313a714f259305e24d91",
+      "lines": 677
+    },
+    {
+      "path": "packages/lykoi-panel/src/index.ts",
+      "blob": "ef0579c9cca42d02f29d35fedcedf103c9daec7c",
+      "lines": 148
+    },
+    {
+      "path": "packages/lykoi-panel/test/panel.test.ts",
+      "blob": "904d241e5b672c6b08143f0f0cdbca302d232300",
+      "lines": 125
+    },
+    {
+      "path": "packages/lykoi-reflow/package.json",
+      "blob": "01ad8d1384626f6ee94c78c295a5b670b7cac0fa",
+      "lines": 18
+    },
+    {
+      "path": "packages/lykoi-reflow/src/index.ts",
+      "blob": "eb6e380c1557a54246f3361608f48d69e042885c",
+      "lines": 538
+    },
+    {
+      "path": "packages/lykoi-reflow/test/capability-gap.test.ts",
+      "blob": "59f45385a90a2b9cf4f58633b86286a9a33193f6",
+      "lines": 69
+    },
+    {
+      "path": "packages/lykoi-reflow/test/cheap-tick.test.ts",
+      "blob": "5759c3d1b2001923aa3fa6681c74b2d33b14a97d",
+      "lines": 155
+    },
+    {
+      "path": "packages/lykoi-reflow/test/conversation-turn.test.ts",
+      "blob": "da04077a68f9faa1cf248766d574ba6c18a2ee3d",
+      "lines": 184
+    },
+    {
+      "path": "packages/lykoi-reflow/test/fixture.ts",
+      "blob": "cb7ae76af1adfa273706b9eabe12327f0f587314",
+      "lines": 113
+    },
+    {
+      "path": "packages/lykoi-reflow/test/reflow.test.ts",
+      "blob": "bf18d1b7935cb1573749fc4d5fba802bfed67551",
+      "lines": 371
+    },
+    {
+      "path": "packages/lykoi-regulation/package.json",
+      "blob": "7cb88d2699bccf6d247abb600620d68cd2ec90b8",
+      "lines": 13
+    },
+    {
+      "path": "packages/lykoi-regulation/src/index.ts",
+      "blob": "72bf5087f6d550c2e4a3ad0136d96690b48db034",
+      "lines": 264
+    },
+    {
+      "path": "packages/lykoi-regulation/test/causes.test.ts",
+      "blob": "37b072c25a52a210bb5c1bdf000c867c0a970fd6",
+      "lines": 43
+    },
+    {
+      "path": "packages/lykoi-regulation/test/decay.test.ts",
+      "blob": "c85cc43765efcbe66df3f549e1910a8042ba37da",
+      "lines": 81
+    },
+    {
+      "path": "packages/lykoi-regulation/test/effects.test.ts",
+      "blob": "f633dc23843013fbac0f3ddf3d766bacc586422d",
+      "lines": 85
+    },
+    {
+      "path": "packages/lykoi-regulation/test/registry.test.ts",
+      "blob": "d322c60d491bb440024cb83208dd1d66243d2ffc",
+      "lines": 126
+    },
+    {
+      "path": "packages/lykoi-runner-pi/package.json",
+      "blob": "93b1d4ccf6c63881d327bf8017e98f05deff565b",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-runner-pi/src/client.ts",
+      "blob": "b3eeb8109d56b0f2d02b713f1192f7d287dd455b",
+      "lines": 53
+    },
+    {
+      "path": "packages/lykoi-runner-pi/src/index.ts",
+      "blob": "8af15fd609cf7a443d617f2c102835639b23fe10",
+      "lines": 72
+    },
+    {
+      "path": "packages/lykoi-runner-pi/src/protocol.ts",
+      "blob": "65bdef362e09ee82b88111e426fc3e8608436552",
+      "lines": 22
+    },
+    {
+      "path": "packages/lykoi-runner-pi/src/worker.ts",
+      "blob": "a8de586797d5848f05e314dca29df3274014903d",
+      "lines": 116
+    },
+    {
+      "path": "packages/lykoi-runner-pi/test/client.test.ts",
+      "blob": "92e51793415039993b44d4975264cc846fa00ad0",
+      "lines": 104
+    },
+    {
+      "path": "packages/lykoi-runner-pi/test/fake-pi.ts",
+      "blob": "ef366a4f3a0c7b877d41420fb5614b3c5dd43132",
+      "lines": 23
+    },
+    {
+      "path": "packages/lykoi-runtime/package.json",
+      "blob": "e00198ea8ec0b40e108cf04a25a71bb55627405f",
+      "lines": 21
+    },
+    {
+      "path": "packages/lykoi-runtime/src/capability.ts",
+      "blob": "a6a92aa154050eeee38db8e3a34f1545d1bd6cf2",
+      "lines": 31
+    },
+    {
+      "path": "packages/lykoi-runtime/src/cognition.ts",
+      "blob": "6c4c3b5451a45a858cad479ea047365be01eb17e",
+      "lines": 30
+    },
+    {
+      "path": "packages/lykoi-runtime/src/index.ts",
+      "blob": "0028155c3078b8f4d565278b67aa9d4f9bb3fdb5",
+      "lines": 253
+    },
+    {
+      "path": "packages/lykoi-runtime/src/instance.ts",
+      "blob": "8714ad761f619b60ae778fd520342c211595027e",
+      "lines": 94
+    },
+    {
+      "path": "packages/lykoi-runtime/src/mind.ts",
+      "blob": "05a366cbeb383805ab42b46d370d0b2a67b33e60",
+      "lines": 143
+    },
+    {
+      "path": "packages/lykoi-runtime/src/task-facts.ts",
+      "blob": "f81adc11f7d410de30e33f698ac130b986dd04eb",
+      "lines": 26
+    },
+    {
+      "path": "packages/lykoi-runtime/test/autonomous-permissions.test.ts",
+      "blob": "b54109b33004c19d2d87ba46137a6cb3f203f96c",
+      "lines": 51
+    },
+    {
+      "path": "packages/lykoi-runtime/test/cognition.test.ts",
+      "blob": "26112d28d9ae2ff07987c204a04c9f2622bfe3cd",
+      "lines": 32
+    },
+    {
+      "path": "packages/lykoi-runtime/test/instance.test.ts",
+      "blob": "59f6020cd94cfd2ba91bc0daeb113162194d5fba",
+      "lines": 20
+    },
+    {
+      "path": "packages/lykoi-runtime/test/lifecycle.test.ts",
+      "blob": "3147d2492466a13bbee700bf651bfb7b7bce11c2",
+      "lines": 202
+    },
+    {
+      "path": "packages/lykoi-runtime/test/mind.test.ts",
+      "blob": "6aa44d4111df300c7a24832457ef8fd86df26c9e",
+      "lines": 137
+    },
+    {
+      "path": "packages/lykoi-skill/package.json",
+      "blob": "750c1f392e17e7660bc90bf9ef5dd2cf5a65a10f",
+      "lines": 7
+    },
+    {
+      "path": "packages/lykoi-skill/src/index.ts",
+      "blob": "57e83cb1d1bcb0e77963ef6ca39cad9bb62ef122",
+      "lines": 64
+    },
+    {
+      "path": "packages/lykoi-skill/src/store.ts",
+      "blob": "16f90a3662e106a2fcfd7750fa9d297acaabb5bf",
+      "lines": 110
+    },
+    {
+      "path": "packages/lykoi-skill/test/skill.test.ts",
+      "blob": "416ee87c71017471b735396eed52e81500749909",
+      "lines": 69
+    },
+    {
+      "path": "packages/lykoi-snapshot/package.json",
+      "blob": "dfab95769343006e1f2b5dd38410d3dba7737027",
+      "lines": 17
+    },
+    {
+      "path": "packages/lykoi-snapshot/src/index.ts",
+      "blob": "02f67a627ffc8442374b6706399c882b044ac3cb",
+      "lines": 453
+    },
+    {
+      "path": "packages/lykoi-snapshot/src/num.ts",
+      "blob": "fd46d0fdb87b9e8bbb079f9904e8b99e00d79842",
+      "lines": 24
+    },
+    {
+      "path": "packages/lykoi-snapshot/src/restart-collect.ts",
+      "blob": "5441c9eb1e1f758968b64ff6f215f776afedda65",
+      "lines": 116
+    },
+    {
+      "path": "packages/lykoi-snapshot/src/restart.ts",
+      "blob": "6306f2d2b286761f759efc8e3aac38eb08bf0ef2",
+      "lines": 146
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/fixture.ts",
+      "blob": "1391dbbe7ef0d0c6de06807a294a12bd883cb676",
+      "lines": 72
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/maintain.test.ts",
+      "blob": "a90d7353991e10a1ec274ae439bdebb256636452",
+      "lines": 133
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/num.test.ts",
+      "blob": "4c0397abc36041a40f1a9ceb823b6a0735a5b192",
+      "lines": 55
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/read.test.ts",
+      "blob": "b75b158b2f0c566687579bb51cee9bd9661022a8",
+      "lines": 304
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/restart-collect.test.ts",
+      "blob": "a9d167a4d76dfd26f0efba1b031863f433127b9b",
+      "lines": 241
+    },
+    {
+      "path": "packages/lykoi-snapshot/test/restart.test.ts",
+      "blob": "e0f038c9324c2998a413ddd47cc4368d8a287845",
+      "lines": 123
+    },
+    {
+      "path": "packages/lykoi-task/package.json",
+      "blob": "c164dad9193327153cc5278a0ff7a07de22aac6c",
+      "lines": 29
+    },
+    {
+      "path": "packages/lykoi-task/src/index.ts",
+      "blob": "8d55c2cd744d745039132905b2100d2ea3e31aca",
+      "lines": 216
+    },
+    {
+      "path": "packages/lykoi-task/src/runtime.ts",
+      "blob": "1088fed3ec02271363a003d610a0d4383bba533a",
+      "lines": 285
+    },
+    {
+      "path": "packages/lykoi-task/src/store.ts",
+      "blob": "a959c3e4c86d5e90bfe990b580468f039ca53854",
+      "lines": 244
+    },
+    {
+      "path": "packages/lykoi-task/test/crash.test.ts",
+      "blob": "5bbbceaf3cff4445abb86e477d5072b98cf96bd7",
+      "lines": 47
+    },
+    {
+      "path": "packages/lykoi-task/test/facts.test.ts",
+      "blob": "d89426ec627723a866c4951aac7f74bf7c899a17",
+      "lines": 54
+    },
+    {
+      "path": "packages/lykoi-task/test/mind.test.ts",
+      "blob": "0539c25e206a435261640e11319a5cf94fb869f8",
+      "lines": 69
+    },
+    {
+      "path": "packages/lykoi-task/test/origin.test.ts",
+      "blob": "3356036868605826434267d5a3aa881e59862fa0",
+      "lines": 53
+    },
+    {
+      "path": "packages/lykoi-task/test/plugin.test.ts",
+      "blob": "f3c54ec241a993ab1b863c3fc0675b8aae2930cb",
+      "lines": 247
+    },
+    {
+      "path": "packages/lykoi-task/test/runtime.test.ts",
+      "blob": "a434c60e95f1191461e555d1856db981ba11211e",
+      "lines": 402
+    },
+    {
+      "path": "packages/lykoi-wake/package.json",
+      "blob": "6d145053e40c22781d17b5c8f213f696ad48274f",
+      "lines": 31
+    },
+    {
+      "path": "packages/lykoi-wake/src/clock.ts",
+      "blob": "a5f4b46a261629cfb39351a4ef28826a3e7bc06a",
+      "lines": 45
+    },
+    {
+      "path": "packages/lykoi-wake/src/index.ts",
+      "blob": "4218bf422961441e157c1047281fcd1e9716c7c0",
+      "lines": 569
+    },
+    {
+      "path": "packages/lykoi-wake/test/capability-gap.test.ts",
+      "blob": "e48da40db7058d6095c7530d030abf1e74ddbd6c",
+      "lines": 63
+    },
+    {
+      "path": "packages/lykoi-wake/test/cheap-tick.test.ts",
+      "blob": "116ec2c5b9cc271cd4dcaedd901c4a0622bbff46",
+      "lines": 27
+    },
+    {
+      "path": "packages/lykoi-wake/test/clock.test.ts",
+      "blob": "c2f8f596e51fa17cc42b2f9b6ae86c1d9e7a53f9",
+      "lines": 30
+    },
+    {
+      "path": "packages/lykoi-wake/test/cognition.test.ts",
+      "blob": "769311314496a46d2b8bd376be107329079d120a",
+      "lines": 74
+    },
+    {
+      "path": "packages/lykoi-wake/test/fixture.ts",
+      "blob": "5c2c2c511908faeb58fd6a04eb1d35e127e80a9a",
+      "lines": 195
+    },
+    {
+      "path": "packages/lykoi-wake/test/kernel-e2e.test.ts",
+      "blob": "1f92654189834f25e3038f275ac76e7708ddac75",
+      "lines": 203
+    },
+    {
+      "path": "packages/lykoi-wake/test/learn-e2e.test.ts",
+      "blob": "7698b12de1b483453aa179243e3597a0dfeac9b7",
+      "lines": 169
+    },
+    {
+      "path": "packages/lykoi-wake/test/mind.test.ts",
+      "blob": "058a8aae6e2f85747ae8e296194f1db04bf5193c",
+      "lines": 98
+    },
+    {
+      "path": "packages/lykoi-wake/test/overlay.test.ts",
+      "blob": "e0c39df677aaf20796e1ecde5a6d950cfb129267",
+      "lines": 54
+    },
+    {
+      "path": "packages/lykoi-wake/test/persona-toml.test.ts",
+      "blob": "ae00cdfd2881f71845a186f654d46ed8e3f3c1bb",
+      "lines": 94
+    },
+    {
+      "path": "packages/lykoi-wake/test/plugin.test.ts",
+      "blob": "e9b1da9799edd3d7384b4e2630415d7cc697a412",
+      "lines": 254
+    },
+    {
+      "path": "packages/lykoi-wake/test/w3-wiring.test.ts",
+      "blob": "b4b47ea6d3a3b60afc9ed661242281fa6a68bf4e",
+      "lines": 109
+    },
+    {
+      "path": "packages/lykoi-wake/test/wake.test.ts",
+      "blob": "5bcaee63bae086d06b560e69f4b97ac31022ee00",
+      "lines": 221
+    },
+    {
+      "path": "packages/lykoi-wake/test/zero-write.test.ts",
+      "blob": "a06b09cc3c930e84c82e527b4f221069a8f6e618",
+      "lines": 72
+    },
+    {
+      "path": "profile/assembly.ts",
+      "blob": "27b5e5cf2a04c2540b35c3ca33f5e13e4ba104ea",
+      "lines": 36
+    },
+    {
+      "path": "profile/character-import.ts",
+      "blob": "e167ba16743591d3c644c604abc9bccff8b9482e",
+      "lines": 82
+    },
+    {
+      "path": "profile/cordis.panel.yml",
+      "blob": "225bca5b70105540ca2ae0b60ec48e06da97db48",
+      "lines": 59
+    },
+    {
+      "path": "profile/cordis.prod.yml",
+      "blob": "07114a9b00559d70052dd65b178fa7cea29365ae",
+      "lines": 318
+    },
+    {
+      "path": "profile/cordis.yml",
+      "blob": "3f669e2a82019844c2a706b8c41cbc6f4e9e44a5",
+      "lines": 104
+    },
+    {
+      "path": "profile/index.prod.ts",
+      "blob": "7c76f3bfed0fb0e66a1dcff350fa88472170756f",
+      "lines": 72
+    },
+    {
+      "path": "profile/index.ts",
+      "blob": "9dce2d89abf2bfb91336dc796b61dd50e8804440",
+      "lines": 125
+    },
+    {
+      "path": "profile/instance-state.ts",
+      "blob": "4846cd1bf43cbbdc949492f39376fe96b6e8928e",
+      "lines": 135
+    },
+    {
+      "path": "profile/instance-worker.ts",
+      "blob": "989b0ef5bd532c9f4a367f516e5af83d9456341a",
+      "lines": 71
+    },
+    {
+      "path": "profile/instance.prod.json",
+      "blob": "4c9aa4226acfe2a57a03a5216ec1384f2a4f47ce",
+      "lines": 5
+    },
+    {
+      "path": "profile/instance.ts",
+      "blob": "bec0fccdfb8cb49902787677ec65bfc630818963",
+      "lines": 65
+    },
+    {
+      "path": "profile/package.json",
+      "blob": "c2af9e922e9ba4d07812f718e7ec9944f7b5afff",
+      "lines": 41
+    },
+    {
+      "path": "profile/panel.ts",
+      "blob": "048795d5d9938ee5d122fee4b19f1ab42c4eb2ba",
+      "lines": 10
+    },
+    {
+      "path": "profile/test/assembly.test.ts",
+      "blob": "55f485ac0a0225b8e94a5a69034310bfb34b6838",
+      "lines": 42
+    },
+    {
+      "path": "profile/test/character-import.test.ts",
+      "blob": "8d1dcb3cebbb07843d3ec451be9d4fb45942f993",
+      "lines": 40
+    },
+    {
+      "path": "profile/test/continuity-provider.ts",
+      "blob": "3c83c6259f9368a56de4d3d804c6ce7efd55c3df",
+      "lines": 24
+    },
+    {
+      "path": "profile/test/followup-delivery-live.ts",
+      "blob": "6911e8a0cd10a2598aceb2a8bd6fc66be3996dee",
+      "lines": 140
+    },
+    {
+      "path": "profile/test/instance-state.test.ts",
+      "blob": "9552e3a3be9a919f454e3b8448733d30db85f7ba",
+      "lines": 109
+    },
+    {
+      "path": "profile/test/instance.test.ts",
+      "blob": "9ccaa38bb2863ed4b3faf7e33fe654a8abe20403",
+      "lines": 153
+    },
+    {
+      "path": "profile/test/p2-live.ts",
+      "blob": "d58703a544f1ee01c039a42b44d2207672d0eefe",
+      "lines": 157
+    },
+    {
+      "path": "profile/test/p3-live.ts",
+      "blob": "4a73f7eb48d88256a02ea5741d918b66aa462d4d",
+      "lines": 154
+    },
+    {
+      "path": "profile/test/p4-live.ts",
+      "blob": "39285adce5a9a1261f83e8ae17514469a1e1ca93",
+      "lines": 106
+    },
+    {
+      "path": "profile/test/p4-observer.ts",
+      "blob": "c2354d17134e3e0d1b4abbceb94b9070ca80097a",
+      "lines": 15
+    },
+    {
+      "path": "profile/test/p4-wake-live.ts",
+      "blob": "afdd0040e5e269b407678f0921e3ed161c566ce8",
+      "lines": 94
+    },
+    {
+      "path": "profile/test/p4-workspace.ts",
+      "blob": "861ccf0e62348a9915824662a52e7ef1875af805",
+      "lines": 18
+    },
+    {
+      "path": "profile/test/p5-live.ts",
+      "blob": "e7225e445b774e3caaa7dd6be3541a887f9b1220",
+      "lines": 91
+    },
+    {
+      "path": "profile/test/vision.test.ts",
+      "blob": "c6b19e93e17a975d166ea732295dc067e516a896",
+      "lines": 68
+    }
+  ]
+}
