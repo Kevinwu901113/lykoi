@@ -1,0 +1,15 @@
+DELETE /home/lykoi/core-v1-m3-r1a-18fbd19.bundle
+DELETE /home/lykoi/core-v1-m3-r1a-233e2ec.bundle
+DELETE /home/lykoi/lykoi-core-v1-m3-r1a-apply
+DELETE /home/lykoi/m4-backup-20260901T005212.tar.gz
+DELETE /home/lykoi/perception-retry-hotfix.bundle
+DELETE /home/lykoi/sqlite-busy-wait-v2.bundle
+DELETE /home/lykoi/sqlite-busy-wait.bundle
+DELETE /home/lykoi/soak_watch.sh
+DELETE /home/lykoi/p4r_purge_exec_v2.py
+DELETE /home/lykoi/logs/chrome.log
+DELETE /home/lykoi/logs/x11vnc.log
+DELETE /home/lykoi/logs/offsite_backup.log
+DELETE /home/lykoi/logs/novnc.log
+DELETE /home/lykoi/logs/notify_push.log
+RESIDUAL_MANIFEST_VERIFIED

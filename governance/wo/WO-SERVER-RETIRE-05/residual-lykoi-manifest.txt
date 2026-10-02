@@ -1,0 +1,14 @@
+/home/lykoi/core-v1-m3-r1a-18fbd19.bundle
+/home/lykoi/core-v1-m3-r1a-233e2ec.bundle
+/home/lykoi/lykoi-core-v1-m3-r1a-apply
+/home/lykoi/m4-backup-20260901T005212.tar.gz
+/home/lykoi/perception-retry-hotfix.bundle
+/home/lykoi/sqlite-busy-wait-v2.bundle
+/home/lykoi/sqlite-busy-wait.bundle
+/home/lykoi/soak_watch.sh
+/home/lykoi/p4r_purge_exec_v2.py
+/home/lykoi/logs/chrome.log
+/home/lykoi/logs/x11vnc.log
+/home/lykoi/logs/offsite_backup.log
+/home/lykoi/logs/novnc.log
+/home/lykoi/logs/notify_push.log

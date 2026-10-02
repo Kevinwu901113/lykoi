@@ -1,0 +1,103 @@
+REPORT_DIR=/var/tmp/wo-server-retire-05-cleanup.i8RMhrwV
+2026-10-02T10:13:27Z
+Filesystem preflight passed
+No processes use cleanup paths
+ARCHIVE_FILE_ATTRIBUTES -----a--------e------- /home/lykoi/archive/old-body-20260901/state/audit.jsonl
+Removed i/a protection only from retired archive audit.jsonl
+--------------e------- /home/lykoi/archive/old-body-20260901/state/audit.jsonl
+ALREADY_ABSENT /etc/systemd/system/lykoi-autonomy.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-browser.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-chrome.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-cordis-backup.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-cordis-watchdog.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-cordis.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-core.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-fluxbox.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-gate-readout.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-novnc.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-server.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-telegram.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-vnc.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-watchdog.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-xvfb.service
+ALREADY_ABSENT /etc/systemd/system/lykoi-cordis-backup.timer
+ALREADY_ABSENT /etc/systemd/system/lykoi-cordis-watchdog.timer
+ALREADY_ABSENT /etc/systemd/system/lykoi-gate-readout.timer
+ALREADY_ABSENT /etc/systemd/system/lykoi-browser.service.d
+ALREADY_ABSENT /usr/local/sbin/lykoi-cordis-watchdog.sh
+ALREADY_ABSENT /usr/local/sbin/lykoi-cordis-backup.sh
+ALREADY_ABSENT /etc/sudoers.d/claude-governance
+ALREADY_ABSENT /home/lykoi/projects/lykoi-cordis
+ALREADY_ABSENT /home/lykoi/state
+ALREADY_ABSENT /home/lykoi/runtime
+ALREADY_ABSENT /home/lykoi/workspace
+DELETE /home/lykoi/archive/old-body-20260901
+DELETE /home/lykoi/quarantine
+DELETE /home/lykoi/staging-core-v1-m3-r1a1
+DELETE /home/lykoi-browser/profile
+DELETE /home/lykoi-browser/data
+DELETE /home/lykoi-browser/.config/google-chrome
+DELETE /etc/lykoi-browser
+DELETE /opt/lykoi-pi
+DELETE /opt/lykoi-browser
+DELETE /home/lykoi/secrets/backup.env
+DELETE /home/lykoi/secrets/im.env
+DELETE /home/lykoi/secrets/surface.env.bak-wo-harden-01
+DELETE /home/lykoi/secrets/llm.env
+DELETE /home/lykoi/secrets/surface.env.bak-audit-closure
+DELETE /home/lykoi/secrets/telegram-cordis.env
+DELETE /home/lykoi/secrets/llm.env.bak-gateway-collection
+DELETE /home/lykoi/secrets/surface.env.bak-gateway-collection
+DELETE /home/lykoi/secrets/surface.env
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r1-activation-staging
+DELETE /var/lib/lykoi-core-v1-m3-r3a-code-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r1-activation
+DELETE /var/lib/lykoi-core-v1-m3-r1b-candidate
+DELETE /var/lib/lykoi-core-v1-m3-r0
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r3-live-replay
+DELETE /var/lib/lykoi-core-v1-m3-r1b-bridge-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r3-live-replay-staging
+DELETE /var/lib/lykoi-core-v1-m3-r1b-v2-staging
+DELETE /var/lib/lykoi-permission-replay-policy
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r12-code-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2a-code-staging
+DELETE /var/lib/lykoi-core-v1-m3-r1a1
+DELETE /var/lib/lykoi-core-v1-m3-r2b-execution-activation
+DELETE /var/lib/lykoi-core-v1-m3-r1c-decision-activation
+DELETE /var/lib/lykoi-deepseek-v4-compat
+DELETE /var/lib/lykoi-core-v1-m3-r1b-candidate-staging
+DELETE /var/lib/lykoi-core-v1-m3-r1c-decision-code
+DELETE /var/lib/lykoi-core-v1-m3-r2a-code
+DELETE /var/lib/lykoi-core-v1-m3-r1a1-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2b-execution-activation-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2c-r12-code
+DELETE /var/lib/lykoi-attention-policy
+DELETE /var/lib/lykoi-core-v1-m3-r2c
+DELETE /var/lib/lykoi-core-v1-m3-r1b-bridge
+DELETE /var/lib/lykoi-core-v1-m2
+DELETE /var/lib/lykoi-core-v1-m3-r1a
+DELETE /var/lib/lykoi-core-v1-m3-r3a-code
+DELETE /var/lib/lykoi-core-v1-m3-r1b-v2
+DELETE /var/lib/lykoi-core-v1-m3-r1c-decision-activation-staging
+DELETE /var/lib/lykoi-core-v1-m3-r2c-staging
+DELETE /var/lib/lykoi-deepseek-v4-compat-staging
+DELETE /var/lib/lykoi-core-v1-m3-r1c-decision-code-staging
+DELETE /home/claude/lykoi-work
+DELETE /home/claude/lykoi-work-broker
+DELETE /home/claude/lykoi-work-ca
+DELETE /home/claude/lykoi-work-cb
+DELETE /home/claude/lykoi-work-gw
+DELETE /home/claude/lykoi-work-l1
+DELETE /home/claude/lykoi-work-m0
+DELETE /home/claude/releases/p5-d98d426
+/etc/sudoers: parsed OK
+/etc/sudoers.d/README: parsed OK
+Waiting 310 seconds, exceeding the observed 5-minute watchdog period.
+2026-10-02T10:14:32Z
+2026-10-02T10:15:32Z
+2026-10-02T10:16:32Z
+2026-10-02T10:17:32Z
+2026-10-02T10:18:33Z
+2026-10-02T10:18:43Z
+CLEANUP_MANIFEST_VERIFIED: /var/tmp/wo-server-retire-05-cleanup.i8RMhrwV
+Upstream tokens/webhooks not revoked; accounts, shared tools and unclassified residuals preserved.
