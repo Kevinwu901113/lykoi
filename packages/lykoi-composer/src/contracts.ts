@@ -1,4 +1,5 @@
-export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
+export type Json =
+  null | boolean | number | string | Json[] | { [key: string]: Json }
 export type Config = Record<string, Json>
 export interface NodeDefinition {
   id: string
@@ -7,15 +8,18 @@ export interface NodeDefinition {
   config: Config
   resources: Record<string, string>
   tools: string[]
+  // Explicit JSON binding; {$ref:{node:"$input"|id,path:string[]}} preserves value types.
+  input?: Json
+  invocation?: 'workflow'
 }
 export interface AgentDefinition {
   id: string
   name: string
   nodes: NodeDefinition[]
-  // First edition: one typed value per node; branches are allowed, joins are deferred.
-  edges: { from: string; to: string }[]
+  // Control-flow edges; branch is required for conditional exits.
+  edges: { from: string; to: string; branch?: string }[]
   output: string
-  resources: { id: string; type: 'model' | 'workspace'; config: Config }[]
+  resources: { id: string; type: ResourceType; config: Config }[]
   execution: { mode: 'single' | 'tools'; maxActions: number; timeoutMs: number }
   // Presentation only. The executor never uses editor geometry to determine order.
   editor?: {
@@ -48,33 +52,61 @@ export interface Model {
   compute(
     messages: Message[],
     tools: { name: string; description: string; parameters: Config }[],
-    signal: AbortSignal
+    signal: AbortSignal,
+    options?: { json: boolean }
   ): Promise<CoreDecision>
 }
+export type ResourceType = 'model' | 'workspace' | 'http'
+export interface DecisionModel {
+  decide(state: Json, questions: Config, signal: AbortSignal): Promise<Json>
+}
+export interface HttpClient {
+  request(
+    path: string,
+    method: string,
+    body: Json,
+    signal: AbortSignal
+  ): Promise<Json>
+}
+export type ResourceValue =
+  Model | DecisionModel | HttpClient | { root: string }
 export interface InvocationContext {
   instanceId: string
   runId: string
   operationId: string
   signal: AbortSignal
-  resource(role: string): Model | { root: string }
+  render?(template: string, input: Json): string
+  resource(role: string): ResourceValue
 }
-export type ComponentResult = { status: 'completed'; value: Json } | { status: 'waiting'; prompt: string }
+export type ComponentResult =
+  { status: 'completed'; value: Json } | { status: 'waiting'; prompt: string }
 export interface Component {
   id: string
   version: string
   title: string
   description: string
-  kind: 'transform' | 'core' | 'tool' | 'wait'
+  kind: 'transform' | 'core' | 'decision' | 'tool' | 'wait' | 'control'
   effect: 'pure' | 'external'
   input: 'text' | 'any'
   output: 'text' | 'any'
   defaultConfig: Config
-  resourceRoles: Record<string, 'model' | 'workspace'>
+  resourceRoles: Record<string, ResourceType>
   toolSchema?: Config
   validate(config: Config): void
-  invoke?(input: Json, config: Config, context: InvocationContext): Promise<ComponentResult>
+  invoke?(
+    input: Json,
+    config: Config,
+    context: InvocationContext
+  ): Promise<ComponentResult>
 }
-export type RunStatus = 'queued' | 'running' | 'waiting' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
+export type RunStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting'
+  | 'paused'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
 export interface Run {
   id: string
   instanceId: string
@@ -82,9 +114,15 @@ export interface Run {
   input: Json
   status: RunStatus
   outputs: Record<string, Json>
+  skipped?: string[]
   result?: Json
   error?: string
-  wait?: { operationId: string; nodeId: string; reason: 'input' | 'unknown'; prompt: string }
+  wait?: {
+    operationId: string
+    nodeId: string
+    reason: 'input' | 'unknown'
+    prompt: string
+  }
   createdAt: string
   updatedAt: string
   activeMs?: number
@@ -96,7 +134,7 @@ export interface Operation {
   component: string
   version: string
   input: Json
-  status: 'started' | 'completed' | 'waiting' | 'unknown'
+  status: 'started' | 'completed' | 'waiting' | 'unknown' | 'failed'
   result?: Json
   prompt?: string
 }

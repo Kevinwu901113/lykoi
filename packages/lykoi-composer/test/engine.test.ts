@@ -25,11 +25,17 @@ test('definition revisions conflict correctly; old run keeps its version and wai
     await f.engine.close()
     // Separate connection and engine reconstruct from disk, not the old engine's maps.
     const reopened = new ComposerStore(join(f.root, 'state.sqlite'))
-    const engine = new ComposerEngine(reopened, f.registry, { workspaceRoot: join(f.root, 'workspaces') })
+    const engine = new ComposerEngine(reopened, f.registry, {
+      workspaceRoot: join(f.root, 'workspaces')
+    })
     try {
       await engine.recover()
       const waiting = reopened.run(run.id)
-      await engine.resolve(run.id, waiting.wait!.operationId, 'verified old result')
+      await engine.resolve(
+        run.id,
+        waiting.wait!.operationId,
+        'verified old result'
+      )
       await engine.idle(run.id)
       assert.equal(reopened.run(run.id).result, 'verified old result')
       assert.equal(reopened.run(run.id).version.revision, 1)
@@ -55,17 +61,27 @@ test('callbacks deduplicate, reject foreign operations, and preserve pause until
       b = f.engine.start(instance.id, 'b')
     await Promise.all([f.engine.idle(a.id), f.engine.idle(b.id)])
     const operation = f.store.run(a.id).wait!.operationId
-    await assert.rejects(f.engine.resolve(b.id, operation, 'foreign'), /ownership/)
+    await assert.rejects(
+      f.engine.resolve(b.id, operation, 'foreign'),
+      /ownership/
+    )
     f.engine.pause(a.id)
     await f.engine.resolve(a.id, operation, 'ok')
     assert.equal(f.store.run(a.id).status, 'paused')
     await f.engine.resolve(a.id, operation, 'ok')
-    await assert.rejects(f.engine.resolve(a.id, operation, 'changed'), /conflicts/)
+    await assert.rejects(
+      f.engine.resolve(a.id, operation, 'changed'),
+      /conflicts/
+    )
     await f.engine.resume(a.id)
     await f.engine.idle(a.id)
     assert.equal(f.store.run(a.id).result, 'ok')
     await f.engine.resolve(a.id, operation, 'ok') // Repeated delivery after completion is still acknowledged.
-    assert.equal(f.store.traces(a.id).filter((e) => e.type === 'operation.resolved').length, 1)
+    assert.equal(
+      f.store.traces(a.id).filter((e) => e.type === 'operation.resolved')
+        .length,
+      1
+    )
   } finally {
     await f.close()
   }
@@ -123,8 +139,14 @@ test('single computation does not expose tools; bounded execution writes only it
     await Promise.all([f.engine.idle(ra.id), f.engine.idle(rb.id)])
     assert.equal(f.store.run(ra.id).status, 'succeeded')
     assert.equal(f.store.run(rb.id).status, 'succeeded')
-    assert.equal(readFileSync(join(rootByInstance.get(a.id)!, 'report.txt'), 'utf8'), a.id)
-    assert.equal(readFileSync(join(rootByInstance.get(b.id)!, 'report.txt'), 'utf8'), b.id)
+    assert.equal(
+      readFileSync(join(rootByInstance.get(a.id)!, 'report.txt'), 'utf8'),
+      a.id
+    )
+    assert.equal(
+      readFileSync(join(rootByInstance.get(b.id)!, 'report.txt'), 'utf8'),
+      b.id
+    )
     assert.notEqual(rootByInstance.get(a.id), rootByInstance.get(b.id))
   } finally {
     await f.close()
@@ -140,7 +162,10 @@ test('two Cores share an explicitly bound instance resource; total action cap ap
       compute: async (messages, tools) => {
         if (!tools.length || messages.some((m) => m.role === 'tool'))
           return { kind: 'finish', result: 'done' }
-        return { kind: 'act', action: { tool: tools[0].name, input: null, callId: 'call' } }
+        return {
+          kind: 'act',
+          action: { tool: tools[0].name, input: null, callId: 'call' }
+        }
       }
     } as Model
   })
@@ -192,7 +217,10 @@ test('malicious or nonconverging model cannot exceed action budget or invoke an 
   const f = fixture(
     async () =>
       ({
-        compute: async () => ({ kind: 'act', action: { tool: 'tool', input: null, callId: 'call' } })
+        compute: async () => ({
+          kind: 'act',
+          action: { tool: 'tool', input: null, callId: 'call' }
+        })
       }) as Model
   )
   try {
@@ -239,7 +267,8 @@ test('malicious or nonconverging model cannot exceed action budget or invoke an 
 })
 
 test('pause allows an admitted result to commit but prevents the next component call; cancel stays terminal', async () => {
-  let release: ((value: Json) => void) | undefined, started: (() => void) | undefined
+  let release: ((value: Json) => void) | undefined,
+    started: (() => void) | undefined
   const admitted = new Promise<void>((r) => {
     started = r
   })
@@ -289,7 +318,9 @@ test('pause allows an admitted result to commit but prevents the next component 
 })
 
 test('deadline produces a durable unknown receipt, and shutdown does not hang on an unresponsive provider', async () => {
-  const f = fixture(async () => ({ compute: () => new Promise(() => {}) }) as Model)
+  const f = fixture(
+    async () => ({ compute: () => new Promise(() => {}) }) as Model
+  )
   try {
     const d = definition()
     d.execution.timeoutMs = 100
@@ -310,10 +341,18 @@ test('HTTP-independent API covers catalog → version → instance → run → w
   const f = fixture()
   try {
     const api = createApi(f.store, f.registry, f.engine)
-    assert.equal(((await api('GET', '/api/catalog')) as unknown[]).length, 6)
-    await api('POST', '/api/definitions', { definition: definition(), expectedRevision: 0 })
-    const instance = (await api('POST', '/api/instances', { agentId: 'test' })) as { id: string }
-    const run = (await api('POST', '/api/runs', { instanceId: instance.id, input: 'hello' })) as {
+    assert.equal(((await api('GET', '/api/catalog')) as unknown[]).length, 12)
+    await api('POST', '/api/definitions', {
+      definition: definition(),
+      expectedRevision: 0
+    })
+    const instance = (await api('POST', '/api/instances', {
+      agentId: 'test'
+    })) as { id: string }
+    const run = (await api('POST', '/api/runs', {
+      instanceId: instance.id,
+      input: 'hello'
+    })) as {
       id: string
     }
     await f.engine.idle(run.id)
@@ -324,7 +363,9 @@ test('HTTP-independent API covers catalog → version → instance → run → w
     })
     await f.engine.idle(run.id)
     assert.equal(f.store.run(run.id).result, 'confirmed')
-    assert.ok(((await api('GET', `/api/runs/${run.id}/trace`)) as unknown[]).length > 5)
+    assert.ok(
+      ((await api('GET', `/api/runs/${run.id}/trace`)) as unknown[]).length > 5
+    )
   } finally {
     await f.close()
   }
@@ -339,14 +380,26 @@ test('OpenAI-compatible adapter keeps native tool frames and passes the deployme
         choices: [
           {
             message: {
-              tool_calls: [{ id: 'c1', function: { name: 'write', arguments: '{"path":"a","content":"b"}' } }]
+              tool_calls: [
+                {
+                  id: 'c1',
+                  function: {
+                    name: 'write',
+                    arguments: '{"path":"a","content":"b"}'
+                  }
+                }
+              ]
             }
           }
         ]
       })
     )
   }) as typeof fetch
-  const model = compatibleModel({ baseUrl: 'http://localhost/v1', model: 'test' }, 'test-only-key', fetcher)
+  const model = compatibleModel(
+    { baseUrl: 'http://localhost/v1', model: 'test' },
+    'test-only-key',
+    fetcher
+  )
   const result = await model.compute(
     [{ role: 'tool', content: 'receipt', tool_call_id: 'previous' }],
     [{ name: 'write', description: 'write', parameters: { type: 'object' } }],

@@ -1,0 +1,49 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> lykoi-cordis@0.0.0 test:composer
+> npm test --workspace=lykoi-composer
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> lykoi-composer@0.1.0 test
+> node --test test/*.test.ts
+
+✔ SIGKILL after a real side effect restores an unknown operation without replay; verified receipt continues (364.144161ms)
+✔ editor admission matches runtime type/cycle constraints and preserves branch topology (56.359135ms)
+✔ zoom anchors the pointer in graph space and clamps extreme wheel input (6.076556ms)
+✔ definition revisions conflict correctly; old run keeps its version and wait survives database reopen (104.647693ms)
+✔ callbacks deduplicate, reject foreign operations, and preserve pause until explicit resume (93.153748ms)
+✔ single computation does not expose tools; bounded execution writes only its own instance workspace (88.165799ms)
+✔ two Cores share an explicitly bound instance resource; total action cap applies across Cores (19.115464ms)
+✔ malicious or nonconverging model cannot exceed action budget or invoke an unbound tool (8.953401ms)
+✔ pause allows an admitted result to commit but prevents the next component call; cancel stays terminal (4.692729ms)
+✔ deadline produces a durable unknown receipt, and shutdown does not hang on an unresponsive provider (106.014599ms)
+✔ HTTP-independent API covers catalog → version → instance → run → wait → output (11.594547ms)
+✔ OpenAI-compatible adapter keeps native tool frames and passes the deployment credential only to HTTP headers (4.608783ms)
+✔ deployment entry starts independently, refuses a second writer and releases its lock on SIGTERM (573.899276ms)
+✔ definition validation rejects cycles, duplicate inputs, missing resources and embedded credentials (33.276447ms)
+✔ registration metadata is immutable, duplicates roll back, and held handlers retire with their provider (1.327752ms)
+✔ controlled uninstall refuses unfinished runs but succeeds after cancellation (75.78748ms)
+✔ semantic routing executes only fast and retains typed original input (71.895124ms)
+✔ semantic routing executes only deep and retains typed original input (53.57173ms)
+✔ low confidence human wait survives reopen without redoing decision or running unselected models (59.232809ms)
+✔ decision failure uses explicit fallback; invalid input fails before provider call (32.196701ms)
+✔ mutually exclusive merge rejects multiple active inputs rather than selecting an arbitrary result (7.006439ms)
+✔ typed mappings, JSON parsing and single-pass template references compose without stringifying objects (7.535905ms)
+✔ save rejects forward references, unlabeled conditional exits, capability mismatch and reserved ids (6.179295ms)
+✔ deterministic direct file tools work without model calls and still preserve action limits (85.984649ms)
+✔ JEV adapter sends official state/questions shape and validates decision receipts (13.452762ms)
+✔ HTTP resource bounds credential destination, blocks redirects and accepts JSON responses (2.365746ms)
+✔ Core JSON output validates schema and human callbacks reject wrong field types (20.124931ms)
+✔ unselected workflow tools have no operation intention and cannot produce side effects (23.126568ms)
+✔ an interrupted decision requires a verified native receipt and is never automatically reissued (25.097502ms)
+✔ real local HTTP serves UI and refuses foreign Host, Origin and non-JSON writes (88.693282ms)
+✔ workspace tools reject path escape, symlink files and parents, and overwriting existing results (18.706724ms)
+ℹ tests 31
+ℹ suites 0
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1323.731704

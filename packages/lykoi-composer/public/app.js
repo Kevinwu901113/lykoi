@@ -8,10 +8,21 @@ import {
   toWorld,
   zoomViewport,
   fitViewport,
-  wirePath
+  wirePath,
+  branches,
+  edgeKey,
+  portY,
+  inWorkflow
 } from './graph-editor.js'
 const $ = (id) => document.getElementById(id)
-const labels = { transform: '转换', core: '计算', tool: '工具', wait: '等待' }
+const labels = {
+  transform: '转换',
+  core: '计算',
+  decision: '决策',
+  control: '控制',
+  tool: '工具',
+  wait: '等待'
+}
 const statuses = {
   queued: '排队中',
   running: '运行中',
@@ -44,6 +55,7 @@ const blank = () => ({
 })
 let draft = blank()
 let currentOperations = []
+let waitFormOperation = ''
 let selectedEdge = '',
   connection = null,
   gesture = null,
@@ -53,7 +65,14 @@ let historyPast = [],
   historyFuture = [],
   lastSnapshot = JSON.stringify(draft)
 const invalidConfigs = new Map()
-const icons = { transform: '≋', core: '✦', tool: '⌘', wait: '◷' }
+const icons = {
+  transform: '≋',
+  core: '✦',
+  decision: '⎇',
+  control: '⑂',
+  tool: '⌘',
+  wait: '◷'
+}
 function editor() {
   draft.editor ??= {
     positions: arrangeGraph(draft, spec),
@@ -228,28 +247,43 @@ function renderGraph() {
       $('canvas').setPointerCapture?.(event.pointerId)
     }
     card.append(top, el('small', `${node.id} · ${s.version}`, 'node-id'))
-    if (s.kind !== 'tool') {
+    if (inWorkflow(node, s)) {
       const ports = el('div', undefined, 'node-ports')
       ports.append(
         el('span', `输入 / ${s.input === 'text' ? '文本' : 'JSON'}`),
         el('span', `输出 / ${s.output === 'text' ? '文本' : 'JSON'}`)
       )
       card.append(ports)
-      for (const direction of ['in', 'out']) {
+      const exits = branches(node)
+      card.style.minHeight = `${Math.max(NODE_HEIGHT, PORT_Y + exits.length * 24 + 62)}px`
+      for (const [direction, branch] of [
+        ...(node.component === 'flow.input' ? [] : [['in', undefined]]),
+        ...exits.map((id) => ['out', id])
+      ]) {
         const port = el('button', undefined, `port ${direction}`)
         port.dataset.port = direction
         port.dataset.owner = node.id
+        if (branch) port.dataset.branch = branch
+        port.style.top = `${(direction === 'out' ? portY(node, branch) : PORT_Y) - 8}px`
+        if (branch) {
+          const label = el('span', branch, 'branch-port-label')
+          label.style.top = `${portY(node, branch) - 9}px`
+          card.append(label)
+        }
         port.setAttribute(
           'aria-label',
-          `${node.id} ${direction === 'in' ? '输入' : '输出'}端口`
+          `${node.id} ${direction === 'in' ? '输入' : '输出'}端口${branch ? ' ' + branch : ''}`
         )
         if (direction === 'out') {
-          port.classList.toggle('armed', connection?.from === node.id)
+          port.classList.toggle(
+            'armed',
+            connection?.from === node.id && connection?.branch === branch
+          )
           port.onpointerdown = (event) => {
             if (event.button !== 0) return
             event.preventDefault()
             event.stopPropagation()
-            startConnection(node.id)
+            startConnection(node.id, branch)
             gesture = {
               kind: 'wire',
               start: point(event),
@@ -260,12 +294,14 @@ function renderGraph() {
           }
           port.onclick = (event) => {
             event.stopPropagation()
-            if (connection?.from !== node.id) startConnection(node.id)
+            if (connection?.from !== node.id || connection?.branch !== branch)
+              startConnection(node.id, branch)
           }
         } else
           port.onclick = (event) => {
             event.stopPropagation()
-            if (connection) connectNodes(connection.from, node.id)
+            if (connection)
+              connectNodes(connection.from, node.id, connection.branch)
             else selectNode(node.id)
           }
         card.append(port)
@@ -278,7 +314,13 @@ function renderGraph() {
         : s.kind === 'tool'
           ? `工作区 · ${Object.values(node.resources)[0] || '未绑定'}`
           : String(
-              node.config.template ?? node.config.prompt ?? '将上游结果作为输出'
+              node.config.template ??
+                node.config.prompt ??
+                (node.component === 'model.decision'
+                  ? '决策 · ' + node.resources.model
+                  : node.component === 'flow.branch'
+                    ? branches(node).join(' / ')
+                    : '将上游结果作为输出')
             )
     card.append(summary)
     if (draft.output === node.id)
@@ -290,7 +332,7 @@ function renderGraph() {
   choices(
     $('output'),
     draft.nodes
-      .filter((n) => spec(n).kind !== 'tool')
+      .filter((n) => inWorkflow(n, spec(n)))
       .map((n) => [n.id, `${n.id} · ${spec(n).title}`]),
     draft.output
   )
@@ -333,10 +375,15 @@ function drawEdges() {
     if (!positions[edge.from] || !positions[edge.to]) continue
     const a = {
       x: positions[edge.from].x + NODE_WIDTH,
-      y: positions[edge.from].y + PORT_Y
+      y:
+        positions[edge.from].y +
+        portY(
+          draft.nodes.find((n) => n.id === edge.from),
+          edge.branch
+        )
     }
     const b = { x: positions[edge.to].x, y: positions[edge.to].y + PORT_Y }
-    const id = `${edge.from}:${edge.to}`
+    const id = edgeKey(edge)
     path(a, b, `wire${selectedEdge === id ? ' selected' : ''}`)
     const hit = path(a, b, 'wire-hit')
     hit.setAttribute('role', 'button')
@@ -377,29 +424,42 @@ function drawEdges() {
   if (connection && positions[connection.from]) {
     const a = {
       x: positions[connection.from].x + NODE_WIDTH,
-      y: positions[connection.from].y + PORT_Y
+      y:
+        positions[connection.from].y +
+        portY(
+          draft.nodes.find((n) => n.id === connection.from),
+          connection.branch
+        )
     }
     path(a, connection.point ?? { x: a.x + 70, y: a.y }, 'preview-wire')
   }
 }
-function startConnection(from) {
-  connection = { from }
+function startConnection(from, branch) {
+  connection = { from, branch }
   drawEdges()
   for (const port of document.querySelectorAll('.port.out'))
-    port.classList.toggle('armed', port.dataset.owner === from)
+    port.classList.toggle(
+      'armed',
+      port.dataset.owner === from && port.dataset.branch === branch
+    )
   note('拖动到目标输入端口，或点击输入端口完成连接。Esc 取消。')
 }
-function connectNodes(from, to) {
-  const error = connectionError(draft, spec, from, to)
+function connectNodes(from, to, branch) {
+  const error = connectionError(draft, spec, from, to, branch)
   if (error) {
     note(error, true)
     return false
   }
-  const replacing = draft.edges.some(
-    (edge) => edge.to === to && edge.from !== from
-  )
-  draft.edges = draft.edges.filter((edge) => edge.to !== to)
-  draft.edges.push({ from, to })
+  const merge = draft.nodes.find((n) => n.id === to)?.component === 'flow.merge'
+  const replacing =
+    !merge &&
+    draft.edges.some(
+      (edge) => edge.to === to && (edge.from !== from || edge.branch !== branch)
+    )
+  if (!merge) draft.edges = draft.edges.filter((edge) => edge.to !== to)
+  const edge = { from, to, ...(branch ? { branch } : {}) }
+  if (!draft.edges.some((e) => edgeKey(e) === edgeKey(edge)))
+    draft.edges.push(edge)
   connection = null
   selected = to
   selectedEdge = ''
@@ -412,7 +472,7 @@ function connectNodes(from, to) {
   return true
 }
 function removeEdge(id) {
-  draft.edges = draft.edges.filter((edge) => `${edge.from}:${edge.to}` !== id)
+  draft.edges = draft.edges.filter((edge) => edgeKey(edge) !== id)
   selectedEdge = ''
   changed()
   renderGraph()
@@ -434,25 +494,42 @@ function renderNodeStates() {
     const active = currentOperations.some(
       (operation) => operation.nodeId === id && operation.status === 'started'
     )
-    const state = done
-      ? 'completed'
-      : waiting
-        ? 'waiting'
-        : active && currentRun.status === 'running'
-          ? 'running'
-          : ''
+    const state = currentRun.skipped?.includes(id)
+      ? 'skipped'
+      : done
+        ? 'completed'
+        : waiting
+          ? 'waiting'
+          : active && currentRun.status === 'running'
+            ? 'running'
+            : ''
     if (state) {
       card.dataset.state = state
       card.append(
         el(
           'span',
-          { completed: '已完成', waiting: '等待确认', running: '运行中' }[
-            state
-          ],
+          {
+            completed: '已完成',
+            skipped: '已跳过',
+            waiting: '等待确认',
+            running: '运行中'
+          }[state],
           'node-state'
         )
       )
     }
+  }
+  const result = $('selected-node-result')
+  if (result) {
+    result.textContent = !same
+      ? '运行并保存当前版本后，可查看此节点的结果。'
+      : currentRun.skipped?.includes(selected)
+        ? '此路线未被选中，节点已跳过。'
+        : Object.hasOwn(currentRun.outputs, selected)
+          ? JSON.stringify(currentRun.outputs[selected], null, 2)
+          : currentRun.wait?.nodeId === selected
+            ? '正在等待输入或核验。'
+            : '此节点尚未完成。'
   }
 }
 function field(parent, label, input) {
@@ -461,6 +538,511 @@ function field(parent, label, input) {
   parent.append(wrapper)
   return input
 }
+function jsonField(root, label, value, update, key) {
+  const input = field(root, label, el('textarea'))
+  input.value = invalidConfigs.get(key) ?? JSON.stringify(value, null, 2)
+  input.oninput = () => {
+    invalidConfigs.set(key, input.value)
+    dirty = true
+    updateAdmission()
+    try {
+      const parsed = JSON.parse(input.value)
+      update(parsed)
+      invalidConfigs.delete(key)
+      input.setCustomValidity('')
+      changed()
+    } catch {
+      input.setCustomValidity('请输入合法 JSON')
+    }
+  }
+  return input
+}
+function syncConfig(node) {
+  if ($('node-config'))
+    $('node-config').value = JSON.stringify(node.config, null, 2)
+  changed()
+  updateNodeSummary(node)
+}
+function configSelect(root, node, key, label, values) {
+  const input = field(root, label, el('select'))
+  choices(input, values, node.config[key] ?? values[0][0])
+  input.onchange = () => {
+    node.config[key] = input.value
+    syncConfig(node)
+    if (key === 'outputFormat') renderInspector()
+  }
+}
+function renderNodeControls(root, node, s) {
+  if (s.kind === 'tool') {
+    const mode = field(root, '工具使用方式', el('select'))
+    choices(
+      mode,
+      [
+        ['workflow', '流程直接调用'],
+        ['bound', '供 Core 自主调用']
+      ],
+      node.invocation ?? 'bound'
+    )
+    mode.onchange = () => {
+      if (mode.value === 'workflow') {
+        node.invocation = 'workflow'
+        draft.nodes.forEach((n) => {
+          n.tools = n.tools.filter((id) => id !== node.id)
+        })
+      } else {
+        delete node.invocation
+        delete node.input
+        draft.edges = draft.edges.filter(
+          (e) => e.from !== node.id && e.to !== node.id
+        )
+      }
+      changed()
+      renderDraft()
+    }
+  }
+  if (node.component === 'model.core') {
+    configSelect(root, node, 'outputFormat', '输出格式', [
+      ['text', '文本'],
+      ['json', 'JSON']
+    ])
+    if (node.config.outputFormat === 'json')
+      jsonField(
+        root,
+        '输出 Schema / 可在高级配置移除',
+        node.config.outputSchema ?? { type: 'object' },
+        (v) => {
+          node.config.outputSchema = v
+          syncConfig(node)
+        },
+        `${node.id}:schema`
+      )
+  }
+  if (node.component === 'human.wait') {
+    const check = field(root, '收集结构化审核表单', el('input'))
+    check.type = 'checkbox'
+    check.checked = !!node.config.schema
+    check.onchange = () => {
+      if (check.checked)
+        node.config.schema = {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['approve', 'reject'] },
+            feedback: { type: 'string' }
+          },
+          required: ['action'],
+          additionalProperties: false
+        }
+      else delete node.config.schema
+      syncConfig(node)
+      renderInspector()
+    }
+    if (node.config.schema)
+      jsonField(
+        root,
+        '审核表单 Schema',
+        node.config.schema,
+        (v) => {
+          node.config.schema = v
+          syncConfig(node)
+        },
+        `${node.id}:schema`
+      )
+  }
+  if (node.component === 'flow.input') {
+    jsonField(
+      root,
+      '输入 Schema',
+      node.config.schema,
+      (v) => {
+        node.config.schema = v
+        syncConfig(node)
+        renderRunFields()
+      },
+      `${node.id}:schema`
+    )
+  }
+  if (node.component === 'data.transform') {
+    configSelect(root, node, 'mode', '转换操作', [
+      ['identity', '保留映射后的值'],
+      ['pick', '提取字段'],
+      ['parse-json', '解析 JSON 文本']
+    ])
+    const path = field(root, '字段路径 / 点号分隔', el('input'))
+    path.value = (node.config.path ?? []).join('.')
+    path.oninput = () => {
+      node.config.path = path.value ? path.value.split('.') : []
+      syncConfig(node)
+    }
+  }
+  if (node.component === 'http.request') {
+    configSelect(
+      root,
+      node,
+      'method',
+      '请求方法',
+      ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map((v) => [v, v])
+    )
+    const path = field(root, '服务内路径 / 可含查询参数', el('input'))
+    path.value = node.config.path
+    path.oninput = () => {
+      node.config.path = path.value
+      syncConfig(node)
+    }
+  }
+  if (node.component === 'model.decision') {
+    configSelect(root, node, 'onError', '决策服务失败时', [
+      ['fail', '停止并显示错误'],
+      ['fallback', '交给条件节点的默认路线']
+    ])
+    const entry = Object.entries(node.config.questions ?? {}).find(
+      ([, q]) => q.type === 'choice'
+    )
+    if (entry) {
+      const [id, question] = entry
+      const text = field(root, `决策问题 / ${id}`, el('textarea'))
+      text.value =
+        typeof question.instructions === 'string'
+          ? question.instructions
+          : JSON.stringify(question.instructions)
+      text.oninput = () => {
+        question.instructions = text.value
+        syncConfig(node)
+      }
+      root.append(el('p', '候选路线与说明', 'muted small'))
+      for (const [name, description] of Object.entries(question.criteria)) {
+        const row = el('div', undefined, 'candidate-row')
+        const input = field(row, name, el('input'))
+        input.value =
+          typeof description === 'string'
+            ? description
+            : JSON.stringify(description)
+        input.oninput = () => {
+          question.criteria[name] = input.value
+          syncConfig(node)
+        }
+        const remove = el('button', '移除')
+        remove.onclick = () => {
+          delete question.criteria[name]
+          syncConfig(node)
+          renderInspector()
+        }
+        row.append(remove)
+        root.append(row)
+      }
+      const name = field(root, '新增候选路线 ID', el('input'))
+      name.placeholder = '例如 search'
+      const add = el('button', '＋ 候选路线')
+      add.onclick = () => {
+        if (
+          !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name.value) ||
+          ['__proto__', 'constructor', 'prototype'].includes(name.value) ||
+          Object.hasOwn(question.criteria, name.value)
+        )
+          return note('请输入未使用的路线 ID', true)
+        question.criteria[name.value] = ''
+        syncConfig(node)
+        renderInspector()
+      }
+      root.append(add)
+    }
+    root.append(
+      el(
+        'p',
+        '多问题、Score 与 Noul 可在高级配置中设置。决策结果可通过输入映射引用。',
+        'muted small'
+      )
+    )
+  }
+  if (node.component === 'flow.branch') {
+    for (const branch of node.config.cases ?? []) {
+      const group = el('div', undefined, 'condition-group')
+      const id = field(group, '出口 ID', el('input'))
+      id.value = branch.id
+      id.onchange = () => {
+        const previous = branch.id
+        branch.id = id.value
+        draft.edges
+          .filter((e) => e.from === node.id && e.branch === previous)
+          .forEach((e) => {
+            e.branch = id.value
+          })
+        syncConfig(node)
+        renderGraph()
+      }
+      for (const condition of branch.conditions) {
+        const path = field(group, '字段路径 / 点号分隔', el('input'))
+        path.value = condition.path.join('.')
+        path.oninput = () => {
+          condition.path = path.value ? path.value.split('.') : []
+          syncConfig(node)
+        }
+        const op = field(group, '判断', el('select'))
+        choices(
+          op,
+          [
+            ['eq', '等于'],
+            ['neq', '不等于'],
+            ['gte', '大于等于'],
+            ['gt', '大于'],
+            ['lte', '小于等于'],
+            ['lt', '小于'],
+            ['contains', '包含'],
+            ['exists', '存在'],
+            ['missing', '不存在']
+          ],
+          condition.op
+        )
+        op.onchange = () => {
+          condition.op = op.value
+          syncConfig(node)
+        }
+        const value = field(group, '比较值 / 数字、JSON 或文本', el('input'))
+        value.value = JSON.stringify(condition.value ?? null)
+        value.oninput = () => {
+          try {
+            condition.value = JSON.parse(value.value)
+          } catch {
+            condition.value = value.value
+          }
+          syncConfig(node)
+        }
+        const remove = el('button', '移除此条件')
+        remove.onclick = () => {
+          branch.conditions = branch.conditions.filter((c) => c !== condition)
+          syncConfig(node)
+          renderInspector()
+        }
+        group.append(remove)
+      }
+      const add = el('button', '＋ AND 条件')
+      add.onclick = () => {
+        branch.conditions.push({ path: [], op: 'eq', value: true })
+        syncConfig(node)
+        renderInspector()
+      }
+      const remove = el('button', '移除此出口')
+      remove.onclick = () => {
+        node.config.cases = node.config.cases.filter((c) => c !== branch)
+        draft.edges = draft.edges.filter(
+          (e) => e.from !== node.id || e.branch !== branch.id
+        )
+        syncConfig(node)
+        renderGraph()
+        renderInspector()
+      }
+      group.append(add, remove)
+      root.append(group)
+    }
+    const fallback = field(root, '默认出口 ID', el('input'))
+    fallback.value = node.config.default
+    fallback.onchange = () => {
+      const old = node.config.default
+      node.config.default = fallback.value
+      draft.edges
+        .filter((e) => e.from === node.id && e.branch === old)
+        .forEach((e) => {
+          e.branch = fallback.value
+        })
+      syncConfig(node)
+      renderGraph()
+    }
+    const add = el('button', '＋ 条件出口')
+    add.onclick = () => {
+      const ids = branches(node)
+      let i = 1
+      while (ids.includes(`route_${i}`)) i++
+      node.config.cases.push({
+        id: `route_${i}`,
+        conditions: [{ path: [], op: 'eq', value: true }]
+      })
+      syncConfig(node)
+      renderGraph()
+      renderInspector()
+    }
+    root.append(add)
+    root.append(
+      el('p', '从上到下匹配；同一出口的条件全部成立才选中。', 'muted small')
+    )
+  }
+  if (node.component === 'flow.merge')
+    root.append(
+      el(
+        'p',
+        `已连接 ${draft.edges.filter((e) => e.to === node.id).length} 条路线。仅接收唯一实际执行的结果。`,
+        'muted small'
+      )
+    )
+  if (inWorkflow(node, s) && node.component !== 'flow.input') {
+    const mode = field(root, '输入值映射', el('select'))
+    choices(
+      mode,
+      [
+        ['flow', '使用连接传入的值'],
+        ['ref', '引用节点字段'],
+        ['json', '组装 JSON 对象']
+      ],
+      node.input === undefined ? 'flow' : node.input?.$ref ? 'ref' : 'json'
+    )
+    mode.onchange = () => {
+      if (mode.value === 'flow') delete node.input
+      else
+        node.input =
+          mode.value === 'ref'
+            ? { $ref: { node: '$input', path: [] } }
+            : { task: { $ref: { node: '$input', path: [] } } }
+      changed()
+      renderInspector()
+    }
+    if (node.input?.$ref) {
+      const source = field(root, '引用来源', el('select'))
+      choices(
+        source,
+        [
+          ['$input', '本次运行输入'],
+          ...draft.nodes
+            .filter((n) => n.id !== node.id && inWorkflow(n, spec(n)))
+            .map((n) => [n.id, `${n.id} · ${spec(n).title}`])
+        ],
+        node.input.$ref.node
+      )
+      source.onchange = () => {
+        node.input.$ref.node = source.value
+        changed()
+      }
+      const path = field(root, '引用字段路径 / 点号分隔', el('input'))
+      path.value = (node.input.$ref.path ?? []).join('.')
+      path.oninput = () => {
+        node.input.$ref.path = path.value ? path.value.split('.') : []
+        changed()
+      }
+    } else if (node.input !== undefined)
+      jsonField(
+        root,
+        'JSON 输入映射 / $ref 保留值类型',
+        node.input,
+        (v) => {
+          node.input = v
+          changed()
+        },
+        `${node.id}:binding`
+      )
+    root.append(
+      el(
+        'p',
+        '引用的节点必须位于上游。模板也支持 {{nodes.start.task}}。',
+        'muted small'
+      )
+    )
+  }
+}
+function renderRunFields() {
+  const root = $('run-fields')
+  root.replaceChildren()
+  const start = draft.nodes.find((n) => n.component === 'flow.input'),
+    schema = start?.config.schema
+  $('run-input').hidden =
+    !!schema && schema.type === 'object' && !$('run-json').checked
+  if ($('run-input').hidden) {
+    for (const [name, prop] of Object.entries(schema.properties ?? {})) {
+      const input = field(
+        root,
+        name,
+        prop.type === 'boolean' ? el('input') : el('textarea')
+      )
+      input.dataset.runField = name
+      input.dataset.type = prop.type
+      if (prop.type === 'boolean') input.type = 'checkbox'
+      input.required = (schema.required ?? []).includes(name)
+      input.placeholder = ['object', 'array'].includes(prop.type)
+        ? 'JSON'
+        : `请输入 ${name}`
+    }
+  }
+}
+function collectFields(root) {
+  const values = {}
+  for (const input of root.querySelectorAll('[data-run-field]')) {
+    if (!input.reportValidity()) throw new Error('请填写所需参数')
+    if (!input.required && !input.value && input.type !== 'checkbox') continue
+    values[input.dataset.runField] =
+      input.dataset.type === 'boolean'
+        ? input.tagName === 'SELECT'
+          ? JSON.parse(input.value)
+          : input.checked
+        : ['number', 'integer', 'object', 'array', 'null'].includes(
+              input.dataset.type
+            )
+          ? JSON.parse(input.value)
+          : input.value
+  }
+  return values
+}
+function renderWaitFields(node, operationId) {
+  const root = $('wait-fields'),
+    schema = node?.config.schema
+  const form = currentRun?.wait?.reason === 'input' && schema?.type === 'object'
+  root.hidden = !form
+  $('wait-value').hidden = !!form
+  $('wait-json').closest('label').hidden = !!form
+  if (waitFormOperation === operationId) return
+  waitFormOperation = operationId
+  root.replaceChildren()
+  if (!form) return
+  for (const [name, prop] of Object.entries(schema.properties ?? {})) {
+    const input = field(
+      root,
+      name,
+      prop.enum
+        ? el('select')
+        : prop.type === 'boolean'
+          ? el('input')
+          : el('textarea')
+    )
+    input.dataset.runField = name
+    input.dataset.type = prop.type
+    if (prop.enum)
+      choices(
+        input,
+        prop.enum.map((v) => [String(v), String(v)]),
+        '',
+        '请选择'
+      )
+    if (prop.type === 'boolean') input.type = 'checkbox'
+    input.required = (schema.required ?? []).includes(name)
+  }
+}
+function runInput() {
+  if ($('run-json').checked) return JSON.parse($('run-input').value)
+  if (!$('run-input').hidden) return $('run-input').value
+  return collectFields($('run-fields'))
+}
+$('run-json').onchange = renderRunFields
+action('add-http', () => {
+  draft.resources.push({
+    id: nextResourceId('http'),
+    type: 'http',
+    config: { baseUrl: 'http://127.0.0.1:8080/' }
+  })
+  changed()
+  renderResources()
+  renderInspector()
+})
+action('load-routing', async () => {
+  const preset = await api('presets/routing')
+  draft = { ...preset, id: blank().id }
+  revision = 0
+  dirty = true
+  selected = 'decision'
+  resetHistory()
+  editor()
+  renderDraft()
+  fitCanvas()
+  setDrawer('')
+  note(
+    '已加载语义路由：手动决策夹具仅演示分流。设置中将 router 切换为 JEV 并填写凭证句柄可接真实接口。'
+  )
+})
+
 function renderInspector() {
   const root = $('inspector')
   root.replaceChildren()
@@ -492,6 +1074,13 @@ function renderInspector() {
     el('span', s.effect === 'external' ? '外部操作' : '纯计算')
   )
   root.append(meta)
+  const execution = el('details', undefined, 'node-execution')
+  execution.append(el('summary', '本次运行输出'))
+  const output = el('pre')
+  output.id = 'selected-node-result'
+  execution.append(output)
+  root.append(execution)
+  renderNodeStates()
   const commonKey =
     s.id === 'text.template'
       ? 'template'
@@ -550,12 +1139,21 @@ function renderInspector() {
       config.setCustomValidity('请输入合法 JSON 对象')
     }
   }
-  if (s.kind !== 'tool') {
+  renderNodeControls(root, node, s)
+  if (
+    inWorkflow(node, s) &&
+    !['flow.input', 'flow.merge'].includes(node.component)
+  ) {
     const upstream = field(root, '输入来源', el('select'))
     choices(
       upstream,
       draft.nodes
-        .filter((n) => n.id !== node.id && spec(n).kind !== 'tool')
+        .filter(
+          (n) =>
+            n.id !== node.id &&
+            inWorkflow(n, spec(n)) &&
+            n.component !== 'flow.branch'
+        )
         .map((n) => [n.id, `${n.id} · ${spec(n).title}`]),
       draft.edges.find((e) => e.to === node.id)?.from,
       '本次运行输入'
@@ -575,7 +1173,17 @@ function renderInspector() {
     const select = field(root, `资源绑定 / ${role}`, el('select'))
     choices(
       select,
-      draft.resources.filter((r) => r.type === type).map((r) => [r.id, r.id]),
+      draft.resources
+        .filter(
+          (r) =>
+            r.type === type &&
+            (type !== 'model' ||
+              (s.kind === 'decision') ===
+                ['jev', 'decision-compatible', 'decision-fixture'].includes(
+                  r.config.provider
+                ))
+        )
+        .map((r) => [r.id, r.id]),
       node.resources[role],
       '请选择资源'
     )
@@ -587,7 +1195,9 @@ function renderInspector() {
   }
   if (s.kind === 'core') {
     root.append(el('p', 'Core 可调用的工具', 'muted small'))
-    for (const tool of draft.nodes.filter((n) => spec(n).kind === 'tool')) {
+    for (const tool of draft.nodes.filter(
+      (n) => spec(n).kind === 'tool' && n.invocation !== 'workflow'
+    )) {
       const check = el('input')
       check.type = 'checkbox'
       check.checked = node.tools.includes(tool.id)
@@ -606,7 +1216,9 @@ function renderInspector() {
   const remove = el('button', '移除组件', 'delete')
   remove.onclick = () => {
     delete editor().positions[node.id]
-    invalidConfigs.delete(node.id)
+    for (const key of invalidConfigs.keys())
+      if (key === node.id || key.startsWith(node.id + ':'))
+        invalidConfigs.delete(key)
     draft.nodes = draft.nodes.filter((n) => n.id !== node.id)
     draft.edges = draft.edges.filter(
       (e) => e.from !== node.id && e.to !== node.id
@@ -616,7 +1228,7 @@ function renderInspector() {
     })
     if (draft.output === node.id)
       draft.output =
-        draft.nodes.filter((n) => spec(n).kind !== 'tool').at(-1)?.id ?? ''
+        draft.nodes.filter((n) => inWorkflow(n, spec(n))).at(-1)?.id ?? ''
     selected = ''
     changed()
     renderGraph()
@@ -634,7 +1246,13 @@ function updateNodeSummary(node) {
     s.kind === 'core'
       ? `模型 · ${node.resources.model || '未绑定'} / ${node.tools.length} 个工具`
       : String(
-          node.config.template ?? node.config.prompt ?? '将上游结果作为输出'
+          node.config.template ??
+            node.config.prompt ??
+            (node.component === 'model.decision'
+              ? '决策 · ' + node.resources.model
+              : node.component === 'flow.branch'
+                ? branches(node).join(' / ')
+                : '将上游结果作为输出')
         )
 }
 function renderResources() {
@@ -648,7 +1266,10 @@ function renderResources() {
         provider,
         [
           ['demo', '离线演示'],
-          ['openai-compatible', 'OpenAI 兼容接口']
+          ['openai-compatible', 'OpenAI 兼容接口'],
+          ['jev', 'JEV 官方决策接口'],
+          ['decision-compatible', '兼容决策接口'],
+          ['decision-fixture', '手动决策夹具（非智能模型）']
         ],
         resource.config.provider
       )
@@ -656,15 +1277,52 @@ function renderResources() {
         resource.config =
           provider.value === 'demo'
             ? { provider: 'demo' }
-            : {
-                provider: 'openai-compatible',
-                baseUrl: 'http://127.0.0.1:8080/v1',
-                model: 'local-model'
-              }
+            : provider.value === 'decision-fixture'
+              ? {
+                  provider: provider.value,
+                  answers: {
+                    route: {
+                      type: 'choice',
+                      choice: 'fast',
+                      confidence: 0.9,
+                      probabilities: { fast: 0.95, deep: 0.05 }
+                    }
+                  }
+                }
+              : ['jev', 'decision-compatible'].includes(provider.value)
+                ? {
+                    provider: provider.value,
+                    baseUrl: 'https://api.typesafe.ai/v1/systemone',
+                    model: 'jev-latest'
+                  }
+                : {
+                    provider: 'openai-compatible',
+                    baseUrl: 'http://127.0.0.1:8080/v1',
+                    model: 'local-model'
+                  }
         changed()
         renderResources()
       }
-      if (resource.config.provider === 'openai-compatible') {
+      if (resource.config.provider === 'decision-fixture') {
+        jsonField(
+          card,
+          '手动答案 / 修改以测试不同路线',
+          resource.config.answers,
+          (v) => {
+            resource.config.answers = v
+            changed()
+          },
+          `resource:${resource.id}`
+        )
+        card.append(
+          el('p', '此提供者不理解任务，仅返回你设定的答案。', 'muted small')
+        )
+      }
+      if (
+        ['openai-compatible', 'jev', 'decision-compatible'].includes(
+          resource.config.provider
+        )
+      ) {
         for (const [key, label] of [
           ['baseUrl', '接口地址 / 含 v1'],
           ['model', '模型名'],
@@ -683,6 +1341,19 @@ function renderResources() {
           el('p', '只填写句柄；密钥在本机部署配置中提供。', 'muted small')
         )
       }
+    } else if (resource.type === 'http') {
+      for (const [key, label] of [
+        ['baseUrl', '服务地址'],
+        ['credential', '凭证句柄']
+      ]) {
+        const input = field(card, label, el('input'))
+        input.value = resource.config[key] ?? ''
+        input.oninput = () => {
+          if (input.value) resource.config[key] = input.value
+          else delete resource.config[key]
+          changed()
+        }
+      }
     } else
       card.append(
         el(
@@ -693,6 +1364,7 @@ function renderResources() {
       )
     const remove = el('button', '移除资源')
     remove.onclick = () => {
+      invalidConfigs.delete(`resource:${resource.id}`)
       draft.resources = draft.resources.filter((r) => r.id !== resource.id)
       changed()
       renderResources()
@@ -714,6 +1386,7 @@ function renderDraft() {
   renderInspector()
   renderResources()
   renderInstances()
+  renderRunFields()
   updateAdmission()
 }
 function renderInstances() {
@@ -754,9 +1427,31 @@ function addNode(s) {
     resources: {},
     tools: []
   }
-  for (const [role, type] of Object.entries(s.resourceRoles))
-    node.resources[role] =
-      draft.resources.find((r) => r.type === type)?.id ?? ''
+  if (s.kind === 'tool') node.invocation = 'workflow'
+  for (const [role, type] of Object.entries(s.resourceRoles)) {
+    let resource = draft.resources.find(
+      (r) =>
+        r.type === type &&
+        (type !== 'model' ||
+          (s.kind === 'decision') ===
+            ['jev', 'decision-compatible', 'decision-fixture'].includes(
+              r.config.provider
+            ))
+    )
+    if (!resource && s.kind === 'decision') {
+      resource = {
+        id: nextResourceId('model'),
+        type: 'model',
+        config: {
+          provider: 'jev',
+          baseUrl: 'https://api.typesafe.ai/v1/systemone',
+          model: 'jev-latest'
+        }
+      }
+      draft.resources.push(resource)
+    }
+    node.resources[role] = resource?.id ?? ''
+  }
   if (draft.nodes.length >= 64) throw new Error('首版最多 64 个组件')
   const geometry = editor()
   const placement =
@@ -782,7 +1477,7 @@ function addNode(s) {
     )
   }
   addPoint = null
-  if (s.kind !== 'tool') draft.output = node.id
+  if (inWorkflow(node, s)) draft.output = node.id
   setDrawer('')
   selected = node.id
   changed()
@@ -825,7 +1520,7 @@ action('load-demo', () => {
 })
 action('save', async () => {
   if (invalidConfigs.size)
-    throw new Error('有组件的高级配置 JSON 无效，请修正后保存')
+    throw new Error('有组件或资源的 JSON 无效，请修正后保存')
   const editor = $('node-config')
   if (editor && !editor.reportValidity()) throw new Error('组件配置 JSON 无效')
   draft.name = $('agent-name').value
@@ -961,7 +1656,7 @@ action('run', async () => {
   if (dirty) throw new Error('请先保存新版本')
   const run = await api('runs', {
     instanceId: $('instances').value,
-    input: $('run-input').value
+    input: runInput()
   })
   runId = run.id
   openDock()
@@ -1014,7 +1709,9 @@ async function observe() {
       'operation.completed': '回执已记录',
       'operation.waiting': '等待输入',
       'operation.unknown': '结果待核验',
+      'operation.failed': '计算失败',
       'node.completed': '节点完成',
+      'node.skipped': '路线跳过',
       'run.waiting': '运行等待',
       'operation.resolved': '收到结果',
       'run.succeeded': '运行完成',
@@ -1040,9 +1737,15 @@ async function observe() {
     $('wait-box').hidden = !run.wait
     if (run.wait) {
       $('wait-prompt').textContent = run.wait.prompt
+      const waitingNode = run.version.definition.nodes.find(
+        (n) => n.id === run.wait.nodeId
+      )
+      renderWaitFields(waitingNode, run.wait.operationId)
       $('wait-help').textContent =
         run.wait.reason === 'unknown'
-          ? '此操作不会自动重做。请先核验实际结果，再提交确认的回执；模型回执格式为 {"kind":"finish","result":"实际结果"}。'
+          ? waitingNode?.component === 'model.decision'
+            ? '此决策不会自动重做。请核验结果，以 JSON 提交包含 answers 的决策回执。'
+            : '此操作不会自动重做。请先核验实际结果，再提交确认的回执；Core 回执格式为 {"kind":"finish","result":"实际结果"}。'
           : '上游结果显示在下方。此等待会保存，服务重启后仍可继续。'
       $('resolve').textContent =
         run.status === 'paused' ? '提交结果（保持暂停）' : '提交结果并继续'
@@ -1060,9 +1763,12 @@ for (const command of ['pause', 'resume', 'cancel'])
   })
 action('resolve', async () => {
   if (!currentRun?.wait) throw new Error('当前运行没有等待操作')
-  const value = $('wait-json').checked
-    ? JSON.parse($('wait-value').value)
-    : $('wait-value').value
+  const value =
+    !$('wait-fields').hidden && $('wait-fields').children.length
+      ? collectFields($('wait-fields'))
+      : $('wait-json').checked
+        ? JSON.parse($('wait-value').value)
+        : $('wait-value').value
   await api(`runs/${runId}/resolve`, {
     operationId: currentRun.wait.operationId,
     value
@@ -1296,7 +2002,8 @@ function finishGesture(event, cancelled = false) {
       document
         .elementFromPoint(event.clientX, event.clientY)
         ?.closest('.port.in')
-    if (target) connectNodes(connection.from, target.dataset.owner)
+    if (target)
+      connectNodes(connection.from, target.dataset.owner, connection.branch)
     else {
       connection = null
       drawEdges()

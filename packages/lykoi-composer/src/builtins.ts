@@ -2,10 +2,20 @@ import { mkdir, realpath, readFile, open } from 'node:fs/promises'
 import { resolve, relative, isAbsolute, dirname } from 'node:path'
 import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
-import type { Component, Config, Json, Model, Message, CoreDecision } from './contracts.ts'
+import type {
+  Component,
+  Config,
+  Json,
+  Model,
+  Message,
+  CoreDecision
+} from './contracts.ts'
 import { assertJson } from './definition.ts'
+import { flowBuiltins } from './flow.ts'
+import { validateSchema } from './values.ts'
 
-const text = (input: Json) => (typeof input === 'string' ? input : JSON.stringify(input))
+const text = (input: Json) =>
+  typeof input === 'string' ? input : JSON.stringify(input)
 function fields(config: Config, allowed: string[], required: string[] = []) {
   if (
     Object.keys(config).some((k) => !allowed.includes(k)) ||
@@ -43,9 +53,11 @@ export const builtins: Component[] = [
     defaultConfig: { template: '请根据以下内容给出清晰的回答：\n{{input}}' },
     resourceRoles: {},
     validate: (c) => fields(c, ['template'], ['template']),
-    invoke: async (input, config) => ({
+    invoke: async (input, config, context) => ({
       status: 'completed',
-      value: String(config.template).replaceAll('{{input}}', text(input))
+      value: context.render
+        ? context.render(String(config.template), input)
+        : String(config.template).replaceAll('{{input}}', text(input))
     })
   },
   {
@@ -59,7 +71,19 @@ export const builtins: Component[] = [
     output: 'any',
     defaultConfig: { system: '你是一个严谨的助手。' },
     resourceRoles: { model: 'model' },
-    validate: (c) => fields(c, ['system'], ['system'])
+    validate: (c) => {
+      fields(c, ['system', 'outputFormat', 'outputSchema'], ['system'])
+      if (
+        c.outputFormat !== undefined &&
+        !['text', 'json'].includes(String(c.outputFormat))
+      )
+        throw new Error('invalid Core output format')
+      if (c.outputSchema !== undefined) {
+        validateSchema(c.outputSchema)
+        if (c.outputFormat !== 'json')
+          throw new Error('schema requires JSON output')
+      }
+    }
   },
   {
     id: 'human.wait',
@@ -72,8 +96,14 @@ export const builtins: Component[] = [
     output: 'any',
     defaultConfig: { prompt: '请检查上游结果，输入确认后的内容以继续。' },
     resourceRoles: {},
-    validate: (c) => fields(c, ['prompt'], ['prompt']),
-    invoke: async (_input, c) => ({ status: 'waiting', prompt: String(c.prompt) })
+    validate: (c) => {
+      fields(c, ['prompt', 'schema'], ['prompt'])
+      if (c.schema !== undefined) validateSchema(c.schema)
+    },
+    invoke: async (_input, c) => ({
+      status: 'waiting',
+      prompt: String(c.prompt)
+    })
   },
   {
     id: 'output.value',
@@ -117,13 +147,17 @@ export const builtins: Component[] = [
         Object.keys(input).some((k) => !['path', 'content'].includes(k))
       )
         throw new Error('write requires path and content')
-      if (input.content.length > 1000000) throw new Error('file content exceeds limit')
+      if (input.content.length > 1000000)
+        throw new Error('file content exceeds limit')
       const root = (context.resource('workspace') as { root: string }).root
       const path = await workspacePath(root, input.path)
       context.signal.throwIfAborted()
       const file = await open(
         path,
-        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
         0o600
       )
       try {
@@ -165,16 +199,21 @@ export const builtins: Component[] = [
         Object.keys(input).some((k) => k !== 'path')
       )
         throw new Error('read requires path')
-      const path = await workspacePath((context.resource('workspace') as { root: string }).root, input.path)
+      const path = await workspacePath(
+        (context.resource('workspace') as { root: string }).root,
+        input.path
+      )
       const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
-        if ((await file.stat()).size > 1000000) throw new Error('file exceeds read limit')
+        if ((await file.stat()).size > 1000000)
+          throw new Error('file exceeds read limit')
         return { status: 'completed', value: await file.readFile('utf8') }
       } finally {
         await file.close()
       }
     }
-  }
+  },
+  ...flowBuiltins
 ]
 
 /** Explicit offline fixture: no fabricated research or network result. */
@@ -191,7 +230,7 @@ export function compatibleModel(
 ): Model {
   const endpoint = `${String(config.baseUrl).replace(/\/$/, '')}/chat/completions`
   return {
-    async compute(messages, tools, signal): Promise<CoreDecision> {
+    async compute(messages, tools, signal, options): Promise<CoreDecision> {
       const response = await fetcher(endpoint, {
         method: 'POST',
         signal,
@@ -204,18 +243,27 @@ export function compatibleModel(
           model: config.model,
           messages,
           stream: false,
+          ...(options?.json
+            ? { response_format: { type: 'json_object' } }
+            : {}),
           ...(tools.length
-            ? { tools: tools.map((t) => ({ type: 'function', function: t })), parallel_tool_calls: false }
+            ? {
+                tools: tools.map((t) => ({ type: 'function', function: t })),
+                parallel_tool_calls: false
+              }
             : {})
         })
       })
-      if (!response.ok) throw new Error(`model provider returned HTTP ${response.status}`)
+      if (!response.ok)
+        throw new Error(`model provider returned HTTP ${response.status}`)
       const data = (await response.json()) as any
       const message = data.choices?.[0]?.message
       if (!message) throw new Error('model provider returned no message')
       if (message.tool_calls?.length) {
         if (message.tool_calls.length !== 1)
-          throw new Error('parallel tool calls are not supported in this edition')
+          throw new Error(
+            'parallel tool calls are not supported in this edition'
+          )
         const call = message.tool_calls[0]
         if (
           typeof call.function?.name !== 'string' ||
@@ -225,9 +273,13 @@ export function compatibleModel(
           throw new Error('invalid tool call')
         const input = JSON.parse(call.function.arguments)
         assertJson(input)
-        return { kind: 'act', action: { tool: call.function.name, input, callId: call.id } }
+        return {
+          kind: 'act',
+          action: { tool: call.function.name, input, callId: call.id }
+        }
       }
-      if (typeof message.content !== 'string') throw new Error('model provider returned no text')
+      if (typeof message.content !== 'string')
+        throw new Error('model provider returned no text')
       return { kind: 'finish', result: message.content }
     }
   }

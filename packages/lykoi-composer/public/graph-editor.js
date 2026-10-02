@@ -4,16 +4,26 @@ export const NODE_HEIGHT = 166
 export const PORT_Y = 88
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
 
-export function connectionError(graph, getSpec, from, to) {
+export function connectionError(graph, getSpec, from, to, branch) {
   const a = graph.nodes.find((n) => n.id === from)
   const b = graph.nodes.find((n) => n.id === to)
   if (!a || !b) return '连接的组件不存在'
   if (from === to) return '不能连接组件自身'
   const source = getSpec(a),
     target = getSpec(b)
-  if (source.kind === 'tool' || target.kind === 'tool')
+  if (
+    (source.kind === 'tool' && a.invocation !== 'workflow') ||
+    (target.kind === 'tool' && b.invocation !== 'workflow')
+  )
     return '工具通过 Core 的工具绑定使用，不接入数据流'
-  if (source.output === 'any' && target.input === 'text')
+  if (b.component === 'flow.input') return '开始节点不能接收上游连接'
+  if (a.component === 'flow.branch' && !branches(a).includes(branch))
+    return '请选择条件分支出口'
+  if (
+    source.output === 'any' &&
+    target.input === 'text' &&
+    b.input === undefined
+  )
     return '类型不兼容：此输入需要文本，上游可能输出任意 JSON'
   const pending = [to],
     seen = new Set()
@@ -46,7 +56,7 @@ export function arrangeGraph(graph, getSpec) {
   }
   let toolRow = 0
   for (const node of graph.nodes) {
-    if (getSpec(node).kind === 'tool') {
+    if (getSpec(node).kind === 'tool' && node.invocation !== 'workflow') {
       positions[node.id] = { x: 40 + toolRow++ * 284, y: 310 }
       continue
     }
@@ -91,3 +101,14 @@ export function wirePath(a, b) {
   const bend = Math.max(55, Math.abs(b.x - a.x) * 0.45)
   return `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${b.x - bend} ${b.y}, ${b.x} ${b.y}`
 }
+
+export const branches = (node) =>
+  node.component === 'flow.branch'
+    ? [...(node.config.cases ?? []).map((c) => c.id), node.config.default]
+    : [undefined]
+export const edgeKey = (edge) =>
+  `${edge.from}:${edge.to}${edge.branch ? ':' + edge.branch : ''}`
+export const portY = (node, branch) =>
+  PORT_Y + Math.max(0, branches(node).indexOf(branch)) * 24
+export const inWorkflow = (node, spec) =>
+  spec.kind !== 'tool' || node.invocation === 'workflow'

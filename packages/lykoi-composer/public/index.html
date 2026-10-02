@@ -19,6 +19,7 @@
       </div>
       <div class="header-actions">
         <button id="load-demo">加载示例</button>
+        <button id="load-routing">语义路由</button>
         <button id="theme" aria-label="切换深浅主题">浅色</button>
         <button id="save">保存版本</button>
         <button class="primary" id="open-run">
@@ -115,7 +116,7 @@
           /></label>
           <p class="muted small">添加到画布，通过端口连接。</p>
           <div id="catalog"></div>
-          <p class="drawer-foot muted small">当前提供 6 个可信组件</p>
+          <p class="drawer-foot muted small">基础组件与工具可分别装配</p>
         </aside>
         <aside id="agents-panel" class="drawer" hidden>
           <div class="panel-heading">
@@ -191,7 +192,8 @@
           <div id="resources"></div>
           <div class="button-row">
             <button id="add-model">＋ 模型</button
-            ><button id="add-workspace">＋ 工作区</button>
+            ><button id="add-workspace">＋ 工作区</button
+            ><button id="add-http">＋ HTTP 服务</button>
           </div>
         </aside>
         <aside id="inspector-panel" class="inspector" hidden>
@@ -226,13 +228,18 @@
             <select id="instances" aria-label="运行实例"></select
             ><button id="create-instance">新建实例</button>
           </div>
-          <label
-            >输入<textarea
-              id="run-input"
-              placeholder="交给 Agent 的内容…"
-              rows="3"
-            ></textarea></label
-          ><button class="primary" id="run">运行已保存版本 ▶</button>
+          <p class="muted small">输入</p>
+          <label class="tool-check"
+            ><input type="checkbox" id="run-json" />JSON 输入</label
+          >
+          <div id="run-fields"></div>
+          <textarea
+            id="run-input"
+            aria-label="本次运行输入"
+            placeholder="交给 Agent 的内容…"
+            rows="3"
+          ></textarea>
+          <button class="primary" id="run">运行已保存版本 ▶</button>
           <p id="run-hint" class="muted small">先保存定义，再创建实例。</p>
           <label
             >运行记录<select id="run-history">
@@ -261,6 +268,7 @@
           <div id="wait-box" hidden>
             <strong id="wait-prompt"></strong>
             <p id="wait-help" class="muted small"></p>
+            <div id="wait-fields"></div>
             <textarea
               id="wait-value"
               rows="2"

@@ -8,17 +8,32 @@ import type {
   InvocationContext,
   Json,
   Model,
+  ResourceValue,
   NodeDefinition,
   Operation,
   Run
 } from './contracts.ts'
 import { assertJson, graphOrder, validateDefinition } from './definition.ts'
-import { compatibleModel, coreMessages, demoModel, ensureWorkspace } from './builtins.ts'
+import {
+  compatibleModel,
+  coreMessages,
+  demoModel,
+  ensureWorkspace
+} from './builtins.ts'
 import { runCognition } from './cognition.ts'
+import {
+  fixtureDecisionModel,
+  jevModel,
+  httpClient,
+  checkDecision
+} from './providers.ts'
+import { checkSchema, renderTemplate, resolveValue } from './values.ts'
 
 class Suspended extends Error {}
-const terminal = (run: Run) => ['succeeded', 'failed', 'cancelled'].includes(run.status)
-const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+const terminal = (run: Run) =>
+  ['succeeded', 'failed', 'cancelled'].includes(run.status)
+const equal = (a: unknown, b: unknown) =>
+  JSON.stringify(a) === JSON.stringify(b)
 async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   let onAbort: () => void = () => {}
   try {
@@ -37,14 +52,17 @@ async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 export type ResourceFactory = (
   resource: AgentDefinition['resources'][number],
   instanceId: string
-) => Promise<Model | { root: string }>
+) => Promise<ResourceValue>
 
 /** Single deployment writer. The HTTP entry point holds a deployment process lock. */
 export class ComposerEngine {
   readonly store: ComposerStore
   readonly registry: ComponentRegistry
-  #active = new Map<string, { promise: Promise<void>; controller: AbortController }>()
-  #resources = new Map<string, Promise<Model | { root: string }>>()
+  #active = new Map<
+    string,
+    { promise: Promise<void>; controller: AbortController }
+  >()
+  #resources = new Map<string, Promise<ResourceValue>>()
   #factory: ResourceFactory
   #accepting = true
   constructor(
@@ -62,17 +80,33 @@ export class ComposerEngine {
       options.resourceFactory ??
       (async (resource, instanceId) => {
         if (resource.type === 'workspace')
-          return ensureWorkspace(join(options.workspaceRoot, instanceId, resource.id))
+          return ensureWorkspace(
+            join(options.workspaceRoot, instanceId, resource.id)
+          )
         if (resource.config.provider === 'demo') return { ...demoModel }
         const handle = resource.config.credential
-        const credential = typeof handle === 'string' ? options.credentials?.[handle] : undefined
-        if (handle && !credential) throw new Error('configured credential handle is unavailable')
+        const credential =
+          typeof handle === 'string' ? options.credentials?.[handle] : undefined
+        if (handle && !credential)
+          throw new Error('configured credential handle is unavailable')
+        if (resource.type === 'http')
+          return httpClient(resource.config, credential)
+        if (resource.config.provider === 'decision-fixture')
+          return fixtureDecisionModel(resource.config)
+        if (
+          ['jev', 'decision-compatible'].includes(
+            String(resource.config.provider)
+          )
+        )
+          return jevModel(resource.config, credential)
         return compatibleModel(resource.config, credential)
       })
   }
   start(instanceId: string, input: Json): Run {
     if (!this.#accepting) throw new Error('runtime is stopping')
-    const version = this.store.definition(this.store.instance(instanceId).agentId)
+    const version = this.store.definition(
+      this.store.instance(instanceId).agentId
+    )
     validateDefinition(version.definition, this.registry)
     const run = this.store.createRun(instanceId, input)
     void this.drive(run.id)
@@ -81,7 +115,9 @@ export class ComposerEngine {
   async recover(): Promise<void> {
     // Interrupted operations require evidence, never an automatic duplicate call.
     for (const run of this.store.runs().filter((r) => !terminal(r))) {
-      for (const op of this.store.operations(run.id).filter((o) => o.status === 'started'))
+      for (const op of this.store
+        .operations(run.id)
+        .filter((o) => o.status === 'started'))
         this.store.settleOperation({
           ...op,
           status: 'unknown',
@@ -119,7 +155,8 @@ export class ComposerEngine {
   async resume(id: string): Promise<Run> {
     await this.idle(id)
     this.store.editRun(id, (r) => {
-      if (terminal(r) || r.wait) throw new Error('resolve the pending operation before resuming')
+      if (terminal(r) || r.wait)
+        throw new Error('resolve the pending operation before resuming')
       r.status = 'queued'
       this.store.trace(id, 'run.resumed', {})
     })
@@ -143,16 +180,33 @@ export class ComposerEngine {
       op = this.store.operation(operationId)
     if (!op || op.runId !== id) throw new Error('invalid callback ownership')
     if (op.status === 'completed') {
-      if (!equal(op.result, value)) throw new Error('callback conflicts with committed result')
+      if (!equal(op.result, value))
+        throw new Error('callback conflicts with committed result')
       return run
     }
-    if (terminal(run) || run.wait?.operationId !== operationId || !['waiting', 'unknown'].includes(op.status))
+    if (
+      terminal(run) ||
+      run.wait?.operationId !== operationId ||
+      !['waiting', 'unknown'].includes(op.status)
+    )
       throw new Error('operation is not awaiting input')
     if (this.registry.get(op.component, op.version).kind === 'core') {
       const v = value as any
       if (!v || v.kind !== 'finish' || v.result === undefined)
-        throw new Error('unknown model operation requires a verified {kind:"finish",result:...} receipt')
-    } else if (this.registry.get(op.component, op.version).output === 'text' && typeof value !== 'string')
+        throw new Error(
+          'unknown model operation requires a verified {kind:"finish",result:...} receipt'
+        )
+    } else if (op.component === 'model.decision') {
+      const node = run.version.definition.nodes.find((n) => n.id === op.nodeId)!
+      checkDecision(value, node.config.questions as Config)
+    } else if (op.component === 'human.wait') {
+      const node = run.version.definition.nodes.find((n) => n.id === op.nodeId)!
+      if (node.config.schema !== undefined)
+        checkSchema(value, node.config.schema)
+    } else if (
+      this.registry.get(op.component, op.version).output === 'text' &&
+      typeof value !== 'string'
+    )
       throw new Error('component requires a text result')
     this.store.resolveOperation(id, operationId, value)
     if (this.store.run(id).status === 'queued') void this.drive(id)
@@ -164,9 +218,11 @@ export class ComposerEngine {
     operationId: string,
     signal: AbortSignal
   ): Promise<InvocationContext> {
-    const values = new Map<string, Model | { root: string }>()
+    const values = new Map<string, ResourceValue>()
     for (const [role, id] of Object.entries(node.resources)) {
-      const resource = run.version.definition.resources.find((r) => r.id === id)!
+      const resource = run.version.definition.resources.find(
+        (r) => r.id === id
+      )!
       const key = JSON.stringify([run.instanceId, resource])
       if (!this.#resources.has(key))
         this.#resources.set(
@@ -183,8 +239,10 @@ export class ComposerEngine {
       runId: run.id,
       operationId,
       signal,
+      render: (template, input) => renderTemplate(template, input, run),
       resource: (role) => {
-        if (!values.has(role)) throw new Error('resource is outside component bindings')
+        if (!values.has(role))
+          throw new Error('resource is outside component bindings')
         return values.get(role)!
       }
     }
@@ -207,15 +265,36 @@ export class ComposerEngine {
     )
       throw new Error('persisted operation differs from the pinned definition')
     if (previous?.status === 'completed') return previous.result!
+    if (previous?.status === 'failed')
+      throw new Error('persisted pure computation failed')
     if (previous) {
       const reason = previous.status === 'waiting' ? 'input' : 'unknown'
-      this.#wait(run.id, node.id, id, reason, previous.prompt ?? '操作结果不确定，请核验后提供结果。')
+      this.#wait(
+        run.id,
+        node.id,
+        id,
+        reason,
+        previous.prompt ?? '操作结果不确定，请核验后提供结果。'
+      )
       throw new Suspended()
     }
     if (this.store.run(run.id).status !== 'running') throw new Suspended()
     signal.throwIfAborted()
     // Preparation has no external side effect and may fail before an intention is written.
-    const context = await abortable(this.#context(run, node, id, signal), signal)
+    const component = this.registry.get(node.component, node.version)
+    if (
+      component.kind === 'tool' &&
+      this.store
+        .operations(run.id)
+        .filter(
+          (op) => this.registry.get(op.component, op.version).kind === 'tool'
+        ).length >= run.version.definition.execution.maxActions
+    )
+      throw new Error('execution tool step budget exhausted')
+    const context = await abortable(
+      this.#context(run, node, id, signal),
+      signal
+    )
     signal.throwIfAborted()
     if (this.store.run(run.id).status !== 'running') throw new Suspended()
     const op: Operation = {
@@ -229,30 +308,74 @@ export class ComposerEngine {
     }
     this.store.startOperation(op)
     try {
-      const work = this.registry.use(node.component, node.version, async (spec) => {
-        if (spec.input === 'text' && typeof input !== 'string')
-          throw new Error('component requires text input')
-        if (invoke) return { status: 'completed' as const, value: await invoke(context) }
-        return spec.invoke!(input, node.config, context)
-      })
+      const work = this.registry.use(
+        node.component,
+        node.version,
+        async (spec) => {
+          if (spec.input === 'text' && typeof input !== 'string')
+            throw new Error('component requires text input')
+          if (invoke)
+            return {
+              status: 'completed' as const,
+              value: await invoke(context)
+            }
+          const config = structuredClone(node.config)
+          for (const key of ['prompt'])
+            if (typeof config[key] === 'string')
+              config[key] = renderTemplate(config[key] as string, input, run)
+          return spec.invoke!(input, config, context)
+        }
+      )
       const result = await abortable(work, signal)
       if (result.status === 'waiting') {
-        this.store.settleOperation({ ...op, status: 'waiting', prompt: result.prompt })
+        this.store.settleOperation({
+          ...op,
+          status: 'waiting',
+          prompt: result.prompt
+        })
         this.#wait(run.id, node.id, id, 'input', result.prompt)
         throw new Suspended()
       }
       assertJson(result.value)
-      this.store.settleOperation({ ...op, status: 'completed', result: result.value })
+      this.store.settleOperation({
+        ...op,
+        status: 'completed',
+        result: result.value
+      })
       return result.value
     } catch (error) {
       if (error instanceof Suspended) throw error
+      if (
+        this.registry.get(node.component, node.version).effect === 'pure' &&
+        !signal.aborted
+      ) {
+        // A failed pure computation has no uncertain external write to verify.
+        this.store.settleOperation({ ...op, status: 'failed' })
+        throw error
+      }
       // Any exception after intention publication may follow an external effect.
-      this.store.settleOperation({ ...op, status: 'unknown', prompt: '操作未取得确定回执，请核验实际结果。' })
-      this.#wait(run.id, node.id, id, 'unknown', '操作未取得确定回执，请核验实际结果。')
+      this.store.settleOperation({
+        ...op,
+        status: 'unknown',
+        prompt: '操作未取得确定回执，请核验实际结果。'
+      })
+      this.#wait(
+        run.id,
+        node.id,
+        id,
+        'unknown',
+        '操作未取得确定回执，请核验实际结果。'
+      )
       throw new Suspended()
     }
   }
-  #wait(runId: string, nodeId: string, operationId: string, reason: 'input' | 'unknown', prompt: string) {
+  #wait(
+    runId: string,
+    nodeId: string,
+    operationId: string,
+    reason: 'input' | 'unknown',
+    prompt: string
+  ) {
     this.store.editRun(runId, (r) => {
       if (terminal(r)) return
       if (r.status !== 'paused') r.status = 'waiting'
@@ -260,23 +383,42 @@ export class ComposerEngine {
       this.store.trace(runId, 'run.waiting', { operationId, reason, prompt })
     })
   }
-  async #core(run: Run, node: NodeDefinition, input: Json, signal: AbortSignal): Promise<Json> {
+  async #core(
+    run: Run,
+    node: NodeDefinition,
+    input: Json,
+    signal: AbortSignal
+  ): Promise<Json> {
     const d = run.version.definition,
-      messages = coreMessages(String(node.config.system), input)
+      messages = coreMessages(
+        renderTemplate(String(node.config.system), input, run),
+        input
+      )
     const toolNodes = node.tools.map((id) => d.nodes.find((n) => n.id === id)!)
     const tools = toolNodes.map((n) => {
       const spec = this.registry.get(n.component, n.version)
-      return { name: n.id, description: spec.description, parameters: spec.toolSchema ?? {} }
+      return {
+        name: n.id,
+        description: spec.description,
+        parameters: spec.toolSchema ?? {}
+      }
     })
     const otherActions = this.store
       .operations(run.id)
-      .filter((op) =>
-        d.nodes.some(
-          (n) => n.id !== node.id && n.tools.some((t) => op.id.startsWith(`${run.id}:${t}:${n.id}-tool-`))
-        )
+      .filter(
+        (op) =>
+          this.registry.get(op.component, op.version).kind === 'tool' &&
+          !op.id.split(':').at(-1)!.startsWith(`${node.id}-tool-`)
       ).length
-    const outcome = await runCognition<{ tool: string; input: Json; callId: string }, Json, Json>({
-      maxActions: d.execution.mode === 'tools' ? Math.max(0, d.execution.maxActions - otherActions) : 0,
+    const outcome = await runCognition<
+      { tool: string; input: Json; callId: string },
+      Json,
+      Json
+    >({
+      maxActions:
+        d.execution.mode === 'tools'
+          ? Math.max(0, d.execution.maxActions - otherActions)
+          : 0,
       signal,
       reason: async ({ index, closing }) => {
         const decision = (await this.#operation(
@@ -289,20 +431,29 @@ export class ComposerEngine {
             (context.resource('model') as Model).compute(
               messages,
               closing ? [] : tools,
-              signal
+              signal,
+              { json: node.config.outputFormat === 'json' }
             ) as unknown as Promise<Json>
         )) as unknown as CoreDecision
-        if (!decision || !['act', 'finish'].includes(decision.kind)) throw new Error('invalid Core decision')
+        if (!decision || !['act', 'finish'].includes(decision.kind))
+          throw new Error('invalid Core decision')
         if (decision.kind === 'act') {
           const { tool, input, callId } = decision.action
-          if (!toolNodes.some((n) => n.id === tool) || typeof callId !== 'string')
+          if (
+            !toolNodes.some((n) => n.id === tool) ||
+            typeof callId !== 'string'
+          )
             throw new Error('Core requested a tool outside its bindings')
           assertJson(input)
           messages.push({
             role: 'assistant',
             content: '',
             tool_calls: [
-              { id: callId, type: 'function', function: { name: tool, arguments: JSON.stringify(input) } }
+              {
+                id: callId,
+                type: 'function',
+                function: { name: tool, arguments: JSON.stringify(input) }
+              }
             ]
           })
         }
@@ -317,11 +468,22 @@ export class ComposerEngine {
           signal
         ),
       observe: (observation, action) => {
-        messages.push({ role: 'tool', tool_call_id: action.callId, content: JSON.stringify(observation) })
+        messages.push({
+          role: 'tool',
+          tool_call_id: action.callId,
+          content: JSON.stringify(observation)
+        })
       }
     })
-    if (outcome.status === 'budget_exhausted') throw new Error('execution step budget exhausted')
-    return outcome.result
+    if (outcome.status === 'budget_exhausted')
+      throw new Error('execution step budget exhausted')
+    let result = outcome.result
+    if (node.config.outputFormat === 'json' && typeof result === 'string')
+      result = JSON.parse(result)
+    assertJson(result)
+    if (node.config.outputSchema !== undefined)
+      checkSchema(result, node.config.outputSchema)
+    return result
   }
   async #drive(id: string, controller: AbortController) {
     let timer: NodeJS.Timeout | undefined
@@ -330,28 +492,74 @@ export class ComposerEngine {
       let run = this.store.run(id)
       if (run.status !== 'queued') return
       validateDefinition(run.version.definition, this.registry)
-      const remaining = run.version.definition.execution.timeoutMs - (run.activeMs ?? 0)
+      const remaining =
+        run.version.definition.execution.timeoutMs - (run.activeMs ?? 0)
       if (remaining <= 0) throw new Error('run active-time budget exhausted')
       run = this.store.editRun(id, (r) => {
         r.status = 'running'
         this.store.trace(id, 'run.started', {})
       })
       startedAt = performance.now()
-      timer = setTimeout(() => controller.abort(new Error('run deadline exceeded')), remaining)
+      timer = setTimeout(
+        () => controller.abort(new Error('run deadline exceeded')),
+        remaining
+      )
       const d = run.version.definition
       for (const nodeId of graphOrder(d)) {
         run = this.store.run(id)
         if (run.status !== 'running') return
         const node = d.nodes.find((n) => n.id === nodeId)!,
           spec = this.registry.get(node.component, node.version)
-        if (spec.kind === 'tool' || Object.hasOwn(run.outputs, nodeId)) continue
+        if (
+          (spec.kind === 'tool' && node.invocation !== 'workflow') ||
+          Object.hasOwn(run.outputs, nodeId) ||
+          run.skipped?.includes(nodeId)
+        )
+          continue
         controller.signal.throwIfAborted()
-        const upstream = d.edges.find((e) => e.to === nodeId)?.from
-        const input = upstream ? run.outputs[upstream] : run.input
+        const incoming = d.edges.filter((e) => e.to === nodeId)
+        const active = incoming.filter((edge) => {
+          if (
+            run.skipped?.includes(edge.from) ||
+            !Object.hasOwn(run.outputs, edge.from)
+          )
+            return false
+          const source = d.nodes.find((n) => n.id === edge.from)!
+          return (
+            source.component !== 'flow.branch' ||
+            (run.outputs[edge.from] as Config).branch === edge.branch
+          )
+        })
+        if (incoming.length && !active.length) {
+          this.store.editRun(id, (r) => {
+            ;(r.skipped ??= []).push(nodeId)
+            this.store.trace(id, 'node.skipped', {
+              nodeId,
+              reason: 'unselected_branch'
+            })
+          })
+          continue
+        }
+        if (node.component === 'flow.merge' && active.length !== 1)
+          throw new Error('exclusive merge received multiple active branches')
+        const upstream = active[0]?.from
+        let input = upstream ? run.outputs[upstream] : run.input
+        if (
+          upstream &&
+          d.nodes.find((n) => n.id === upstream)!.component === 'flow.branch'
+        )
+          input = (input as Config).value
+        if (node.input !== undefined) input = resolveValue(node.input, run)
         const output =
           spec.kind === 'core'
             ? await this.#core(run, node, input, controller.signal)
-            : await this.#operation(run, node, 'invoke', input, controller.signal)
+            : await this.#operation(
+                run,
+                node,
+                'invoke',
+                input,
+                controller.signal
+              )
         this.store.editRun(id, (r) => {
           if (r.status === 'cancelled') return
           r.outputs[nodeId] = output
@@ -360,6 +568,8 @@ export class ComposerEngine {
       }
       this.store.editRun(id, (r) => {
         if (r.status !== 'running') return
+        if (!Object.hasOwn(r.outputs, d.output))
+          throw new Error('final output is on a skipped path')
         r.result = r.outputs[d.output]
         r.status = 'succeeded'
         delete r.wait
@@ -377,7 +587,8 @@ export class ComposerEngine {
       clearTimeout(timer)
       if (startedAt !== undefined)
         this.store.editRun(id, (r) => {
-          r.activeMs = (r.activeMs ?? 0) + Math.max(0, performance.now() - startedAt!)
+          r.activeMs =
+            (r.activeMs ?? 0) + Math.max(0, performance.now() - startedAt!)
         })
     }
   }

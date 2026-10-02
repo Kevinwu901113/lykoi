@@ -1,0 +1,50 @@
+{
+  "baseline": {
+    "counts": {
+      "tests": 1316,
+      "pass": 1290,
+      "fail": 14,
+      "skipped": 12
+    },
+    "failures": [
+      "D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就被拦（不打扰宿主）",
+      "D-1：health 通 + 三个动作经真宿主往返（假 driver）",
+      "D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排队",
+      "D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL",
+      "Pi mutable auth stays per execution while deployment models remain read-only and auth is not copied",
+      "SK-30 闸④后排失败 → 发 RETRACT 撤回 + enqueue_failed + **无队列条目**（S-62）",
+      "SK-30：每个非 asked 态都意味着动作不跑 —— 此路无执行出口（四态汇总）",
+      "WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.success 为 false，detail 仍在 data 里",
+      "actual Runner registration inherits approval gate and uses the operation receipt without a second ledger",
+      "cancel waits for Pi to report idle and retains a confirmed cancellation receipt",
+      "host process exit and reconstruction preserves the original execution without relaunch",
+      "real Browser plugin can load after consumer, unload, and reload without stale dispatch or inventory",
+      "rejected startup RPC remains visible after worker exit and missing socket without replay",
+      "① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳朵（自成一个 try）"
+    ]
+  },
+  "all-tests": {
+    "counts": {
+      "tests": 1329,
+      "pass": 1303,
+      "fail": 14,
+      "skipped": 12
+    },
+    "failures": [
+      "D-1：get_text 不需要 url；navigate/read_text 缺 url 在大脑侧就被拦（不打扰宿主）",
+      "D-1：health 通 + 三个动作经真宿主往返（假 driver）",
+      "D-1：宿主串行 —— 第二个并发请求立刻拿到 busy，不排队",
+      "D-6：browser_action 摘要只有六个字段，不含正文、不含完整 URL",
+      "Pi mutable auth stays per execution while deployment models remain read-only and auth is not copied",
+      "SK-30 闸④后排失败 → 发 RETRACT 撤回 + enqueue_failed + **无队列条目**（S-62）",
+      "SK-30：每个非 asked 态都意味着动作不跑 —— 此路无执行出口（四态汇总）",
+      "WO-FIX-ORGANOK-01：宿主回 timeout → 经 kernel 的 Observation.success 为 false，detail 仍在 data 里",
+      "actual Runner registration inherits approval gate and uses the operation receipt without a second ledger",
+      "cancel waits for Pi to report idle and retains a confirmed cancellation receipt",
+      "host process exit and reconstruction preserves the original execution without relaunch",
+      "real Browser plugin can load after consumer, unload, and reload without stale dispatch or inventory",
+      "rejected startup RPC remains visible after worker exit and missing socket without replay",
+      "① 出站游标机在长轮询**间隙**跑，且出站出事不带聋耳朵（自成一个 try）"
+    ]
+  }
+}

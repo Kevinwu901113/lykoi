@@ -1,0 +1,48 @@
+{
+  "checks": [
+    "conditional ports",
+    "branch reconnect/undo",
+    "visual threshold configuration",
+    "typed task form",
+    "exclusive execution/skips",
+    "original task binding",
+    "inspect decision result",
+    "low confidence wait",
+    "human resolve",
+    "structured human review form",
+    "JEV resource/credential handle save",
+    "reload saved graph",
+    "light theme",
+    "390px responsive"
+  ],
+  "browserErrors": [],
+  "runs": [
+    {
+      "status": "succeeded",
+      "skipped": [
+        "fast",
+        "deep"
+      ],
+      "result": {
+        "action": "approve",
+        "feedback": "审核通过"
+      }
+    },
+    {
+      "status": "succeeded",
+      "skipped": [
+        "fast",
+        "deep"
+      ],
+      "result": "人工审核后的最终结果"
+    },
+    {
+      "status": "succeeded",
+      "skipped": [
+        "deep",
+        "review"
+      ],
+      "result": "【离线演示模型】\n实际浏览器里的原始任务"
+    }
+  ]
+}

@@ -1,29 +1,54 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse
+} from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { ComposerEngine } from './engine.ts'
 import type { ComposerStore } from './store.ts'
 import type { ComponentRegistry } from './registry.ts'
 import { assertJson } from './definition.ts'
+import { semanticRoutingPreset } from './presets.ts'
 
 /** HTTP-independent router, also exercised by integration tests. */
-export function createApi(store: ComposerStore, registry: ComponentRegistry, engine: ComposerEngine) {
-  return async (method: string, path: string, body: any = {}): Promise<unknown> => {
+export function createApi(
+  store: ComposerStore,
+  registry: ComponentRegistry,
+  engine: ComposerEngine
+) {
+  return async (
+    method: string,
+    path: string,
+    body: any = {}
+  ): Promise<unknown> => {
+    if (method === 'GET' && path === '/api/presets/routing')
+      return semanticRoutingPreset()
     if (method === 'GET' && path === '/api/catalog') return registry.catalog()
-    if (method === 'GET' && path === '/api/definitions') return store.definitions()
+    if (method === 'GET' && path === '/api/definitions')
+      return store.definitions()
     if (method === 'GET' && path === '/api/instances') return store.instances()
     if (method === 'GET' && path === '/api/runs') return store.runs()
     if (method === 'POST' && path === '/api/definitions')
-      return store.saveDefinition(body.definition, body.expectedRevision, registry)
-    if (method === 'POST' && path === '/api/instances') return store.createInstance(body.agentId)
+      return store.saveDefinition(
+        body.definition,
+        body.expectedRevision,
+        registry
+      )
+    if (method === 'POST' && path === '/api/instances')
+      return store.createInstance(body.agentId)
     if (method === 'POST' && path === '/api/runs') {
       assertJson(body.input)
       return engine.start(body.instanceId, body.input)
     }
-    const match = /^\/api\/runs\/([a-zA-Z0-9-]+)(?:\/(trace|pause|resume|cancel|resolve))?$/.exec(path)
+    const match =
+      /^\/api\/runs\/([a-zA-Z0-9-]+)(?:\/(trace|pause|resume|cancel|resolve))?$/.exec(
+        path
+      )
     if (match) {
       const [, id, action] = match
-      if (method === 'GET' && !action) return { run: store.run(id), operations: store.operations(id) }
+      if (method === 'GET' && !action)
+        return { run: store.run(id), operations: store.operations(id) }
       if (method === 'GET' && action === 'trace') return store.traces(id)
       if (method === 'POST' && action === 'pause') return engine.pause(id)
       if (method === 'POST' && action === 'resume') return engine.resume(id)
@@ -78,18 +103,26 @@ export function createComposerServer(
       const address = server.address()
       const port = address && typeof address === 'object' ? address.port : 0
       const hosts = [`127.0.0.1:${port}`, `localhost:${port}`]
-      if (!hosts.includes(req.headers.host ?? '')) throw new Error('invalid local host')
-      if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`)
+      if (!hosts.includes(req.headers.host ?? ''))
+        throw new Error('invalid local host')
+      if (
+        req.headers.origin &&
+        req.headers.origin !== `http://${req.headers.host}`
+      )
         throw new Error('cross-origin request refused')
-      if (req.headers['sec-fetch-site'] === 'cross-site') throw new Error('cross-site request refused')
-      const path = new URL(req.url ?? '/', `http://${req.headers.host}`).pathname
+      if (req.headers['sec-fetch-site'] === 'cross-site')
+        throw new Error('cross-site request refused')
+      const path = new URL(req.url ?? '/', `http://${req.headers.host}`)
+        .pathname
       if (path.startsWith('/api/')) {
         const result = await api(
           req.method ?? 'GET',
           path,
           req.method === 'POST' ? await readBody(req) : undefined
         )
-        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8'
+        })
         res.end(JSON.stringify(result))
         return
       }
@@ -109,7 +142,11 @@ export function createComposerServer(
       res.end(await readFile(`${publicRoot}${file}`))
     } catch (error) {
       res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'request failed' }))
+      res.end(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : 'request failed'
+        })
+      )
     }
   }
   return server

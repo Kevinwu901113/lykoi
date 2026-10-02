@@ -947,3 +947,43 @@ body.run-open .editor-shell {
     display: none;
   }
 }
+
+.node[data-kind='decision'] .catalog-icon {
+  color: #c4a7ff;
+  background: #7853c126;
+}
+.node[data-kind='control'] .catalog-icon {
+  color: #f8bd68;
+  background: #c48b2426;
+}
+.node[data-state='skipped'] {
+  opacity: 0.5;
+}
+.branch-port-label {
+  position: absolute;
+  right: 15px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--panel);
+  padding: 0 4px;
+}
+.condition-group {
+  border: 1px solid var(--border);
+  padding: 12px;
+  margin: 12px 0;
+  border-radius: 10px;
+}
+.candidate-row {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+}
+.candidate-row label {
+  flex: 1;
+  min-width: 0;
+}
+#run-fields textarea {
+  min-height: 64px;
+}
+.node-execution { margin: 12px 0; }
+.node-execution pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
